@@ -1,0 +1,57 @@
+
+固件启动管理器
+---------------------
+标识符                  {fwbootmgr}
+displayorder            {a8cd227c-ad7e-11f1-ae3c-806e6f6e6963}
+                        {b35d3c36-8445-11f1-8cb5-309c23b0be5a}
+                        {739a2a7a-958a-11f1-adce-806e6f6e6963}
+timeout                 1
+
+Windows 启动管理器
+--------------------
+标识符                  {bootmgr}
+device                  partition=\Device\HarddiskVolume2
+path                    \EFI\MICROSOFT\BOOT\BOOTMGFW.EFI
+description             Windows Boot Manager
+locale                  zh-CN
+inherit                 {globalsettings}
+default                 {current}
+resumeobject            {b35d3c31-8445-11f1-8cb5-309c23b0be5a}
+displayorder            {current}
+toolsdisplayorder       {memdiag}
+timeout                 30
+
+Windows 启动管理器
+--------------------
+标识符                  {b35d3c35-8445-11f1-8cb5-309c23b0be5a}
+device                  partition=\Device\HarddiskVolume2
+path                    \EFI\40HX\40HXUNLK.EFI
+description             40HX Unlock
+locale                  zh-CN
+inherit                 {globalsettings}
+default                 {current}
+resumeobject            {b35d3c31-8445-11f1-8cb5-309c23b0be5a}
+displayorder            {current}
+toolsdisplayorder       {memdiag}
+timeout                 30
+
+固件应用程序(101fffff)
+-------------------------------
+标识符                  {739a2a7a-958a-11f1-adce-806e6f6e6963}
+device                  unknown
+path                    \EFI\MICROSOFT\BOOT\BOOTMGFW.EFI
+description             Windows Boot Manager
+
+固件应用程序(101fffff)
+-------------------------------
+标识符                  {a8cd227c-ad7e-11f1-ae3c-806e6f6e6963}
+device                  partition=\Device\HarddiskVolume2
+path                    \EFI\40HX\40HXUNLK.EFI
+description             40HX Unlock
+
+固件应用程序(101fffff)
+-------------------------------
+标识符                  {b35d3c36-8445-11f1-8cb5-309c23b0be5a}
+device                  partition=\Device\HarddiskVolume2
+path                    \EFI\MICROSOFT\BOOT\BOOTMGFW.EFI
+description             Windows Boot Manager

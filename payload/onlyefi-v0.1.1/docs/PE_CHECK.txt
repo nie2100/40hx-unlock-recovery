@@ -1,0 +1,7 @@
+No imported DLL names found: YES
+MajorOSystemVersion	6
+MinorOSystemVersion	1
+MajorSubsystemVersion	6
+MinorSubsystemVersion	1
+Subsystem		00000003	(Windows CUI)
+DllCharacteristics	00008140

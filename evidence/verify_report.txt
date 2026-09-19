@@ -1,0 +1,172 @@
+﻿=== 40HX 解锁验证报告  2026-09-11 10:35:01 ===
+
+
+=== [1] EFI 解锁日志 (ESP:\40hx_log.txt) ===
+
+文件时间: 09/11/2026 10:32:18   大小: 7960
+
+--- 关键行 (RESULT/UNLOCKED) ---
+
+
+[40HX] SEC2 unlocked  direct booter load (DIRECT_SEC2)
+fwsec40: STARTCPU (BL@0xfd00 ?DMA FWSEC), poll WPR2 up 5s...
+fwsec40: *** WPR2 UP lo=0x01ffe000 hi=0x01ffee00 after 0ms ***
+tu102 v62: set WPR2 up (lo=0x01ffe000 hi=0x01ffee00)...
+tu102: RESULT: PLM=0xffffff8f SS0=0x88888888 SS1=0x00000008
+tu102: RESULT: WPR2=0x00000000:0x1ffffe00
+tu102: *** mbox0=0 ?booter OK (attempt 1) ***
+[40HX] RESULT: PLM=0xffffff8f SS0=0x88888888 SS1=0x00000008
+[40HX] *** UNLOCKED (SS0=0x88888888 SS1=0x8) ***
+[v55 final]: PLM=0xffffff8f SS0=0x88888888 SS1=0x00000008 GFW=0x000003ff WPR2lo=0x1ffffe00
+chainload-pre: preload ?CAB
+chainload-pre: fallback =0 SFS-?CBL
+chainload: bootmgfw.efi A B5:CI53> CAB@>9AB20
+chainload: AB0@B Windows Boot Manager...
+
+
+
+
+--- 全文尾部 30 行 ---
+
+tu102: A-no-reset: read cpuctl...
+tu102:   cpuctl=0x10 (halted?=1)
+tu102: port load IMEM ns+sec + DMEM...
+tu102: rb IMEM[0]=0xce100049(exp 0xce100049) IMEM_S[0x100]=0xdead5ec1 DMEM[0x200]=0x67436032(exp sig 0x67436032)
+tu102: mailbox=wprMetaPhys>4G (no low copy)...
+tu102: BOOTVEC=0, mailbox0=0x1882b000 mailbox1=0x00000001, STARTCPU...
+tu102: started; hold 3s WITHOUT reg reads (v57 lesson)
+tu102: read#1 cpu...
+tu102:   cpu=0x10
+tu102: read#2 irq...
+tu102:   irq=0x10
+tu102: read#3 dbg...
+tu102:   dbg=0xdeadb00d
+tu102: read#4 mbox...
+tu102:   m0=0x0 m1=0x1
+tu102: RESULT: PLM=0xffffff8f SS0=0x88888888 SS1=0x00000008
+tu102: RESULT: WPR2=0x00000000:0x1ffffe00
+tu102: *** mbox0=0 ?booter OK (attempt 1) ***
+[40HX] booter_load_tu102_direct returned 0
+[health v55-post-booter] hwcfg2=0x00000000 cpu=0x00000010 irq=0x00000010 mbox0 0x00000000->wr=0x00000000 dmabase 0x00000000->wr=0x00000000 | gsp cpu=0x00000010 mbox0=0x00000000
+[v55 post-booter]: PLM=0xffffff8f SS0=0x88888888 SS1=0x00000008 GFW=0x000003ff WPR2lo=0x1ffffe00
+[40HX] RESULT: PLM=0xffffff8f SS0=0x88888888 SS1=0x00000008
+[40HX] *** UNLOCKED (SS0=0x88888888 SS1=0x8) ***
+[40HX v89] SEC2 sanitize (engine reset + MB clear)...
+[40HX v89] sanitize done cpu=0x10 mbox0=0x0
+[v55 final]: PLM=0xffffff8f SS0=0x88888888 SS1=0x00000008 GFW=0x000003ff WPR2lo=0x1ffffe00
+chainload-pre: preload ?CAB
+chainload-pre: fallback =0 SFS-?CBL
+chainload: bootmgfw.efi A B5:CI53> CAB@>9AB20
+chainload: AB0@B Windows Boot Manager...
+
+
+=== [2] 40HXCheck.exe 官方诊断 (读 SS0 算力寄存器) ===
+
+(已关闭诊断弹窗)
+
+==============================================
+  CMP 40HX 瑙ｉ攣璇婃柇  v3.0.0   2026-09-11 10:35:01
+==============================================
+
+==============================================
+  瑙ｉ攣鐘舵€?: 鏈В閿?(SS0 閿佸畾)
+  绠楀姏     : 鉁?閿佸畾 (SS0=0x00000000 SS1=0x00000000)
+  PCIe     : Gen2 (5.0 GT/s) 脳16
+==============================================
+GPU 40HX: 鉁?  Secure Boot: 鍏抽棴(OK)   GSP: 鉁?宸插惎鐢?娴嬭瘯绛惧悕: 鍏抽棴  (v2.5 涓嶉渶瑕? 寤鸿鍏抽棴)
+寮曞妯″紡: UEFI (OK)
+蹇€熷惎鍔? 鍏抽棴(OK)   PCIe ASPM: 鍏抽棴(OK)
+Gen2 椹卞姩: ThrottleStop 鉁?鍙敤   WinRing0 鉁?鍙敤
+  鈫?鐢辨湰璇婃柇涓存椂鎷夎捣, 娴嬪畬鍗冲嵏 鈥?涓嶄唬琛ㄥ凡瀹夎
+
+Gen2 浠诲姟: 宸叉敞鍐?(宸叉敞鍐? 涓婃缁撴灉: )
+
+>>> 鏈寮€鏈烘湭瑙ｉ攣 (SS0 閿佸畾)
+  [EFI鏃ュ織] booter 娉ㄥ叆澶辫触(澶氭 HALT, 鏈€缁?SS0 浠嶄负 0)
+  鈫?鍙屽崱/闈炵涓€妲芥椂搴忛棶棰? 璇烽€愰」妫€鏌?
+  1. 40HX 鎹㈠埌绗竴涓?PCIe x16 妲?閬垮紑 PLX/妗ユ帴)
+  2. Above 4G Decoding 鈫?Enabled
+  3. Fast Boot 鈫?Disabled
+  4. 鑻ヤ负澶氬崱: 鏆傛椂鎷旀帀鍏跺畠鍗″彧鐣?40HX 娴嬩竴娆?
+寤鸿:
+路 EFI 绠楀姏瑙ｉ攣鏈敓鏁?SS0 閿佸畾): 鑻ユ湰鏈烘湭閮ㄧ讲/宸插嵏杞?'40HX Unlock' 瑙ｉ攣 EFI, 姝ゆ彁绀哄睘棰勬湡, 绠楀姏浼氫繚鎸侀攣瀹?鈥?鎯虫仮澶嶈閲嶈窇 40HXInstaller.exe 鍕鹃€塠绠楀姏 EFI 閮ㄧ讲+鍥轰欢鍚姩椤筣; 鑻?EFI 宸茶, 鍒欑‘璁ゅ紑鏈鸿蛋浜?'40HX Unlock' 鍚姩椤?/ Above 4G 宸插紑 / Secure Boot 宸插叧
+
+========== 鐜 ==========
+  OS      : Microsoft Windows [版本 10.0.26200.9168] [AMD64]
+  绠＄悊鍛?  : 鏄?  宸ュ叿鐗堟湰: v3.0.0
+
+========== 椹卞姩 ==========
+  ThrottleStop.sys System32澶у皬=50216瀛楄妭 | 鏈嶅姟DEMAND/杩愯涓?| 澶囦唤婧怬K(鏇鹃儴缃?
+  WinRing0x64.sys  System32澶у皬=14544瀛楄妭 | 鏈嶅姟DEMAND/杩愯涓?| 澶囦唤婧怬K(鏇鹃儴缃?
+  鈫?鏈瘖鏂€愪复鏃舵媺璧枫€戜互璇诲彇纭欢鐘舵€? 娴嬪畬鑷姩娓呯悊 鈥?涓嶄唬琛ㄥ凡瀹夎
+  ThrottleStop 杞欢杩愯: 鍚?
+========== 鍘熷 PCIe 瀵勫瓨鍣?(40HX) ==========
+  BDF=0x00100 (bus=1 dev=0 fn=0)
+  LNKCAP =0x00453D02  MaxLinkSpeed=Gen2(5GT/s)
+  LNKCTL =0x11020140 (ASPM=0 RetrainLink=0)
+  LNKSTA =0x00001102 褰撳墠=Gen2(5GT/s) 瀹藉害=x16
+  LNKCTL2=0x00000002 鐩爣=Gen2(5GT/s)
+  LNKSTA2=0x00000000
+  BAR0+0x00 BOOT_0=0x166000A1 (瀹舵棌=0x16 TU10x (40HX OK))
+
+--- 宸茬煡闄愬埗 / 娼滃湪闂 (v3.0.0, 绀惧尯鏈叏瑕嗙洊椤? ---
+路 椹卞姩/GSP 鎸佹湁閾捐矾绛栫暐(GSP-RM): 绌洪棽/浣庤礋杞芥椂 nvlddmkm 鎶?GPU 渚?TLS 鍥炲啓 Gen1; Stage2 鑷姩鍥為€€鎴?LD(-hard) 鍙В闄ゃ€傚凡纭**涓嶆槸鍥轰欢鍐欎繚鎶?*(鎵规鍙?.06/.04 涓嶈兘褰撳垽鎹?, **涓嶈鍒?VBIOS** 鈥?浠嶅け璐ュ彂璇婃柇涓庢棩蹇楀弽棣堜綔鑰呫€?路 瀵ㄦ澘/澶氬崱: retrain-only 鍦ㄩ儴鍒嗕富鏉?鎷撴墤璁笉涓?Gen2, 闇€ Root Link Disable 鍥為€€(鐬柇閾捐矾)銆倂2.6 鐧诲綍浠诲姟榛樿宸茶嚜鍔ㄥ皾璇曚竴娆?Stage2(Gen2AutoHard); 浠嶅け璐ュ彲鎵嬪姩 `40HXInstaller.exe -gen2 -hard`銆?路 EFI 鎵句笉鍒板崱(鏃х増鍙壂 bus 0-7): v3.0 宸叉墿鍒?0-16 + CF8 鍏?0-255 鍏滃簳, 瑕嗙洊 AGESA/楂樻€荤嚎(寰槦 B450 瀹炴祴 bus 0x10); 鑻ラ噸瑁?v3.0 EFI 鍚庝粛 not found, 澶氫负鍥轰欢娌″垵濮嬪寲璇ユ棤澶存Ы 鈥?璧?BIOS: Above4G+Re-Size BAR / Init Display First=PEG / 鎻?CPU 椤舵Ы, 骞舵妸 40hx_log.txt(鍚?"diag: CF8 visible devices" 璁惧鏄犲皠娈?鍙戜綔鑰呫€?路 绌洪棽鐪佺數闄嶉€? 璐熻浇浣庢椂閾捐矾闄嶅埌 Gen1 灞炴甯? 璐熻浇鑷姩鍥?Gen2; 璇婃柇 TLS=Gen2 鍗抽厤缃垚鍔? 闈炲け璐ャ€?路 ThrottleStop 杞欢鍏卞瓨: 鏈伐鍏烽┍鍔ㄤ笌 ThrottleStop 鍚屽悕, 鑷姩澶嶇敤鍏堕┍鍔ㄣ€佷笉鍒犻櫎涓嶆墦鏂? 鑻ュ啿绐佸彲鍏抽棴 ThrottleStop 鍚庨噸璺戙€?路 鏉€杞殧绂? 绗笁鏂规潃杞彲鑳介殧绂婚┍鍔?.sys; 宸插姞 Defender 鎺掗櫎, 鍏朵粬鏉€杞鍦ㄥ畨鍏ㄤ腑蹇冩斁琛屾湰椤圭洰鏂囦欢銆?路 椹卞姩绛惧悕: 鏀瑰悕閲嶇紪鐨?.sys 浼氫涪澶卞師绛惧悕, 闇€娴嬭瘯绛惧悕/EV 璇佷功; 姝ｅ紡鍙戝竷浠朵繚鎸佸師绛惧悕銆?路 鎶ュ憡 issue 鏃惰闄? 鏈瘖鏂?txt + %TEMP%\40HX_installer.log + 涓绘澘/CPU/GPU/绯荤粺鐗堟湰銆?
+
+
+=== [3] nvidia-smi PCIe ===
+
+name, driver_version, pcie.link.gen.current, pcie.link.gen.max, pcie.link.width.current
+NVIDIA CMP 40HX, 616.92, 1, 2, 16
+
+
+
+=== [4] Gen2 本次执行路径 (关键: 是否走了 Link Disable 硬件复位) ===
+
+无 installer.log
+
+--- gen2_status.txt ---
+
+==== 40HX Gen2 浠诲姟鐘舵€?2026-09-11 10:34:23 ====
+缁撹(Link Disable 鍥為€€): 鉁?Gen2 鎴愬姛
+40HX 浣嶇疆: 01:00.0
+閾捐矾: 褰撳墠 Gen2
+椹卞姩: ThrottleStop=鉁?WinRing0=鉁?(BYOVD, 鎸夌瓥鐣ユ敹灏?
+
+
+
+--- 负载任务日志(尾部) ---
+
+=== GPU 负载 (为 Gen2 retrain-only 实验制造负载) 09/11/2026 10:33:18 ===
+
+  第 1 轮启动负载 10:33:19
+
+  第 2 轮启动负载 10:34:53
+
+
+
+=== [5] Gen2 任务状态 ===
+
+
+任务名:                             \40HX PCIe Gen2 Bring-up
+登录状态:                           交互方式/后台方式
+上次运行时间:                       2026/9/11 10:33:30
+上次结果:                           0
+计划任务状态:                       已启用
+
+
+
+
+
+
+
+=== [5] 结论速查 ===
+
+算力: [2] 里 '解锁状态: 已解锁' / 'SS0=0x88888888' → 算力保持住了
+
+      [2] 里 '未解锁 (SS0 锁定)' → 解锁被清掉
+
+PCIe: [3] link.gen.max=2 表示目标 Gen2; 本实验禁用了 Gen2 自启, 所以 current 多为 1
+
+
+=== 报告结束 ===
+

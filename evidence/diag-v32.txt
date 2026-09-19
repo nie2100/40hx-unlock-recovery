@@ -1,0 +1,291 @@
+﻿=== diag 2026-09-20 00:04:07 ===
+Admin=True
+
+=== ESP ===
+mountvol Y: /S -> []
+-- root files --
+  EFI  size=1  2026/8/15 16:11:46
+  System Volume Information  size=1  2026/7/20 22:19:06
+  40hx_log.txt  size=7961  2026/9/19 23:48:28
+  40hx_vbios.bin  size=1048576  2026/9/19 23:48:12
+-- 40hx_log.txt (tail 60) --
+  fwsec40: kflcnReset(GSP)...
+  fwsec40: GSP reset: cpuctl=0x10 bcr=0x0 hwcfg2=0x000007f7
+  fwsec40: data iface@0xe0 hdr={1,4,8,2} mapper@0x360 sig=0x50414d44 ver=20545 cmd_in_off=0x3b0 size=0x40
+  fwsec40: mapper.init_cmd=0x15 frts4k=0x1ffe00 (frts=0x1ffe00000)
+  fwsec40: FBIF_CTL bit7 + TRANSCFG0/4=0x5 (COH+PHYS) DMACTL=0
+  fwsec40: BL DESC ctxDma=4 code=0x11982c000(ns0x400@0+sec0x9600@0x400) data=0x119835a00(0x3f0)
+  fwsec40: BL load IMEM top: hwcfg.IMEM_SIZE=256 blk dst=0xfe00 (BOOTVEC=0xfd00)  <== WARN dst!=0xfd00
+  fwsec40: rb IMEM[0xfe00]=0x004000d0 (exp BL[0]=0x004000d0)  <== OK
+  fwsec40: rb DMEM[0x20]=0x00000004 (exp ctxDma 0x4)
+  fwsec40: STARTCPU (BL@0xfd00 ?DMA FWSEC), poll WPR2 up 5s...
+  fwsec40: *** WPR2 UP lo=0x01ffe000 hi=0x01ffee00 after 0ms ***
+  [40HX fwsec40] WPR2 now: hi=0x01ffee00 lo=0x01ffe000 (UP!)
+  [health v55-pre-booter] hwcfg2=0x00000000 cpu=0x00000010 irq=0x00000000 mbox0 0x00000000->wr=0xa5a5c3c3 dmabase 0x00000000->wr=0xdeadbeef | gsp cpu=0x00000010 mbox0=0x00000000
+  [40HX] booter_load_tu102_direct (ports, BOOTVEC=0, RM=0x166000a1)...
+  
+  === v67: TU102 BOOT + 40HX FWSEC (BCR=1, port-load code) ===
+  tu102 pre: hwcfg2...
+  tu102 pre:   hwcfg2=0x000007f7
+  tu102 pre: cpuctl/dmatrf...
+  tu102 pre:   cpuctl=0x00000010
+  tu102 pre:   dmatrf=0x00000002
+  tu102 pre: wpr2...
+  tu102 pre:   wpr2hi=0x01ffee00
+  tu102 pre:   wpr2lo=0x01ffe000
+  tu102 v62: set WPR2 up (lo=0x01ffe000 hi=0x01ffee00)...
+  tu102 v62: rb wpr2hi=0x01ffee00 wpr2lo=0x01ffe000
+  tu102 v62: read SEC2_RESET_PLM(0x8403C4)...
+  tu102 v62:   reset_plm=0x000000ff (cyridd  0xff)
+  
+  --- tu102 attempt 1/2: no-reset (driver-style) ---
+  tu102: A-no-reset: read cpuctl...
+  tu102:   cpuctl=0x10 (halted?=1)
+  tu102: port load IMEM ns+sec + DMEM...
+  tu102: rb IMEM[0]=0xce100049(exp 0xce100049) IMEM_S[0x100]=0xdead5ec1 DMEM[0x200]=0x67436032(exp sig 0x67436032)
+  tu102: mailbox=wprMetaPhys>4G (no low copy)...
+  tu102: BOOTVEC=0, mailbox0=0x1882b000 mailbox1=0x00000001, STARTCPU...
+  tu102: started; hold 3s WITHOUT reg reads (v57 lesson)
+  tu102: read#1 cpu...
+  tu102:   cpu=0x10
+  tu102: read#2 irq...
+  tu102:   irq=0x10
+  tu102: read#3 dbg...
+  tu102:   dbg=0xdeadb00d
+  tu102: read#4 mbox...
+  tu102:   m0=0x0 m1=0x1
+  tu102: RESULT: PLM=0xffffff8f SS0=0x88888888 SS1=0x00000008
+  tu102: RESULT: WPR2=0x00000000:0x1ffffe00
+  tu102: *** mbox0=0 ?booter OK (attempt 1) ***
+  [40HX] booter_load_tu102_direct returned 0
+  [health v55-post-booter] hwcfg2=0x00000000 cpu=0x00000010 irq=0x00000010 mbox0 0x00000000->wr=0x00000000 dmabase 0x00000000->wr=0x00000000 | gsp cpu=0x00000010 mbox0=0x00000000
+  [v55 post-booter]: PLM=0xffffff8f SS0=0x88888888 SS1=0x00000008 GFW=0x000003ff WPR2lo=0x1ffffe00
+  [40HX] RESULT: PLM=0xffffff8f SS0=0x88888888 SS1=0x00000008
+  [40HX] *** UNLOCKED (SS0=0x88888888 SS1=0x8) ***
+  [40HX v89] SEC2 sanitize (engine reset + MB clear)...
+  [40HX v89] sanitize done cpu=0x10 mbox0=0x0
+  [v55 final]: PLM=0xffffff8f SS0=0x88888888 SS1=0x00000008 GFW=0x000003ff WPR2lo=0x1ffffe00
+  chainload-pre: preload ?CAB
+  chainload-pre: fallback =0 SFS-?CBL
+  chainload: bootmgfw.efi A B5:CI53> CAB@>9AB20
+  chainload: AB0@B Windows Boot Manager...
+  [mtime] 09/19/2026 23:48:28
+  Y:\EFI\40HX\40HXUNLK.EFI size=586260 MD5=A2D47F4C57A18CCCF737D8AC44396D2C
+  Y:\EFI\Boot\bootx64.efi size=586260 MD5=A2D47F4C57A18CCCF737D8AC44396D2C
+-- \EFI\40HX tree --
+  Y:\EFI\40HX\drv  size=1  2026/9/11 16:22:04
+  Y:\EFI\40HX\40HXUNLK.EFI  size=586260  2026/9/19 23:45:22
+  Y:\EFI\40HX\drv\ThrottleStop.sys  size=50216  2026/9/11 16:20:42
+  Y:\EFI\40HX\drv\WinRing0x64.sys  size=14544  2026/9/11 16:20:42
+-- \EFI\Boot tree --
+  Y:\EFI\Boot\bootx64.efi.40hx.bak  size=3086848
+  Y:\EFI\Boot\bootx64.efi  size=586260
+
+=== nvidia-smi ===
+  NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver. Make sure that the latest NVIDIA driver is installed and running. This can also be happening if non-NVIDIA GPU is running as primary display, and NVIDIA GPU is in WDDM mode.
+  
+-- smi full pcie part --
+
+=== PnP device 40HX (DEV_1F0B) ===
+  PCI\VEN_10DE&DEV_1F0B&SUBSYS_88041043&REV_A1\4&212EBC66&0&0008 | Status=Error | Class=Display | Problem=
+  PCI\VEN_10DE&DEV_1F0B&SUBSYS_88041043&REV_A1\4&31FD5A8&0&00DC | Status=Unknown | Class=Display | Problem=
+
+=== 40HXUnlock policy keys ===
+  Gen2AutoHard = 0
+  Gen2PnpFallback = 0
+
+=== GPU driver key 0001 ===
+  DriverVersion=32.0.16.1692 Date=9-4-2026 GSP=1 RMPcieLinkSpeed=[]
+  0000: DriverVersion=32.0.101.7088 GSP=
+
+=== services ===
+  sc qc ThrottleStop -> [SC] OpenService 失败 1060: |  | 指定的服务未安装。 |  |
+  sc qc WinRing0_1_2_0 -> [SC] OpenService 失败 1060: |  | 指定的服务未安装。 |  |
+  sc qc ACE-BOOT -> [SC] OpenService 失败 1060: |  | 指定的服务未安装。 |  |
+  NVDisplay.ContainerLocalSystem: Status=Running StartType=Automatic
+  sc qc NVDisplay.ContainerLocalSystem -> [SC] QueryServiceConfig 成功 |  | SERVICE_NAME: NVDisplay.ContainerLocalSystem |         TYPE               : 10  WIN32_OWN_PROCESS  |         START_TYPE         : 2   AUTO_START |         ERROR_CONTROL      : 0   IGNORE |         BINARY_PATH_NAME   : C:\Windows\System32\DriverStore\FileRepository\nvac.inf_amd64_3f932567e554e791\Display.NvContainer\NVDisplay.Container.exe -arg <ExeDir>\arguments.txt |         LOAD_ORDER_GROUP   : Video |         TAG                : 0 |         DISPLAY_NAME       : NVIDIA Display Container LS |         DEPENDENCIES       :  |         SERVICE_START_NAME : LocalSystem |
+
+=== 40HXCheck logs (%LOCALAPPDATA%) ===
+-- C:\Users\%USERNAME%\AppData\Local\40HXUnlock\logs\diagnose_20260919_235446.txt  09/19/2026 23:54:46 --
+  ==============================================
+    CMP 40HX 瑙ｉ攣璇婃柇  v3.2   2026-09-19 23:54:43
+  ==============================================
+  
+  ==============================================
+    瑙ｉ攣鐘舵€?: 绠楀姏婊¤, Gen2 鏈揪鎴? [瀹炴祴]
+    绠楀姏     : 鉁?婊¤ (SS0=0x88888888 SS1=0x00000008)  [瀹炴祴]
+    PCIe     : Gen1 (2.5 GT/s) 脳16  [瀹炴祴]
+  ==============================================
+  GPU 40HX: 鉁?  Secure Boot: 鍏抽棴(OK)   GSP閿? 璁惧绾?1 / 椹卞姩绾?缂虹渷
+  RMPcieLinkSpeed: 鏈缃?椹卞姩榛樿绛栫暐, 涓嶆嫤鎴?Gen2)
+  娴嬭瘯绛惧悕: 鍏抽棴  (v2.5 涓嶉渶瑕? 寤鸿鍏抽棴)
+  ACE-BOOT 鍙嶄綔寮? 鏈娴嬪埌 (OK)
+  鏄撳彈鏀诲嚮椹卞姩鍒楄〃/HVCI: 鍏抽棴(涓嶆嫤鎴┍鍔ㄥ姞杞?
+  寮曞妯″紡: UEFI (OK)
+  蹇€熷惎鍔? 鍏抽棴(OK)   PCIe ASPM: 鍏抽棴(OK)
+  Gen2 椹卞姩: ThrottleStop 鉁?鍙敤   WinRing0 鉁?鍙敤
+    鈫?鐢辨湰璇婃柇涓存椂鎷夎捣, 娴嬪畬鍗冲嵏 鈥?涓嶄唬琛ㄥ凡瀹夎
+  
+  Gen2 浠诲姟: 宸叉敞鍐?(灏辩华, 涓婃: 鎴愬姛)
+    娉? 涓婃 Gen2 浠诲姟鍘嗗彶(闈炴湰娆″疄娴?: 缁撹: 鉂?Gen2 澶辫触: 浠嶅湪 Gen1 (TLS=Gen1; PL0 鍏?OK 鑰?TLS 鏈矘浣? 澶氫负椹卞姩/GSP 鎸佹湁閾捐矾绛栫暐 鈥?鐧诲綍浠诲姟姣忔鐧诲綍浼氳嚜鍔ㄦ墽琛?閲嶈鈫?鍙€?Stage2)鈫扨nP 淇濆簳; 浠诲姟鏈敞鍐屽垯涓嶄細鑷姩璺? 鍏堟敞鍐屽啀閲嶈瘯; 璇﹁ README 搂5.2)
+  
+  >>> 绠楀姏婊¤; Gen2 鏈揪鎴?鈥?鐧诲綍浠诲姟姣忔鐧诲綍宸茶嚜鍔ㄦ墽琛?鍚嚜鍔?Stage2); 浠嶅け璐ュ彲鍦?GUI 鈶?鍖虹偣[绔嬪嵆鎵ц Gen2] 鍐嶈瘯(璇﹁ README 搂5.2)
+  
+  寤鸿:
+  路 Gen2 鐩爣閫熺巼(TLS)浠嶆槸 Gen1: 瑙ｉ攣鍐欏叆鏈敓鏁?鈥?鑻ユ棩蹇楁樉绀?PL0 鍥涘瘎瀛樺櫒鍏?OK 鑰屽洖璇?LNKCTL2 浠?Gen1,
+    澶氫负椹卞姩鎸侀摼璺瓥鐣ユ绉掑唴鍥炲啓(鎴?RMPcieLinkSpeed=2 閽虫, 瑙佷笂鏉?; v3.1.2 鐧诲綍浠诲姟姣忔鐧诲綍浼氳嚜鍔?閲嶈鈫扨nP 淇濆簳(绂佺敤/鍚敤 40HX 閲嶈浇椹卞姩, 榛樿寮€); 浠嶅け璐ュ厛鍦?GUI 鈶?鐐筟绔嬪嵆鎵ц Gen2] 閲嶈瘯銆傚凡纭涓嶆槸鍥轰欢鍐欎繚鎶? **涓?VBIOS 鏃犲叧, 涓嶈鍒?VBIOS** 鈥?浠嶄笉琛屽彂璇婃柇涓?installer.log 鍙嶉(瑙?README 搂5.2)
+  
+  ========== 鐜 ==========
+    OS      : Microsoft Windows [鐗堟湰 10.0.26200.9168] [AMD64]
+    绠＄悊鍛?  : 鏄?  宸ュ叿鐗堟湰: v3.2
+  
+  ========== 椹卞姩 ==========
+    ThrottleStop.sys System32澶у皬=50216瀛楄妭 | 鏈嶅姟DEMAND/杩愯涓?| 澶囦唤婧怬K(鏇鹃儴缃?
+    WinRing0x64.sys  System32澶у皬=14544瀛楄妭 | 鏈嶅姟DEMAND/杩愯涓?| 澶囦唤婧怬K(鏇鹃儴缃?
+    鈫?鏈瘖鏂€愪复鏃舵媺璧枫€戜互璇诲彇纭欢鐘舵€? 娴嬪畬鑷姩娓呯悊 鈥?涓嶄唬琛ㄥ凡瀹夎
+    ThrottleStop 杞欢杩愯: 鍚?
+  ========== 鍘熷 PCIe 瀵勫瓨鍣?(40HX) ==========
+    BDF=0x00100 (bus=1 dev=0 fn=0)
+    LNKCAP =0x00453D01  MaxLinkSpeed=Gen1(2.5GT/s)
+    LNKCTL =0x11010140 (ASPM=0 RetrainLink=0)
+    LNKSTA =0x00001101 褰撳墠=Gen1(2.5GT/s) 瀹藉害=x16
+    LNKCTL2=0x00000001 鐩爣=Gen1(2.5GT/s)
+    LNKSTA2=0x00000000
+    BAR0+0x00 BOOT_0=0x166000A1 (瀹舵棌=0x16 TU10x (40HX OK))
+    FECS_PLM 0x409650=0xFFFFFF8F (GSP-RM 鍦ㄧ(staged))  [鍙瀵圭収, 涓嶅崟鐙垽鎴愯触]
+    SS0_READOUT 0x409668=0x00000000 (0=鏃犺妭娴佹畫鐣?
+    XP3G_PLM 0x8E1B0=0xFFFFFF8F
+  
+  --- 涓庢湰娆¤瘖鏂浉鍏崇殑宸茬煡闂 (v3.2) ---
+  路 椹卞姩/GSP 鎸佹湁閾捐矾绛栫暐: 绌洪棽/浣庤礋杞芥椂 nvlddmkm 鎶?GPU 渚?TLS 鍥炲啓 Gen1 灞炴甯哥渷鐢? 鐪熸閽虫 TLS 鐨勫潖鍊?= 娉ㄥ唽琛?`RMPcieLinkSpeed=2`銆侴en2 瑙ｄ笉浜嗕笌 VBIOS 鐗堟湰鏃犲叧, 涓嶈鍒?VBIOS銆傚け璐ラ摼: 姣忔鐧诲綍鑷姩 閲嶈(Stage1) 鈫?鍙€?Stage2(Link Disable, 榛樿鍏? 鈫?PnP 淇濆簳(绂佺敤/鍚敤 40HX 瀹屾暣閲嶈浇椹卞姩, 榛樿寮€)銆?路 瀵ㄦ澘/澶氬崱: retrain-only 鍦ㄩ儴鍒嗕富鏉?鎷撴墤璁笉涓?Gen2, 闇€ Root Link Disable 鍥為€€(鐬柇閾捐矾, -hard 鎴?Gen2AutoHard=1)銆?路 鏉€杞殧绂? 绗笁鏂规潃杞彲鑳介殧绂婚┍鍔?.sys; 宸插姞 Defender 鎺掗櫎, 鍏朵粬鏉€杞鍦ㄥ畨鍏ㄤ腑蹇冩斁琛屾湰椤圭洰鏂囦欢銆?路 鎶ュ憡 issue 鏃惰闄? 鏈瘖鏂?txt + %TEMP%\40HX_installer.log + 涓绘澘/CPU/GPU/绯荤粺鐗堟湰銆?
+-- C:\Users\%USERNAME%\AppData\Local\40HXUnlock\logs\diagnose.txt  09/19/2026 23:54:46 --
+  ==============================================
+    CMP 40HX 瑙ｉ攣璇婃柇  v3.2   2026-09-19 23:54:43
+  ==============================================
+  
+  ==============================================
+    瑙ｉ攣鐘舵€?: 绠楀姏婊¤, Gen2 鏈揪鎴? [瀹炴祴]
+    绠楀姏     : 鉁?婊¤ (SS0=0x88888888 SS1=0x00000008)  [瀹炴祴]
+    PCIe     : Gen1 (2.5 GT/s) 脳16  [瀹炴祴]
+  ==============================================
+  GPU 40HX: 鉁?  Secure Boot: 鍏抽棴(OK)   GSP閿? 璁惧绾?1 / 椹卞姩绾?缂虹渷
+  RMPcieLinkSpeed: 鏈缃?椹卞姩榛樿绛栫暐, 涓嶆嫤鎴?Gen2)
+  娴嬭瘯绛惧悕: 鍏抽棴  (v2.5 涓嶉渶瑕? 寤鸿鍏抽棴)
+  ACE-BOOT 鍙嶄綔寮? 鏈娴嬪埌 (OK)
+  鏄撳彈鏀诲嚮椹卞姩鍒楄〃/HVCI: 鍏抽棴(涓嶆嫤鎴┍鍔ㄥ姞杞?
+  寮曞妯″紡: UEFI (OK)
+  蹇€熷惎鍔? 鍏抽棴(OK)   PCIe ASPM: 鍏抽棴(OK)
+  Gen2 椹卞姩: ThrottleStop 鉁?鍙敤   WinRing0 鉁?鍙敤
+    鈫?鐢辨湰璇婃柇涓存椂鎷夎捣, 娴嬪畬鍗冲嵏 鈥?涓嶄唬琛ㄥ凡瀹夎
+  
+  Gen2 浠诲姟: 宸叉敞鍐?(灏辩华, 涓婃: 鎴愬姛)
+    娉? 涓婃 Gen2 浠诲姟鍘嗗彶(闈炴湰娆″疄娴?: 缁撹: 鉂?Gen2 澶辫触: 浠嶅湪 Gen1 (TLS=Gen1; PL0 鍏?OK 鑰?TLS 鏈矘浣? 澶氫负椹卞姩/GSP 鎸佹湁閾捐矾绛栫暐 鈥?鐧诲綍浠诲姟姣忔鐧诲綍浼氳嚜鍔ㄦ墽琛?閲嶈鈫?鍙€?Stage2)鈫扨nP 淇濆簳; 浠诲姟鏈敞鍐屽垯涓嶄細鑷姩璺? 鍏堟敞鍐屽啀閲嶈瘯; 璇﹁ README 搂5.2)
+  
+  >>> 绠楀姏婊¤; Gen2 鏈揪鎴?鈥?鐧诲綍浠诲姟姣忔鐧诲綍宸茶嚜鍔ㄦ墽琛?鍚嚜鍔?Stage2); 浠嶅け璐ュ彲鍦?GUI 鈶?鍖虹偣[绔嬪嵆鎵ц Gen2] 鍐嶈瘯(璇﹁ README 搂5.2)
+  
+  寤鸿:
+  路 Gen2 鐩爣閫熺巼(TLS)浠嶆槸 Gen1: 瑙ｉ攣鍐欏叆鏈敓鏁?鈥?鑻ユ棩蹇楁樉绀?PL0 鍥涘瘎瀛樺櫒鍏?OK 鑰屽洖璇?LNKCTL2 浠?Gen1,
+    澶氫负椹卞姩鎸侀摼璺瓥鐣ユ绉掑唴鍥炲啓(鎴?RMPcieLinkSpeed=2 閽虫, 瑙佷笂鏉?; v3.1.2 鐧诲綍浠诲姟姣忔鐧诲綍浼氳嚜鍔?閲嶈鈫扨nP 淇濆簳(绂佺敤/鍚敤 40HX 閲嶈浇椹卞姩, 榛樿寮€); 浠嶅け璐ュ厛鍦?GUI 鈶?鐐筟绔嬪嵆鎵ц Gen2] 閲嶈瘯銆傚凡纭涓嶆槸鍥轰欢鍐欎繚鎶? **涓?VBIOS 鏃犲叧, 涓嶈鍒?VBIOS** 鈥?浠嶄笉琛屽彂璇婃柇涓?installer.log 鍙嶉(瑙?README 搂5.2)
+  
+  ========== 鐜 ==========
+    OS      : Microsoft Windows [鐗堟湰 10.0.26200.9168] [AMD64]
+    绠＄悊鍛?  : 鏄?  宸ュ叿鐗堟湰: v3.2
+  
+  ========== 椹卞姩 ==========
+    ThrottleStop.sys System32澶у皬=50216瀛楄妭 | 鏈嶅姟DEMAND/杩愯涓?| 澶囦唤婧怬K(鏇鹃儴缃?
+    WinRing0x64.sys  System32澶у皬=14544瀛楄妭 | 鏈嶅姟DEMAND/杩愯涓?| 澶囦唤婧怬K(鏇鹃儴缃?
+    鈫?鏈瘖鏂€愪复鏃舵媺璧枫€戜互璇诲彇纭欢鐘舵€? 娴嬪畬鑷姩娓呯悊 鈥?涓嶄唬琛ㄥ凡瀹夎
+    ThrottleStop 杞欢杩愯: 鍚?
+  ========== 鍘熷 PCIe 瀵勫瓨鍣?(40HX) ==========
+    BDF=0x00100 (bus=1 dev=0 fn=0)
+    LNKCAP =0x00453D01  MaxLinkSpeed=Gen1(2.5GT/s)
+    LNKCTL =0x11010140 (ASPM=0 RetrainLink=0)
+    LNKSTA =0x00001101 褰撳墠=Gen1(2.5GT/s) 瀹藉害=x16
+    LNKCTL2=0x00000001 鐩爣=Gen1(2.5GT/s)
+    LNKSTA2=0x00000000
+    BAR0+0x00 BOOT_0=0x166000A1 (瀹舵棌=0x16 TU10x (40HX OK))
+    FECS_PLM 0x409650=0xFFFFFF8F (GSP-RM 鍦ㄧ(staged))  [鍙瀵圭収, 涓嶅崟鐙垽鎴愯触]
+    SS0_READOUT 0x409668=0x00000000 (0=鏃犺妭娴佹畫鐣?
+    XP3G_PLM 0x8E1B0=0xFFFFFF8F
+  
+  --- 涓庢湰娆¤瘖鏂浉鍏崇殑宸茬煡闂 (v3.2) ---
+  路 椹卞姩/GSP 鎸佹湁閾捐矾绛栫暐: 绌洪棽/浣庤礋杞芥椂 nvlddmkm 鎶?GPU 渚?TLS 鍥炲啓 Gen1 灞炴甯哥渷鐢? 鐪熸閽虫 TLS 鐨勫潖鍊?= 娉ㄥ唽琛?`RMPcieLinkSpeed=2`銆侴en2 瑙ｄ笉浜嗕笌 VBIOS 鐗堟湰鏃犲叧, 涓嶈鍒?VBIOS銆傚け璐ラ摼: 姣忔鐧诲綍鑷姩 閲嶈(Stage1) 鈫?鍙€?Stage2(Link Disable, 榛樿鍏? 鈫?PnP 淇濆簳(绂佺敤/鍚敤 40HX 瀹屾暣閲嶈浇椹卞姩, 榛樿寮€)銆?路 瀵ㄦ澘/澶氬崱: retrain-only 鍦ㄩ儴鍒嗕富鏉?鎷撴墤璁笉涓?Gen2, 闇€ Root Link Disable 鍥為€€(鐬柇閾捐矾, -hard 鎴?Gen2AutoHard=1)銆?路 鏉€杞殧绂? 绗笁鏂规潃杞彲鑳介殧绂婚┍鍔?.sys; 宸插姞 Defender 鎺掗櫎, 鍏朵粬鏉€杞鍦ㄥ畨鍏ㄤ腑蹇冩斁琛屾湰椤圭洰鏂囦欢銆?路 鎶ュ憡 issue 鏃惰闄? 鏈瘖鏂?txt + %TEMP%\40HX_installer.log + 涓绘澘/CPU/GPU/绯荤粺鐗堟湰銆?
+-- C:\Users\%USERNAME%\AppData\Local\40HXUnlock\logs\40hx_log.txt  09/19/2026 23:54:46 --
+  fwsec40: kflcnReset(GSP)...
+  fwsec40: GSP reset: cpuctl=0x10 bcr=0x0 hwcfg2=0x000007f7
+  fwsec40: data iface@0xe0 hdr={1,4,8,2} mapper@0x360 sig=0x50414d44 ver=20545 cmd_in_off=0x3b0 size=0x40
+  fwsec40: mapper.init_cmd=0x15 frts4k=0x1ffe00 (frts=0x1ffe00000)
+  fwsec40: FBIF_CTL bit7 + TRANSCFG0/4=0x5 (COH+PHYS) DMACTL=0
+  fwsec40: BL DESC ctxDma=4 code=0x11982c000(ns0x400@0+sec0x9600@0x400) data=0x119835a00(0x3f0)
+  fwsec40: BL load IMEM top: hwcfg.IMEM_SIZE=256 blk dst=0xfe00 (BOOTVEC=0xfd00)  <== WARN dst!=0xfd00
+  fwsec40: rb IMEM[0xfe00]=0x004000d0 (exp BL[0]=0x004000d0)  <== OK
+  fwsec40: rb DMEM[0x20]=0x00000004 (exp ctxDma 0x4)
+  fwsec40: STARTCPU (BL@0xfd00 ?DMA FWSEC), poll WPR2 up 5s...
+  fwsec40: *** WPR2 UP lo=0x01ffe000 hi=0x01ffee00 after 0ms ***
+  [40HX fwsec40] WPR2 now: hi=0x01ffee00 lo=0x01ffe000 (UP!)
+  [health v55-pre-booter] hwcfg2=0x00000000 cpu=0x00000010 irq=0x00000000 mbox0 0x00000000->wr=0xa5a5c3c3 dmabase 0x00000000->wr=0xdeadbeef | gsp cpu=0x00000010 mbox0=0x00000000
+  [40HX] booter_load_tu102_direct (ports, BOOTVEC=0, RM=0x166000a1)...
+  
+  === v67: TU102 BOOT + 40HX FWSEC (BCR=1, port-load code) ===
+  tu102 pre: hwcfg2...
+  tu102 pre:   hwcfg2=0x000007f7
+  tu102 pre: cpuctl/dmatrf...
+  tu102 pre:   cpuctl=0x00000010
+  tu102 pre:   dmatrf=0x00000002
+  tu102 pre: wpr2...
+  tu102 pre:   wpr2hi=0x01ffee00
+  tu102 pre:   wpr2lo=0x01ffe000
+  tu102 v62: set WPR2 up (lo=0x01ffe000 hi=0x01ffee00)...
+  tu102 v62: rb wpr2hi=0x01ffee00 wpr2lo=0x01ffe000
+  tu102 v62: read SEC2_RESET_PLM(0x8403C4)...
+  tu102 v62:   reset_plm=0x000000ff (cyridd  0xff)
+  
+  --- tu102 attempt 1/2: no-reset (driver-style) ---
+  tu102: A-no-reset: read cpuctl...
+  tu102:   cpuctl=0x10 (halted?=1)
+  tu102: port load IMEM ns+sec + DMEM...
+  tu102: rb IMEM[0]=0xce100049(exp 0xce100049) IMEM_S[0x100]=0xdead5ec1 DMEM[0x200]=0x67436032(exp sig 0x67436032)
+  tu102: mailbox=wprMetaPhys>4G (no low copy)...
+  tu102: BOOTVEC=0, mailbox0=0x1882b000 mailbox1=0x00000001, STARTCPU...
+  tu102: started; hold 3s WITHOUT reg reads (v57 lesson)
+  tu102: read#1 cpu...
+  tu102:   cpu=0x10
+  tu102: read#2 irq...
+  tu102:   irq=0x10
+  tu102: read#3 dbg...
+  tu102:   dbg=0xdeadb00d
+  tu102: read#4 mbox...
+  tu102:   m0=0x0 m1=0x1
+  tu102: RESULT: PLM=0xffffff8f SS0=0x88888888 SS1=0x00000008
+  tu102: RESULT: WPR2=0x00000000:0x1ffffe00
+  tu102: *** mbox0=0 ?booter OK (attempt 1) ***
+  [40HX] booter_load_tu102_direct returned 0
+  [health v55-post-booter] hwcfg2=0x00000000 cpu=0x00000010 irq=0x00000010 mbox0 0x00000000->wr=0x00000000 dmabase 0x00000000->wr=0x00000000 | gsp cpu=0x00000010 mbox0=0x00000000
+  [v55 post-booter]: PLM=0xffffff8f SS0=0x88888888 SS1=0x00000008 GFW=0x000003ff WPR2lo=0x1ffffe00
+  [40HX] RESULT: PLM=0xffffff8f SS0=0x88888888 SS1=0x00000008
+  [40HX] *** UNLOCKED (SS0=0x88888888 SS1=0x8) ***
+  [40HX v89] SEC2 sanitize (engine reset + MB clear)...
+  [40HX v89] sanitize done cpu=0x10 mbox0=0x0
+  [v55 final]: PLM=0xffffff8f SS0=0x88888888 SS1=0x00000008 GFW=0x000003ff WPR2lo=0x1ffffe00
+  chainload-pre: preload ?CAB
+  chainload-pre: fallback =0 SFS-?CBL
+  chainload: bootmgfw.efi A B5:CI53> CAB@>9AB20
+  chainload: AB0@B Windows Boot Manager...
+
+=== scheduled tasks (40HX/CMP/Gen2) ===
+  [Ready] \40HX PCIe Gen2 Bring-up
+      act: "D:\40hx-unlock\release-v3.2.0\40HXInstaller.exe" -gen2 -silent -guard
+      last=2026/9/19 23:49:35 rc=0x0
+  [Ready] \40HX-Gen2-Retrain
+      act: D:\40hx-unlock\release-v3.2.0\40HXInstaller.exe -gen2 -silent
+      last=2026/9/19 23:49:36 rc=0x0
+  [Ready] \CMP40HX Gen2 PostBind
+      act: cmd.exe /d /c C:\ProgramData\CMP40HXGen2\windows\RunPostBind.cmd
+      last=2026/9/19 23:49:00 rc=0xE
+
+=== Defender / huorong ===
+  Defender RealTime=False
+  proc: HipsDaemon
+  proc: HipsTray
+
+=== done 00:04:08 ===

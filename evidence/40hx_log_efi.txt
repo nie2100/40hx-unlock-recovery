@@ -1,0 +1,157 @@
+
+=== CMP40HX Unlock v70-40HX (TU106 GSP WITH_LOADER) ===
+[40HX f] 1 root bridge(s)
+[40HX f] fast hit enc=0 01:00.0 id=0x1f0b10de
+[40HX bar] cmd=0x00100000 BAR0=0x40000000 gBar0Base=0x40000000 (enc=0)
+[40HX bar] command after |=0x6 = 0x00100006
+[vbios] dump 1MB from BAR0+0x11000 (bar=0x40000000)...
+[vbios] head=ffffffff (55aa=PCI-ROM ok)
+[vbios] dump 1MB OK -> \40hx_vbios.bin
+[40HX] BOOT0=0x166000a1 (expect arch 0x16<<24 = TU10x)
+[v55 boot]: PLM=0xffffff8f SS0=0x00000000 SS1=0x00000000 GFW=0x000003ff WPR2lo=0x1ffffe00
+
+--- v2.26:  // 70?8AL FEAT_OVR (host probe) ---
+probe: PLM=0xffffff8f ?>A;5 70?8A8 0xFFFFFFFF (0xFFFFFF8F = 70?8AL 83=>@)
+probe: SS0=0x00000000 SS1=0x00000000 ?>A;5 70?8A8 0x88888888/0x8
+probe: 4803=>AB8:0 (@538AB@ 70:@KB?):
+probe:   PLM=0xfffffe8e ?>A;5 0x0 (70:@KBL)
+probe:   PLM=0xfffffe8e ?>A;5 0xFFFFFFFE (bit0 flip)
+probe:   SS0=0x00000000 ?>A;5 0x11111111
+probe:   SS1=0x00000000 ?>A;5 0x0
+[40HX] GFW OK (0x000003ff)
+time: RTC 2026-9-11 10:32:2
+time: GPU time set (ns>>32=0x18d12bd5)
+alloc_high: OK @0x110000000 (16 AB@)
+[40HX] v67 payload @0x110000000 (0xfa00 B, >4GB)
+alloc_high: OK @0x111010000 (15 AB@)
+[40HX] booter ucode @0x111010000 (0xe700 B, TU102 geom)
+alloc_high: OK @0x11201f000 (6 AB@)
+alloc_high: OK @0x113025000 (7163 AB@)
+[40HX fw] dummy 27MB @0x113025000 (ELF sz=0x1bfadc8 = log53 <)
+alloc_high: OK @0x115c20000 (7179 AB@)
+[40HX rt] radix-3 @0x115c20000 (L2=14, data@+0x10000)
+alloc_high: OK @0x11882b000 (1 AB@)
+[40HX] build_wpr_meta (fbSize=0x200000000 = 8GB)
+[40HX] meta@0x11882b000 radix@0x115c20000 ucode@0x111010000 v67@0x110000000 fb=0x200000000
+
+=== v2.57-4:    # (IMEM/DMEM GSP+SEC2, NS|SEC) ===
+[pre] GSP IMEM[0x00..0x2F]:
+[pre]   gsp-imem 0000: ns=0x00000000 sec=0x00000000
+[pre]   gsp-imem 0004: ns=0x00000000 sec=0x00000000
+[pre]   gsp-imem 0008: ns=0x00000000 sec=0x00000000
+[pre]   gsp-imem 000c: ns=0x00000000 sec=0x00000000
+[pre]   gsp-imem 0010: ns=0x00000000 sec=0x00000000
+[pre]   gsp-imem 0014: ns=0x00000000 sec=0x00000000
+[pre]   gsp-imem 0018: ns=0x00000000 sec=0x00000000
+[pre]   gsp-imem 001c: ns=0x00000000 sec=0x00000000
+[pre]   gsp-imem 0020: ns=0x00000000 sec=0x00000000
+[pre]   gsp-imem 0024: ns=0x00000000 sec=0x00000000
+[pre]   gsp-imem 0028: ns=0x00000000 sec=0x00000000
+[pre]   gsp-imem 002c: ns=0x00000000 sec=0x00000000
+[pre] GSP DMEM[0x00..0x2F]:
+[pre]   gsp-dmem 0000: ns=0xdead5ec2 sec=0xdead5ec2
+[pre]   gsp-dmem 0004: ns=0xdead5ec2 sec=0xdead5ec2
+[pre]   gsp-dmem 0008: ns=0xdead5ec2 sec=0xdead5ec2
+[pre]   gsp-dmem 000c: ns=0xdead5ec2 sec=0xdead5ec2
+[pre]   gsp-dmem 0010: ns=0xdead5ec2 sec=0xdead5ec2
+[pre]   gsp-dmem 0014: ns=0xdead5ec2 sec=0xdead5ec2
+[pre]   gsp-dmem 0018: ns=0xdead5ec2 sec=0xdead5ec2
+[pre]   gsp-dmem 001c: ns=0xdead5ec2 sec=0xdead5ec2
+[pre]   gsp-dmem 0020: ns=0xdead5ec2 sec=0xdead5ec2
+[pre]   gsp-dmem 0024: ns=0xdead5ec2 sec=0xdead5ec2
+[pre]   gsp-dmem 0028: ns=0xdead5ec2 sec=0xdead5ec2
+[pre]   gsp-dmem 002c: ns=0xdead5ec2 sec=0xdead5ec2
+[pre] SEC2 IMEM[0x00..0x2F]:
+[pre]   sec2-imem 0000: ns=0xbadf1002 sec=0x00000000
+[pre]   sec2-imem 0004: ns=0x00000000 sec=0x00000000
+[pre]   sec2-imem 0008: ns=0x00000000 sec=0x00000000
+[pre]   sec2-imem 000c: ns=0x00000000 sec=0x00000000
+[pre]   sec2-imem 0010: ns=0x00000000 sec=0x00000000
+[pre]   sec2-imem 0014: ns=0x00000000 sec=0x00000000
+[pre]   sec2-imem 0018: ns=0x00000000 sec=0x00000000
+[pre]   sec2-imem 001c: ns=0x00000000 sec=0x00000000
+[pre]   sec2-imem 0020: ns=0x00000000 sec=0x00000000
+[pre]   sec2-imem 0024: ns=0x00000000 sec=0x00000000
+[pre]   sec2-imem 0028: ns=0x00000000 sec=0x00000000
+[pre]   sec2-imem 002c: ns=0x00000000 sec=0x00000000
+[pre] SEC2 DMEM[0x00..0x2F]:
+[pre]   sec2-dmem 0000: ns=0x00000000 sec=0xbadd3e3a
+[pre]   sec2-dmem 0004: ns=0x00000000 sec=0xbadd3e3a
+[pre]   sec2-dmem 0008: ns=0x00000000 sec=0xbadd3e3a
+[pre]   sec2-dmem 000c: ns=0x00000000 sec=0xbadd3e3a
+[pre]   sec2-dmem 0010: ns=0x00000000 sec=0xbadd3e3a
+[pre]   sec2-dmem 0014: ns=0x00000000 sec=0xbadd3e3a
+[pre]   sec2-dmem 0018: ns=0x00000000 sec=0xbadd3e3a
+[pre]   sec2-dmem 001c: ns=0x00000000 sec=0xbadd3e3a
+[pre]   sec2-dmem 0020: ns=0x00000000 sec=0xbadd3e3a
+[pre]   sec2-dmem 0024: ns=0x00000000 sec=0xbadd3e3a
+[pre]   sec2-dmem 0028: ns=0x00000000 sec=0xbadd3e3a
+[pre]   sec2-dmem 002c: ns=0x00000000 sec=0xbadd3e3a
+[pre] GSP BCR=0x0 SEC2 BCR=0x0 (CORE_SELECT: 0=FALCON 1=RISCV)
+gsp: ENGINE reset (0x1103C0)  C1820N GFW 87 POST...
+[40HX] SEC2 post-kill: CPUCTL=0x00000010 DMATRFCMD=0x00000002 FBIF_CTL=0x00000110 BCR=0x00000000
+[40HX] SEC2 unlocked  direct booter load (DIRECT_SEC2)
+alloc_high: OK @0x11982c000 (10 AB@)
+[40HX fwsec40] prod blob @0x11982c000 (0x9df0 B, 40HX native)
+
+--- v66: 40HX FWSEC HS-boot on GSP (blob 0x9a00+0x3f0) ---
+fwsec40: kflcnReset(GSP)...
+fwsec40: GSP reset: cpuctl=0x10 bcr=0x0 hwcfg2=0x000007f7
+fwsec40: data iface@0xe0 hdr={1,4,8,2} mapper@0x360 sig=0x50414d44 ver=20545 cmd_in_off=0x3b0 size=0x40
+fwsec40: mapper.init_cmd=0x15 frts4k=0x1ffe00 (frts=0x1ffe00000)
+fwsec40: FBIF_CTL bit7 + TRANSCFG0/4=0x5 (COH+PHYS) DMACTL=0
+fwsec40: BL DESC ctxDma=4 code=0x11982c000(ns0x400@0+sec0x9600@0x400) data=0x119835a00(0x3f0)
+fwsec40: BL load IMEM top: hwcfg.IMEM_SIZE=256 blk dst=0xfe00 (BOOTVEC=0xfd00)  <== WARN dst!=0xfd00
+fwsec40: rb IMEM[0xfe00]=0x004000d0 (exp BL[0]=0x004000d0)  <== OK
+fwsec40: rb DMEM[0x20]=0x00000004 (exp ctxDma 0x4)
+fwsec40: STARTCPU (BL@0xfd00 ’ DMA FWSEC), poll WPR2 up 5s...
+fwsec40: *** WPR2 UP lo=0x01ffe000 hi=0x01ffee00 after 0ms ***
+[40HX fwsec40] WPR2 now: hi=0x01ffee00 lo=0x01ffe000 (UP!)
+[health v55-pre-booter] hwcfg2=0x00000000 cpu=0x00000010 irq=0x00000000 mbox0 0x00000000->wr=0xa5a5c3c3 dmabase 0x00000000->wr=0xdeadbeef | gsp cpu=0x00000010 mbox0=0x00000000
+[40HX] booter_load_tu102_direct (ports, BOOTVEC=0, RM=0x166000a1)...
+
+=== v67: TU102 BOOT + 40HX FWSEC (BCR=1, port-load code) ===
+tu102 pre: hwcfg2...
+tu102 pre:   hwcfg2=0x000007f7
+tu102 pre: cpuctl/dmatrf...
+tu102 pre:   cpuctl=0x00000010
+tu102 pre:   dmatrf=0x00000002
+tu102 pre: wpr2...
+tu102 pre:   wpr2hi=0x01ffee00
+tu102 pre:   wpr2lo=0x01ffe000
+tu102 v62: set WPR2 up (lo=0x01ffe000 hi=0x01ffee00)...
+tu102 v62: rb wpr2hi=0x01ffee00 wpr2lo=0x01ffe000
+tu102 v62: read SEC2_RESET_PLM(0x8403C4)...
+tu102 v62:   reset_plm=0x000000ff (cyridd  0xff)
+
+--- tu102 attempt 1/2: no-reset (driver-style) ---
+tu102: A-no-reset: read cpuctl...
+tu102:   cpuctl=0x10 (halted?=1)
+tu102: port load IMEM ns+sec + DMEM...
+tu102: rb IMEM[0]=0xce100049(exp 0xce100049) IMEM_S[0x100]=0xdead5ec1 DMEM[0x200]=0x67436032(exp sig 0x67436032)
+tu102: mailbox=wprMetaPhys>4G (no low copy)...
+tu102: BOOTVEC=0, mailbox0=0x1882b000 mailbox1=0x00000001, STARTCPU...
+tu102: started; hold 3s WITHOUT reg reads (v57 lesson)
+tu102: read#1 cpu...
+tu102:   cpu=0x10
+tu102: read#2 irq...
+tu102:   irq=0x10
+tu102: read#3 dbg...
+tu102:   dbg=0xdeadb00d
+tu102: read#4 mbox...
+tu102:   m0=0x0 m1=0x1
+tu102: RESULT: PLM=0xffffff8f SS0=0x88888888 SS1=0x00000008
+tu102: RESULT: WPR2=0x00000000:0x1ffffe00
+tu102: *** mbox0=0 ’ booter OK (attempt 1) ***
+[40HX] booter_load_tu102_direct returned 0
+[health v55-post-booter] hwcfg2=0x00000000 cpu=0x00000010 irq=0x00000010 mbox0 0x00000000->wr=0x00000000 dmabase 0x00000000->wr=0x00000000 | gsp cpu=0x00000010 mbox0=0x00000000
+[v55 post-booter]: PLM=0xffffff8f SS0=0x88888888 SS1=0x00000008 GFW=0x000003ff WPR2lo=0x1ffffe00
+[40HX] RESULT: PLM=0xffffff8f SS0=0x88888888 SS1=0x00000008
+[40HX] *** UNLOCKED (SS0=0x88888888 SS1=0x8) ***
+[40HX v89] SEC2 sanitize (engine reset + MB clear)...
+[40HX v89] sanitize done cpu=0x10 mbox0=0x0
+[v55 final]: PLM=0xffffff8f SS0=0x88888888 SS1=0x00000008 GFW=0x000003ff WPR2lo=0x1ffffe00
+chainload-pre: preload ?CAB
+chainload-pre: fallback =0 SFS-?CBL
+chainload: bootmgfw.efi A B5:CI53> CAB@>9AB20
+chainload: AB0@B Windows Boot Manager...

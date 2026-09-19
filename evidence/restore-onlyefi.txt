@@ -1,0 +1,24 @@
+﻿=== restore-onlyefi 2026-09-20 00:06:20 ===
+source EFI sha256 = 1e9ca43fab3d5ce851e8fcd09dc9be63282fbf3ce3828c3dbcdcbb21cf7ce1c7
+expected          = 1e9ca43fab3d5ce851e8fcd09dc9be63282fbf3ce3828c3dbcdcbb21cf7ce1c7
+ESP mounted at Y:
+backup: Y:\EFI\40HX\40HXUNLK.EFI -> D:\40hx-unlock\efi_backup_v3.2.0\_EFI_40HX_40HXUNLK.EFI.v320 (MD5=A2D47F4C57A18CCCF737D8AC44396D2C)
+backup: Y:\EFI\Boot\bootx64.efi -> D:\40hx-unlock\efi_backup_v3.2.0\_EFI_Boot_bootx64.efi.v320 (MD5=A2D47F4C57A18CCCF737D8AC44396D2C)
+write: Y:\EFI\40HX\40HXUNLK.EFI sha256=1e9ca43fab3d5ce851e8fcd09dc9be63282fbf3ce3828c3dbcdcbb21cf7ce1c7 OK
+write: Y:\EFI\Boot\bootx64.efi sha256=1e9ca43fab3d5ce851e8fcd09dc9be63282fbf3ce3828c3dbcdcbb21cf7ce1c7 OK
+drv src OK: Y:\EFI\40HX\drv\ThrottleStop.sys 50216
+drv src OK: Y:\EFI\40HX\drv\WinRing0x64.sys 14544
+ESP unmounted Y:
+task disabled: 40HX PCIe Gen2 Bring-up
+task disabled: 40HX-Gen2-Retrain
+HKCU Run: 40HXGen2 -> parked as 40HXGen2_v32_bak ("D:\40hx-unlock\release-v3.2.0\40HXInstaller.exe" -gen2 -silent)
+task enabled: CMP40HX Gen2 PostBind
+policy: Gen2AutoHard = 0
+policy: Gen2PnpFallback = 0
+
+=== tasks after change ===
+  [Disabled] enabled=False 40HX PCIe Gen2 Bring-up
+  [Disabled] enabled=False 40HX-Gen2-Retrain
+  [Ready] enabled=True CMP40HX Gen2 PostBind
+
+=== done 00:06:21 ===

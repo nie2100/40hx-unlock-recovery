@@ -1,0 +1,85 @@
+﻿=== 40HX cold-boot verify report  2026-09-20 00:13:33 ===
+LastBootUpTime : 09/20/2026 00:09:44
+
+=== ESP / EFI firmware ===
+ESP = Y:
+  Y:\EFI\40HX\40HXUNLK.EFI  sha256=1e9ca43fab3d5ce8  [OnlyEFI v0.1.1 OK]  mtime=2026/9/11 11:14:36
+  Y:\EFI\Boot\bootx64.efi  sha256=1e9ca43fab3d5ce8  [OnlyEFI v0.1.1 OK]  mtime=2026/9/11 11:14:36
+  [40hx_log.txt] mtime=09/20/2026 00:09:30
+    [40HX] SEC2 unlocked  direct booter load (DIRECT_SEC2)
+    [40HX] *** UNLOCKED (SS0=0x88888888 SS1=0x8) ***
+    === EFI-B native injected Gen2 sequence ===
+    [efi-b] Root TLS=Gen2; GPU TLS intentionally unchanged
+    [efi-b] NO-RETRAIN: TLS2 set; skip EFI retrain
+    --- tail 8 ---
+    [v55 final]: PLM=0xffffff8f SS0=0x88888888 SS1=0x00000008 GFW=0x000003ff WPR2lo=0x1ffffe00
+    
+    === EFI-B native injected Gen2 sequence ===
+    [efi-b] Root TLS=Gen2; GPU TLS intentionally unchanged
+    [efi-b] NO-RETRAIN: TLS2 set; skip EFI retrain
+    chainload-pre: fallback to SFS path
+    chainload: bootmgfw.efi from current device
+    chainload: starting Windows Boot Manager...
+
+=== OnlyEFI post-bind ===
+  [postbind.log tail 12]
+    ---- attempt 1 ----
+    attempt 1 exit=14, retry in 15s 
+    ==== PostBind EXIT=14 2026/09/19 周六 23:51:25.49 ====
+    FAIL: post-bind step did not reach Gen2 
+    ==== PostBind start 2026/09/20 周日  0:10:06.10 ====
+    heal: create service ThrottleStop 
+    [SC] CreateService 成功
+    heal: create service WinRing0_1_2_0 
+    [SC] CreateService 成功
+    ---- attempt 1 ----
+    ==== PostBind EXIT=0 2026/09/20 周日  0:10:10.30 ====
+    PASS: physical Gen2 post-bind step succeeded 
+  [last.log]
+            WIN32_EXIT_CODE    : 0  (0x0)
+            SERVICE_EXIT_CODE  : 0  (0x0)
+            WIN32_EXIT_CODE    : 0  (0x0)
+            SERVICE_EXIT_CODE  : 0  (0x0)
+    EFI retrain: none. Windows restores LINK_CONFIG_0 + PRIV_MISC_1 only, then Root Retrain SET-only up to x2.
+    No TLS writes / no GPU retrain / no PnP / no FLR / no D3 / no SBR / no Link Disable.
+    GUARD=PASS
+    LINK_CONFIG_0=0x800C5800
+    PRIV_MISC_1=0xE0B40D00
+    SS0=0x88888888
+    GPU LNKCAP=0x00453D02
+    GPU LNKCAP2=0x00000006
+    TLS GPU=2 ROOT=2
+    LINK_CONFIG_0 old=800C5800 req=80085800 rb=80085800
+    PRIV_MISC_1   old=E0B40D00 req=E0B42D00 rb=E0B42D00
+    GPU final: Gen2 x16 LNKSTA=0x1102
+    ROOT final: Gen2 x16 LNKSTA=0xF102
+    PASS: physical Gen2 x16 reached.
+    ==== EXIT=0 2026/09/20 周日  0:10:10.03 ====
+
+=== vendor gen2_status.txt ===
+  ==== 40HX Gen2 浠诲姟鐘舵€?2026-09-20 00:00:10 ====
+  缁撹: 鉁?Gen2 鎴愬姛: 褰撳墠閾捐矾 Gen2
+  杩愯韬唤: 绠＄悊鍛?SYSTEM
+  40HX 浣嶇疆: 01:00.0
+  Root Port: 00:01.0
+  閾捐矾: 褰撳墠 Gen2 / 鐩爣 TLS=Gen2
+  椹卞姩: ThrottleStop=鉁?WinRing0=鉁?(BYOVD, 鐢ㄥ畬鍗冲嵏)
+  
+
+=== GPU device state ===
+  PCI\VEN_10DE&DEV_1F0B&SUBSYS_88041043&REV_A1\4&212EBC66&0&0008  Status=OK  Problem=0x0
+  PCI\VEN_10DE&DEV_1F0B&SUBSYS_88041043&REV_A1\4&31FD5A8&0&00DC  Status=Unknown  Problem=0x2D
+  nvidia-smi:
+    name, driver_version, pcie.link.gen.current, pcie.link.gen.max, pcie.link.gen.gpucurrent, pcie.link.gen.gpumax
+    NVIDIA CMP 40HX, 616.92, 1, 2, 1, 1
+
+=== tasks ===
+  [Running] 40HX ColdBoot Verify  last=2026/9/20 0:13:02 rc=0x41301
+  [Disabled] 40HX PCIe Gen2 Bring-up  last=2026/9/19 23:49:35 rc=0x0
+  [Disabled] 40HX-Gen2-Retrain  last=2026/9/19 23:49:36 rc=0x0
+  [Ready] CMP40HX Gen2 PostBind  last=2026/9/20 0:10:02 rc=0x0
+
+=================== 结论 ===================
+  算力解锁(EFI)  : PASS - SS0=0x88888888 SS1=0x8
+  PCIe Gen2      : PASS - post-bind exit 0 / physical Gen2 x16
+===========================================

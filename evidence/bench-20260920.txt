@@ -1,0 +1,58 @@
+Could not open file: C:\Users\%USERNAME%\AppData\Local\Temp\dep-1c01c5.d
+.-----------------------------------------------------------------------------.
+|----------------.------------------------------------------------------------|
+| Device ID    0 | NVIDIA CMP 40HX                                            |
+| Device ID    1 | Intel(R) UHD Graphics P750                                 |
+|----------------'------------------------------------------------------------|
+| Compiling ...                                                               ||----------------.------------------------------------------------------------|
+| Device ID      | 0                                                          |
+| Device Name    | NVIDIA CMP 40HX                                            |
+| Device Vendor  | NVIDIA Corporation                                         |
+| Device Driver  | 616.92 (Windows)                                           |
+| OpenCL Version | OpenCL C 3.0                                               |
+| Compute Units  | 34 at 1650 MHz (2176 cores, 7.181 TFLOPs/s)                |
+| Memory, Cache  | 8024 MB VRAM, 1088 KB global / 48 KB local                 |
+| Buffer Limits  | 2006 MB global, 64 KB constant                             |
+|----------------'------------------------------------------------------------|
+| Info: OpenCL C code successfully compiled.                                  |
+| Benchmarking ...                                                            || FP64   Compute   (double, fma  )                      0.259 TFLOPs/s (1/32) |
+| Benchmarking ...                                                            || FP32   Compute   (float , fma  )                      8.346 TFLOPs/s ( 1x ) |
+| Benchmarking ...                                                            || FP16   Compute   (half2 , fma  )                     16.493 TFLOPs/s ( 2x ) |
+| Benchmarking ...                                                            || INT64  Compute   (long  , a*b+c)                      2.151  TIOPs/s (1/3 ) |
+| Benchmarking ...                                                            || INT32  Compute   (int   , a*b+c)                      8.235  TIOPs/s ( 1x ) |
+| Benchmarking ...                                                            || INT16  Compute   (short2, a*b+c)                      7.273  TIOPs/s ( 1x ) |
+| Benchmarking ...                                                            || INT8   Compute   (char4 , dp4a )                     31.247  TIOPs/s ( 4x ) |
+| Benchmarking ...                                                            || Memory Bandwidth ( coalesced read      )                        400.25 GB/s |
+| Memory Bandwidth ( coalesced      write)                        425.99 GB/s |
+| Benchmarking ...                                                            || Memory Bandwidth (misaligned read      )                        262.52 GB/s |
+| Memory Bandwidth (misaligned      write)                         80.71 GB/s |
+| Benchmarking ...                                                            || PCIe   Bandwidth (send                 )                          5.72 GB/s |
+| Benchmarking ...                                                            || PCIe   Bandwidth (   receive           )                          6.15 GB/s |
+| Benchmarking ...                                                            || PCIe   Bandwidth (        bidirectional)            (Gen2 x16)    5.98 GB/s |
+|-----------------------------------------------------------------------------|
+| Compiling ...                                                               ||----------------.------------------------------------------------------------|
+| Device ID      | 1                                                          |
+| Device Name    | Intel(R) UHD Graphics P750                                 |
+| Device Vendor  | Intel(R) Corporation                                       |
+| Device Driver  | 32.0.101.7088 (Windows)                                    |
+| OpenCL Version | OpenCL C 3.0                                               |
+| Compute Units  | 32 at 1300 MHz (256 cores, 0.666 TFLOPs/s)                 |
+| Memory, Cache  | 3274 MB RAM, 1920 KB global / 64 KB local                  |
+| Buffer Limits  | 1637 MB global, 1676628 KB constant                        |
+|----------------'------------------------------------------------------------|
+| Info: OpenCL C code successfully compiled.                                  |
+| FP64   Compute   (double, fma  )                       not supported        |
+| Benchmarking ...                                                            || FP32   Compute   (float , fma  )                      0.537 TFLOPs/s (2/3 ) |
+| Benchmarking ...                                                            || FP16   Compute   (half2 , fma  )                      1.044 TFLOPs/s ( 2x ) |
+| Benchmarking ...                                                            || INT64  Compute   (long  , a*b+c)                      0.048  TIOPs/s (1/16) |
+| Benchmarking ...                                                            || INT32  Compute   (int   , a*b+c)                      0.205  TIOPs/s (1/3 ) |
+| Benchmarking ...                                                            || INT16  Compute   (short2, a*b+c)                      2.417  TIOPs/s ( 4x ) |
+| Benchmarking ...                                                            || INT8   Compute   (char4 , dp4a )                      2.453  TIOPs/s ( 4x ) |
+| Benchmarking ...                                                            || Memory Bandwidth ( coalesced read      )                         34.90 GB/s |
+| Memory Bandwidth ( coalesced      write)                         21.44 GB/s |
+| Benchmarking ...                                                            || Memory Bandwidth (misaligned read      )                         32.93 GB/s |
+| Memory Bandwidth (misaligned      write)                         12.83 GB/s |
+|-----------------------------------------------------------------------------|
+|-----------------------------------------------------------------------------|
+| Done. Press Enter to exit.                                                  |
+'-----------------------------------------------------------------------------'

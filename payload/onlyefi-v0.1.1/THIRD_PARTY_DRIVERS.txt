@@ -1,0 +1,12 @@
+# Third-party reader drivers
+
+This package contains:
+
+- `windows/drivers/ThrottleStop.sys`
+- `windows/drivers/WinRing0x64.sys`
+
+They are third-party low-level reader/access drivers and are not authored by this project.
+
+The v0.1.0 package preserves the exact binary pair used by the successful hardware validation. Before redistributing these binaries publicly, review and comply with the original projects' license/redistribution terms.
+
+The project's own production logic is in `source/windows/` and `source/efi/`.

@@ -1,0 +1,33 @@
+﻿=== CMP40HX ghost instance cleanup 2026-09-20 00:18:28 ===
+identity: %COMPUTERNAME%\%USERNAME%
+os: Microsoft Windows 11 专业版 build 26200
+
+--- BEFORE : every VEN_10DE&DEV_1F0B instance ---
+  present=True   status=OK        problem=0x0  PCI\VEN_10DE&DEV_1F0B&SUBSYS_88041043&REV_A1\4&212EBC66&0&0008
+  present=False  status=Unknown   problem=0x2D  PCI\VEN_10DE&DEV_1F0B&SUBSYS_88041043&REV_A1\4&31FD5A8&0&00DC
+
+registry Enum key: HKLM:\SYSTEM\CurrentControlSet\Enum\PCI\VEN_10DE&DEV_1F0B&SUBSYS_88041043&REV_A1\4&31FD5A8&0&00DC
+  exists = True
+  Service/ClassGUID/DeviceDesc keys present: DeviceDesc, LocationInformation, Capabilities, UINumber, Address, ContainerID, HardwareID, CompatibleIDs, ConfigFlags, ClassGUID, Driver, Mfg, Service, PSPath, PSParentPath, PSChildName, PSDrive, PSProvider
+
+--- backup ---
+  reg export exit=0  file=D:\40hx-unlock\ghost-enum-backup.reg  exists=True  size=9722
+
+--- remove (pnputil) ---
+  Microsoft PnP 工具
+  
+  正在删除设备:          PCI\VEN_10DE&DEV_1F0B&SUBSYS_88041043&REV_A1\4&31fd5a8&0&00DC
+  已成功删除设备。
+  
+  pnputil exit=0
+
+--- AFTER : every VEN_10DE&DEV_1F0B instance ---
+  present=True   status=OK        problem=0x0  PCI\VEN_10DE&DEV_1F0B&SUBSYS_88041043&REV_A1\4&212EBC66&0&0008
+
+registry Enum key exists now = False
+
+--- sanity: live card unaffected ---
+  present=True status=OK problem=0x0
+  nvidia-smi:
+    name, pcie.link.gen.current, pcie.link.gen.max
+    NVIDIA CMP 40HX, 1, 2

@@ -1,0 +1,6 @@
+==== 40HX Gen2 任务状态 2026-09-11 10:34:23 ====
+结论(Link Disable 回退): ✅ Gen2 成功
+40HX 位置: 01:00.0
+链路: 当前 Gen2
+驱动: ThrottleStop=✓ WinRing0=✓ (BYOVD, 按策略收尾)
+

@@ -1,0 +1,4 @@
+Package-Version: 0.1.1
+Validated-Core-Version: 0.1.0
+EFI-Retrain: disabled
+Windows-PostBind-Path: two-register-restore + Root-Retrain-SET-only-up-to-x2

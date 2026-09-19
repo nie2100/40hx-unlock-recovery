@@ -1,0 +1,9 @@
+﻿主板: Gigabyte Technology Co., Ltd. B560M AORUS ELITE
+BIOS: F13d 06/29/2026 08:00:00
+CPU : Intel(R) Xeon(R) W-1370P @ 3.60GHz
+OS  : Microsoft Windows 11 专业版 build 26200
+RAM : 7.7 GB
+GPU : NVIDIA CMP 40HX, 616.92, 90.06.67.00.04
+PCIe: 1, 2, 16
+引导: UEFI+GPT; Secure Boot=关; Above 4G Decoding=开; CSM=关; Fast Boot=关; 快速启动=关; ASPM=关
+杀软: 火绒(需把 WinRing0x64.sys/ThrottleStop.sys 加入信任区, 否则文件被删/加载报 1450)
