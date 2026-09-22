@@ -108,3 +108,4 @@
 | 2026-09-22 22:08 | **真·开机（BootTrigger）验证**：托盘未启动，无需杀进程，`sc stop` 直接成功 → `EXIT=0`（开机自动路径无需人工） |
 | 2026-09-22 22:40 | 稳态复跑：`ACE: ACE-BOOT running - temporary stop…` → `stopped` → `EXIT=0` → `ACE: ACE-BOOT restored (SYSTEM_START)` |
 | 2026-09-23 00:20 | 把 ACE 全套结论、含 ACE 处理的 `RunPostBind.cmd`、状态自检 `.bat`、原始证据归档进本仓库（`docs/06-ace-boot.md`） |
+| 2026-09-23 01:08 | 状态自检脚本升级为 6 步：新增第 4 步**实测算力验证**（内嵌 PTX kernel：SM 数 / FP32 / FP16 / FP16-TC / 显存带宽，判据 SM≥34、FP32≥7.0、FP16≥13.0、TC≥40.0 TFLOPS、显存≥330 GB/s），结论改为三态 `全绿 -- WDDM + PCIe Gen2 + 算力满血` |

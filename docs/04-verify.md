@@ -12,7 +12,7 @@
 | 6 | 带宽交叉验证 | 工具输出标注 `PCIe Bandwidth (bidirectional) (Gen2 x16)` 且 ≈ 5.7–6.2 GB/s | 厂商 `release\OpenCL.exe` |
 | 7 | 算力性能 | FP32 ≈ 8.3–8.4 TFLOPs/s（核显只有 0.54） | 同上 |
 | 8 | **ACE 放行路径**（装了腾讯 ACE 的机器） | `postbind.log` 出现 `ACE: ACE-BOOT running - temporary stop…` → `ACE: ACE-BOOT stopped` → `---- attempt 1 ----` → `PostBind EXIT=0` → `ACE: ACE-BOOT restored (SYSTEM_START)`；真·开机那次无 `killing ACE-Tray` 行 | `...\logs\postbind.log` |
-| 9 | **一键自检**（日常最省事） | `scripts\40HX解锁状态.bat` 末行 `结论: 全绿 -- WDDM 模式 + PCIe Gen2, 解锁正常` | 本仓库脚本 / 桌面同名文件 |
+| 9 | **一键自检**（日常最省事） | `scripts\40HX解锁状态.bat` 6 步输出，末行 `结论: 全绿 -- WDDM + PCIe Gen2 + 算力满血, 解锁正常`（WDDM + 实测带宽 ≥4.5 GB/s + 实测算力达基线） | 本仓库脚本 / 桌面同名文件 |
 
 **不要用** `nvidia-smi` 的 `pcie.link.gen.current`（会动态降速到 1，见 docs/03 C1）。
 

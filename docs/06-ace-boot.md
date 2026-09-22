@@ -173,23 +173,26 @@ PASS: already physical Gen2 x16; no writes needed.
 
 ## 6. 状态自检：`scripts\40HX解锁状态.bat`
 
-本仓库 `scripts\40HX解锁状态.bat`（本机桌面同名文件）双击即可出结论，5 步：
+本仓库 `scripts\40HX解锁状态.bat`（本机桌面同名文件）双击即可出结论，**6 步**（2026-09-23 升级：原 5 步，新增第 4 步「算力验证」）：
 
 | 步骤 | 内容 | 判据 |
 |---|---|---|
-| 1 | `nvidia-smi` 读显卡/驱动/温度/功耗 | 能出数 |
+| 1 | `nvidia-smi` 读显卡 / 驱动 / 显存 / 温度功耗 / 链路宽度 | 能出数 |
 | 2 | 驱动模式 `driver_model.current` | 必须 `WDDM`（`TCC` = WSL 直通失效且 PCIe 会掉回 Gen1） |
-| 3 | **CUDA ctypes 实测带宽**（脚本内嵌 base64 的 Python，`cuMemcpyHtoD_v2`/`DtoH_v2` 各 10 次 512MB） | H2D ≥ 4.5 GB/s 判 `GEN2`；Gen1 ≈ 3.1–3.4，Gen2 ≈ 5.8–6.7 GB/s |
-| 4 | `CMP40HXGen2\windows\logs\postbind.log` 尾 3 条 `PostBind start/EXIT/PASS` | 该轮 `EXIT=0` + `PASS` |
-| 5 | `C:\ProgramData\40HXUnlock\gen2_status.txt`（厂商工具写的状态文件） | 参考 |
+| 3 | **CUDA ctypes 实测链路带宽**（内嵌 base64 的 Python：`cuMemcpyHtoD_v2`/`DtoH_v2` 各 10 次 512MB，带 `cuCtxSynchronize` 正确计时） | H2D ≥ 4.5 GB/s 判 `GEN2`；Gen1 ≈ 3.1–3.4，Gen2 ≈ 5.8–6.7 GB/s |
+| 4 | **算力验证**（同一个内嵌 Python 用 PTX kernel 实测，SM 数取 `cuDeviceGetAttribute(16)`） | SM 单元 ≥ 34（本机 34 SM / 2176 CUDA 核心）、FP32 ≥ 7.0、FP16 ≥ 13.0、FP16 Tensor Core ≥ 40.0 TFLOPS、显存带宽 ≥ 330 GB/s；满血基线 FP32 8.3–8.4 / FP16 ~16 / TC 51+ / 显存 ~400 |
+| 5 | `CMP40HXGen2\windows\logs\postbind.log` 尾 3 条 `PostBind start/EXIT/PASS` | 该轮 `EXIT=0` + `PASS` |
+| 6 | `C:\ProgramData\40HXUnlock\gen2_status.txt`（厂商工具写的状态文件） | 参考 |
 
-最后给一行总结：`全绿 -- WDDM 模式 + PCIe Gen2, 解锁正常`，异常则分别提示
+> 第 3、4 步共用同一个内嵌 Python（约 15 秒），全程只走 CUDA 运行时 —— **不需要管理员权限，也不加载 BYOVD 驱动**。
+
+三项（WDDM / Gen2 / 算力）全过才打印 `结论: 全绿 -- WDDM + PCIe Gen2 + 算力满血, 解锁正常`；异常时逐条提示
 `- 驱动模式不是 WDDM`（`nvidia-smi -dm 0` 后重启）/ `- PCIe 未达 Gen2`（先重启让开机任务重训；
-仍不行检查 ACE-BOOT 是否拦截 ← 就是本文）。
+仍不行检查 ACE-BOOT 是否拦截 ← 就是本文）/ `- 算力低于基线`（查是否降频 / 高温 / 驱动未正常加载）。
 
 **这是本文档的判据落地版**：不依赖 `nvidia-smi` 的 `pcie.link.gen.current`（会动态降速到 1，见 `docs/03` C1），
-而是用**实测带宽**这个唯一可信的现场指标。脚本无需管理员权限即可跑（带宽测试只走 CUDA 运行时，
-不加载 BYOVD 驱动）。
+而是用**实测带宽**；第 4 步再用**实测算力**交叉验证 `SS0=0x88888888` 解锁态是否真的生效
+（核心被砍 / 降频 / TC 被关会直接暴露出来）。
 
 ---
 

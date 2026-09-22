@@ -169,8 +169,9 @@ sc start ACE-BOOT
 4. **带宽交叉验证**：跑 `release\OpenCL.exe` 基准，输出里会标注 `PCIe Bandwidth (bidirectional) (Gen2 x16)` 且 ≈ 5.7–6.2 GB/s（Gen1 只有 3.2–4）
    ⚠ 该工具会把机器上**所有** GPU 依次跑一遍：`Device ID 0` 是 40HX（FP32 ≈ 8.3 TFLOPs/s），再往后是核显（本机 ≈ 0.54 TFLOPs/s）——别看错段
 5. **别信 `nvidia-smi` 的 `pcie.link.gen.current`**：纯计算负载不产生 PCIe 流量时它会动态降到 1，实测 100% 负载也照样显示 1。看 `LNKSTA` 寄存器或带宽工具
-7. **一键自检**（推荐日常用）：双击 `scripts\40HX解锁状态.bat` → 5 步输出，末行 `结论: 全绿 -- WDDM 模式 + PCIe Gen2, 解锁正常` 即正常。
-   它用 **CUDA ctypes 实测带宽**（H2D ≥ 4.5 GB/s 判 Gen2）代替不可信的 `nvidia-smi` 速率读数，无需管理员权限
+7. **一键自检**（推荐日常用）：双击 `scripts\40HX解锁状态.bat` → 6 步输出（显卡 / WDDM / 实测链路带宽 / 实测算力 / 开机任务日志 / 厂商状态文件），
+   末行 `结论: 全绿 -- WDDM + PCIe Gen2 + 算力满血, 解锁正常` 即正常。三项判据分别是 WDDM 模式、实测 H2D ≥ 4.5 GB/s（Gen2）、实测 SM ≥34 / FP32 ≥7 TFLOPS / TC ≥40 TFLOPS；
+   它用 **CUDA ctypes 实测带宽与算力**代替不可信的 `nvidia-smi` 速率读数，无需管理员权限
 8. **ACE 相关**：日志里应出现 `ACE: ACE-BOOT running - temporary stop…` → `ACE: ACE-BOOT stopped` → `---- attempt 1 ----` → `PASS` → `ACE: ACE-BOOT restored (SYSTEM_START)`（见 `docs/06-ace-boot.md`）
 
 ---

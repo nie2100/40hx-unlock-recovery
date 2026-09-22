@@ -30,7 +30,7 @@ bash scripts/make-inventory.sh        # 在仓库根目录跑，输出 INVENTORY
 | `scripts/coldboot-report.ps1` + `register-coldboot-task.ps1` | 一次性开机任务：冷启动 3 分钟后自动出验证报告 | — |
 | `scripts/nvram_chk.ps1` / `nvram_write.ps1` / `nvram_bootorder.ps1` | 读写 UEFI 引导变量（`SeSystemEnvironmentPrivilege`） | — |
 | `scripts/ghost-clean.ps1` | 清理幽灵 PnP 实例（先 `reg export` 备份） | — |
-| `scripts/40HX解锁状态.bat` | **日常一键自检**（双击即用）：nvidia-smi + WDDM 模式 + CUDA ctypes 实测带宽判 Gen2 + 开机任务日志 + 厂商状态文件，末行给结论 | md5 `d02b492184f7398a77847b8b0a024d8c`（与本机桌面文件逐字节一致） |
+| `scripts/40HX解锁状态.bat` | **日常一键自检**（双击即用，6 步）：nvidia-smi + WDDM 模式 + CUDA ctypes 实测链路带宽判 Gen2 + **PTX 实测算力**（SM 数 / FP32 / FP16 / FP16-TC / 显存带宽）+ 开机任务日志 + 厂商状态文件，末行给三态结论 | md5 `66396b8918d75af0b42adcef24cab38d`（与本机桌面文件逐字节一致；GBK + CRLF） |
 | `docs/06-ace-boot.md` | **过腾讯 ACE**：判据、`ACE-Tray` 关键一步、自动化、厂商诊断误判、完整时间线 | — |
 | `evidence/ace-20260922/` | ACE 专项原始证据（诊断/STOP_PENDING/杀托盘后成功/A-B 双 PASS + 当时用的 ps1） | — |
 | `evidence/` | 实测证据：冷启动报告、基准输出、helper 日志、固件日志、NVRAM 读取、回滚日志 | — |
