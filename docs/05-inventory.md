@@ -16,7 +16,8 @@ bash scripts/make-inventory.sh        # 在仓库根目录跑，输出 INVENTORY
 | `payload/onlyefi-v0.1.1/windows/CMP40HXGen2.exe` | Windows 侧 helper（守卫 + 两个寄存器恢复 + Root Retrain） | md5 `1490de9bd90105e6ebc73e50abecc5cf` |
 | `payload/onlyefi-v0.1.1/source/windows/CMP40HXGen2_prod.c` | helper 源码（可自行编译，`BUILD_CLANG.cmd`） | — |
 | `payload/onlyefi-v0.1.1/source/efi/apply_no_efi_retrain.py` | 上游用来生成"不重训版" EFI 的脚本（含输入/输出镜像哈希双校验） | — |
-| `payload/windows-live/RunPostBind.cmd` | **本机在用的**自愈包装（多源补驱动 + 补服务 + 重试 3 次） | md5 `71458e1cbf9d86c288c1a1faa714e0bd` |
+| `payload/windows-live/RunPostBind.cmd` | **本机在用的**自愈包装（多源补驱动 + 补服务 + 重试 3 次 + **ACE 处理** `:ace_off`/`:ace_wait`/`:ace_on`） | md5 `7573f1e0407c055ee58e1096d5b7abd1` |
+| `payload/windows-live/RunPostBind.no-ace.cmd.bak` | 加 ACE 处理之前的版本（留档对照） | md5 `71458e1cbf9d86c288c1a1faa714e0bd` |
 | `payload/windows-live/AutoRetrain.cmd` | 上游脚本：起服务 + 跑 helper（只 start 不 create 服务） | md5 `0021c1978b749ee7e55834e2aa7ef59a` |
 | `payload/drivers/ThrottleStop.sys.b64` | BYOVD 驱动（base64 文本，还原后 50216 B） | md5 `6bc8e3505d9f51368ddf323acb6abc49` |
 | `payload/drivers/WinRing0x64.sys` / `.b64` | BYOVD 驱动（14544 B） | md5 `0c0195c48b6b8582fa6f6373032118da` |
@@ -29,6 +30,9 @@ bash scripts/make-inventory.sh        # 在仓库根目录跑，输出 INVENTORY
 | `scripts/coldboot-report.ps1` + `register-coldboot-task.ps1` | 一次性开机任务：冷启动 3 分钟后自动出验证报告 | — |
 | `scripts/nvram_chk.ps1` / `nvram_write.ps1` / `nvram_bootorder.ps1` | 读写 UEFI 引导变量（`SeSystemEnvironmentPrivilege`） | — |
 | `scripts/ghost-clean.ps1` | 清理幽灵 PnP 实例（先 `reg export` 备份） | — |
+| `scripts/40HX解锁状态.bat` | **日常一键自检**（双击即用）：nvidia-smi + WDDM 模式 + CUDA ctypes 实测带宽判 Gen2 + 开机任务日志 + 厂商状态文件，末行给结论 | md5 `d02b492184f7398a77847b8b0a024d8c`（与本机桌面文件逐字节一致） |
+| `docs/06-ace-boot.md` | **过腾讯 ACE**：判据、`ACE-Tray` 关键一步、自动化、厂商诊断误判、完整时间线 | — |
+| `evidence/ace-20260922/` | ACE 专项原始证据（诊断/STOP_PENDING/杀托盘后成功/A-B 双 PASS + 当时用的 ps1） | — |
 | `evidence/` | 实测证据：冷启动报告、基准输出、helper 日志、固件日志、NVRAM 读取、回滚日志 | — |
 
 ## 恢复时的顺序提示

@@ -1,0 +1,401 @@
+==== PostBind start 2026/09/11 周五 16:37:51.37 ====
+heal: create service ThrottleStop 
+[SC] CreateService 成功
+heal: create service WinRing0_1_2_0 
+[SC] CreateService 成功
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/11 周五 16:37:53.00 ====
+PASS: physical Gen2 post-bind step succeeded 
+==== PostBind start 2026/09/11 周五 16:52:27.19 ====
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/11 周五 16:52:30.68 ====
+PASS: physical Gen2 post-bind step succeeded 
+==== PostBind start 2026/09/13 周日 13:32:27.96 ====
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/13 周日 13:32:30.30 ====
+PASS: physical Gen2 post-bind step succeeded 
+==== PostBind start 2026/09/13 周日 23:02:31.53 ====
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/13 周日 23:02:36.00 ====
+PASS: physical Gen2 post-bind step succeeded 
+==== PostBind start 2026/09/13 周日 23:50:57.78 ====
+heal: create service ThrottleStop 
+[SC] CreateService 成功
+heal: create service WinRing0_1_2_0 
+[SC] CreateService 成功
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/13 周日 23:51:00.41 ====
+PASS: physical Gen2 post-bind step succeeded 
+==== PostBind start 2026/09/14 周一 15:35:48.79 ====
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/14 周一 15:35:52.24 ====
+PASS: physical Gen2 post-bind step succeeded 
+==== PostBind start 2026/09/15 周二 20:31:36.57 ====
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/15 周二 20:31:41.41 ====
+PASS: physical Gen2 post-bind step succeeded 
+==== PostBind start 2026/09/16 周三 21:09:19.87 ====
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/16 周三 21:09:23.21 ====
+PASS: physical Gen2 post-bind step succeeded 
+==== PostBind start 2026/09/16 周三 21:18:09.21 ====
+---- attempt 1 ----
+attempt 1 exit=11, retry in 15s 
+==== PostBind EXIT=11 2026/09/16 周三 21:20:34.40 ====
+FAIL: post-bind step did not reach Gen2 
+==== PostBind start 2026/09/17 周四 19:31:30.81 ====
+---- attempt 1 ----
+attempt 1 exit=11, retry in 15s 
+==== PostBind EXIT=11 2026/09/17 周四 19:33:55.58 ====
+FAIL: post-bind step did not reach Gen2 
+==== PostBind start 2026/09/18 周五  8:53:35.10 ====
+---- attempt 1 ----
+attempt 1 exit=11, retry in 15s 
+==== PostBind EXIT=11 2026/09/18 周五  8:56:00.35 ====
+FAIL: post-bind step did not reach Gen2 
+==== PostBind start 2026/09/18 周五 11:10:18.93 ====
+---- attempt 1 ----
+attempt 1 exit=11, retry in 15s 
+==== PostBind EXIT=11 2026/09/18 周五 11:12:45.20 ====
+FAIL: post-bind step did not reach Gen2 
+==== PostBind start 2026/09/18 周五 20:16:13.56 ====
+---- attempt 1 ----
+attempt 1 exit=11, retry in 15s 
+==== PostBind EXIT=11 2026/09/18 周五 20:18:40.52 ====
+FAIL: post-bind step did not reach Gen2 
+==== PostBind start 2026/09/19 周六 18:59:00.64 ====
+---- attempt 1 ----
+attempt 1 exit=11, retry in 15s 
+==== PostBind EXIT=11 2026/09/19 周六 19:01:26.01 ====
+FAIL: post-bind step did not reach Gen2 
+==== PostBind start 2026/09/19 周六 22:41:12.88 ====
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/19 周六 22:41:17.42 ====
+PASS: physical Gen2 post-bind step succeeded 
+==== PostBind start 2026/09/19 周六 23:34:58.02 ====
+heal: create service ThrottleStop 
+[SC] CreateService 成功
+heal: create service WinRing0_1_2_0 
+[SC] CreateService 成功
+---- attempt 1 ----
+attempt 1 exit=14, retry in 15s 
+==== PostBind EXIT=14 2026/09/19 周六 23:37:19.21 ====
+FAIL: post-bind step did not reach Gen2 
+==== PostBind start 2026/09/19 周六 23:38:34.30 ====
+heal: create service ThrottleStop 
+[SC] CreateService 成功
+heal: create service WinRing0_1_2_0 
+[SC] CreateService 成功
+---- attempt 1 ----
+attempt 1 exit=14, retry in 15s 
+==== PostBind EXIT=14 2026/09/19 周六 23:40:53.27 ====
+FAIL: post-bind step did not reach Gen2 
+==== PostBind start 2026/09/19 周六 23:42:05.49 ====
+heal: create service ThrottleStop 
+[SC] CreateService 成功
+heal: create service WinRing0_1_2_0 
+[SC] CreateService 成功
+---- attempt 1 ----
+attempt 1 exit=14, retry in 15s 
+==== PostBind EXIT=14 2026/09/19 周六 23:44:24.56 ====
+FAIL: post-bind step did not reach Gen2 
+==== PostBind start 2026/09/19 周六 23:49:04.63 ====
+heal: create service ThrottleStop 
+[SC] CreateService 成功
+heal: create service WinRing0_1_2_0 
+[SC] CreateService 成功
+---- attempt 1 ----
+attempt 1 exit=14, retry in 15s 
+==== PostBind EXIT=14 2026/09/19 周六 23:51:25.49 ====
+FAIL: post-bind step did not reach Gen2 
+==== PostBind start 2026/09/20 周日  0:10:06.10 ====
+heal: create service ThrottleStop 
+[SC] CreateService 成功
+heal: create service WinRing0_1_2_0 
+[SC] CreateService 成功
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/20 周日  0:10:10.30 ====
+PASS: physical Gen2 post-bind step succeeded 
+==== PostBind start 2026/09/20 周日 22:08:12.45 ====
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/20 周日 22:08:14.31 ====
+PASS: physical Gen2 post-bind step succeeded 
+==== PostBind start 2026/09/21 周一 20:48:08.41 ====
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/21 周一 20:48:14.70 ====
+PASS: physical Gen2 post-bind step succeeded 
+==== PostBind start 2026/09/22 周二 19:37:06.59 ====
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/22 周二 19:37:08.51 ====
+PASS: physical Gen2 post-bind step succeeded 
+==== PostBind start 2026/09/22 周二 20:44:15.13 ====
+---- attempt 1 ----
+attempt 1 exit=30, retry in 15s 
+==== PostBind EXIT=30 2026/09/22 周二 20:44:30.92 ====
+FAIL: post-bind step did not reach Gen2 
+==== PostBind start 2026/09/22 周二 20:50:32.69 ====
+---- attempt 1 ----
+attempt 1 exit=30, retry in 15s 
+==== PostBind EXIT=30 2026/09/22 周二 20:50:47.87 ====
+FAIL: post-bind step did not reach Gen2 
+==== PostBind start 2026/09/22 周二 20:52:13.50 ====
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/22 周二 20:52:15.35 ====
+PASS: physical Gen2 post-bind step succeeded 
+==== PostBind start 2026/09/22 周二 20:52:29.82 ====
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/22 周二 20:52:31.01 ====
+PASS: physical Gen2 post-bind step succeeded 
+==== PostBind start 2026/09/22 周二 21:01:47.85 ====
+ACE: ACE-BOOT running, temporary stop so the Gen2 driver can load
+
+SERVICE_NAME: ACE-BOOT 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 1  STOPPED 
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+ACE: ACE-BOOT stopped 
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/22 周二 21:01:49.92 ====
+PASS: physical Gen2 post-bind step succeeded 
+[SC] ChangeServiceConfig 成功
+
+SERVICE_NAME: ACE-BOOT 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 4  RUNNING 
+                                (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+        PID                : 0
+        FLAGS              : 
+ACE: ACE-BOOT + ACE-Tray restored
+==== PostBind start 2026/09/22 周二 21:02:34.75 ====
+ACE: ACE-BOOT running, temporary stop so the Gen2 driver can load
+
+SERVICE_NAME: ACE-BOOT 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 1  STOPPED 
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+ACE: ACE-BOOT stopped 
+ACE: ACE-BOOT not running (already stopped or disabled
+==== PostBind start 2026/09/22 周二 21:03:03.82 ====
+ACE: ACE-BOOT not running (already stopped or disabled
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/22 周二 21:03:05.02 ====
+PASS: physical Gen2 post-bind step succeeded 
+ACE: not restored (was not running before this run
+==== PostBind start 2026/09/22 周二 21:03:25.11 ====
+ACE: ACE-BOOT running - temporary stop so the Gen2 driver can load
+
+SERVICE_NAME: ACE-BOOT 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 3  STOP_PENDING 
+                                (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+ACE: stop still pending - killing ACE-Tray.exe (it keeps ACE-BOOT open)
+成功: 已终止进程 "ACE-Tray.exe"，其 PID 为 3368。
+ACE: ACE-BOOT stopped (after killing ACE-Tray
+ACE: WARN ACE-BOOT still not STOPPED - retrain will likely fail with exit 30
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/22 周二 21:03:51.19 ====
+PASS: physical Gen2 post-bind step succeeded 
+[SC] ChangeServiceConfig 成功
+
+SERVICE_NAME: ACE-BOOT 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 4  RUNNING 
+                                (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+        PID                : 0
+        FLAGS              : 
+ACE: ACE-BOOT restored (SYSTEM_START). ACE-Tray returns on next logon via HKLM Run; run ACE-Tray.exe manually if the tray icon is missing this session.
+==== PostBind start 2026/09/22 周二 21:04:17.12 ====
+ACE: ACE-BOOT running - temporary stop so the Gen2 driver can load
+
+SERVICE_NAME: ACE-BOOT 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 3  STOP_PENDING 
+                                (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+ACE: stop still pending - killing ACE-Tray.exe (it keeps ACE-BOOT open)
+成功: 已终止进程 "ACE-Tray.exe"，其 PID 为 6436。
+ACE: ACE-BOOT stopped after killing ACE-Tray
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/22 周二 21:04:43.14 ====
+PASS: physical Gen2 post-bind step succeeded 
+[SC] ChangeServiceConfig 成功
+
+SERVICE_NAME: ACE-BOOT 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 4  RUNNING 
+                                (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+        PID                : 0
+        FLAGS              : 
+ACE: ACE-BOOT restored (SYSTEM_START). ACE-Tray returns on next logon via HKLM Run; run ACE-Tray.exe manually if the tray icon is missing this session.
+==== PostBind start 2026/09/22 周二 22:05:26.96 ====
+ACE: ACE-BOOT running - temporary stop so the Gen2 driver can load
+
+SERVICE_NAME: ACE-BOOT 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 1  STOPPED 
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+ACE: ACE-BOOT stopped
+heal: create service ThrottleStop 
+[SC] CreateService 成功
+heal: create service WinRing0_1_2_0 
+[SC] CreateService 成功
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/22 周二 22:05:38.49 ====
+PASS: physical Gen2 post-bind step succeeded 
+[SC] ChangeServiceConfig 成功
+
+SERVICE_NAME: ACE-BOOT 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 4  RUNNING 
+                                (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+        PID                : 0
+        FLAGS              : 
+ACE: ACE-BOOT restored (SYSTEM_START). ACE-Tray returns on next logon via HKLM Run; run ACE-Tray.exe manually if the tray icon is missing this session.
+==== PostBind start 2026/09/22 周二 22:08:25.27 ====
+ACE: ACE-BOOT running - temporary stop so the Gen2 driver can load
+
+SERVICE_NAME: ACE-BOOT 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 1  STOPPED 
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+ACE: ACE-BOOT stopped
+heal: create service ThrottleStop 
+[SC] CreateService 成功
+heal: create service WinRing0_1_2_0 
+[SC] CreateService 成功
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/22 周二 22:08:36.40 ====
+PASS: physical Gen2 post-bind step succeeded 
+[SC] ChangeServiceConfig 成功
+
+SERVICE_NAME: ACE-BOOT 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 4  RUNNING 
+                                (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+        PID                : 0
+        FLAGS              : 
+ACE: ACE-BOOT restored (SYSTEM_START). ACE-Tray returns on next logon via HKLM Run; run ACE-Tray.exe manually if the tray icon is missing this session.
+==== PostBind start 2026/09/22 周二 22:30:19.18 ====
+ACE: ACE-BOOT running - temporary stop so the Gen2 driver can load
+
+SERVICE_NAME: ACE-BOOT 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 1  STOPPED 
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+ACE: ACE-BOOT stopped
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/22 周二 22:30:31.33 ====
+PASS: physical Gen2 post-bind step succeeded 
+[SC] ChangeServiceConfig 成功
+
+SERVICE_NAME: ACE-BOOT 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 4  RUNNING 
+                                (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+        PID                : 0
+        FLAGS              : 
+ACE: ACE-BOOT restored (SYSTEM_START). ACE-Tray returns on next logon via HKLM Run; run ACE-Tray.exe manually if the tray icon is missing this session.
+==== PostBind start 2026/09/22 周二 22:34:33.30 ====
+ACE: ACE-BOOT running - temporary stop so the Gen2 driver can load
+
+SERVICE_NAME: ACE-BOOT 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 1  STOPPED 
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+ACE: ACE-BOOT stopped
+heal: create service ThrottleStop 
+[SC] CreateService 成功
+heal: create service WinRing0_1_2_0 
+[SC] CreateService 成功
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/22 周二 22:34:47.41 ====
+PASS: physical Gen2 post-bind step succeeded 
+[SC] ChangeServiceConfig 成功
+
+SERVICE_NAME: ACE-BOOT 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 4  RUNNING 
+                                (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+        PID                : 0
+        FLAGS              : 
+ACE: ACE-BOOT restored (SYSTEM_START). ACE-Tray returns on next logon via HKLM Run; run ACE-Tray.exe manually if the tray icon is missing this session.
+==== PostBind start 2026/09/22 周二 22:40:35.14 ====
+ACE: ACE-BOOT running - temporary stop so the Gen2 driver can load
+
+SERVICE_NAME: ACE-BOOT 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 1  STOPPED 
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+ACE: ACE-BOOT stopped
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/22 周二 22:40:47.66 ====
+PASS: physical Gen2 post-bind step succeeded 
+[SC] ChangeServiceConfig 成功
+
+SERVICE_NAME: ACE-BOOT 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 4  RUNNING 
+                                (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+        PID                : 0
+        FLAGS              : 
+ACE: ACE-BOOT restored (SYSTEM_START). ACE-Tray returns on next logon via HKLM Run; run ACE-Tray.exe manually if the tray icon is missing this session.

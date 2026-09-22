@@ -1,0 +1,8 @@
+# 一律按原始字节存储：本仓库含 GBK 编码的 .bat/.cmd、二进制 payload、base64 文本、NVRAM 二进制备份
+# 禁止任何换行/编码自动转换（否则 .bat/.cmd 的 CRLF 会被改成 LF，恢复机器时行为可能变化）
+* -text
+*.sys -text
+*.b64 -text
+*.EFI -text
+*.efi -text
+*.bin -text

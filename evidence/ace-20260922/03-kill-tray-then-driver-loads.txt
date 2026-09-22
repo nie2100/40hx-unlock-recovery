@@ -1,0 +1,68 @@
+﻿**********************
+Windows PowerShell 脚本开始
+开始时间: 20260922205126
+用户名: DESKTOP-QS20G0K\吴
+RunAs 用户: DESKTOP-QS20G0K\吴
+配置名称: 
+计算机: DESKTOP-QS20G0K (Microsoft Windows NT 10.0.26200.0)
+主机应用程序: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Temp\40hx-ace-stop2.ps1
+进程 ID: 5452
+PSVersion: 5.1.26100.9168
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.9168
+BuildVersion: 10.0.26100.9168
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+=== [1] current ACE-BOOT state (was STOP_PENDING) ===
+
+SERVICE_NAME: ACE-BOOT 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 3  STOP_PENDING 
+                                (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+=== [2] kill ACE-Tray.exe (same as tray right-click -> Exit) ===
+killing pid 10676
+成功: 已终止 PID 为 10676 的进程。
+
+=== [3] re-issue stop ACE-BOOT ===
+[SC] ControlService 失败 1062:
+
+服务尚未启动。
+t+5s STATE=STOPPED
+t+10s STATE=STOPPED
+t+15s STATE=STOPPED
+t+20s STATE=STOPPED
+t+25s STATE=STOPPED
+t+30s STATE=STOPPED
+=== [4] try loading ThrottleStop driver ===
+
+SERVICE_NAME: ThrottleStop 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 4  RUNNING 
+                                (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+        PID                : 0
+        FLAGS              :
+start exitcode=0
+
+SERVICE_NAME: ThrottleStop 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 4  RUNNING 
+                                (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+**********************
+Windows PowerShell 脚本结束
+结束时间: 20260922205202
+**********************

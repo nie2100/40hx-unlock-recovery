@@ -1,0 +1,117 @@
+﻿**********************
+Windows PowerShell 脚本开始
+开始时间: 20260922205027
+用户名: DESKTOP-QS20G0K\吴
+RunAs 用户: DESKTOP-QS20G0K\吴
+配置名称: 
+计算机: DESKTOP-QS20G0K (Microsoft Windows NT 10.0.26200.0)
+主机应用程序: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Temp\40hx-ace-fix.ps1
+进程 ID: 13984
+PSVersion: 5.1.26100.9168
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.9168
+BuildVersion: 10.0.26100.9168
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+=== [0] enumerate 40HX tasks (elevated) ===
+
+TaskPath TaskName                   State
+-------- --------                   -----
+\        40HX PCIe Gen2 Bring-up Disabled
+\        40HX-Gen2-Retrain       Disabled
+\        CMP40HX Gen2 PostBind      Ready
+  action[\40HX PCIe Gen2 Bring-up]: "D:\40hx-unlock\release-v3.2.0\40HXInstaller.exe" -gen2 -silent -guard
+  action[\40HX-Gen2-Retrain]: D:\40hx-unlock\release-v3.2.0\40HXInstaller.exe -gen2 -silent
+  action[\CMP40HX Gen2 PostBind]: cmd.exe /d /c C:\ProgramData\CMP40HXGen2\windows\RunPostBind.cmd
+=== [A] ACE-BOOT before ===
+[SC] QueryServiceConfig 成功
+
+SERVICE_NAME: ACE-BOOT
+        TYPE               : 1  KERNEL_DRIVER 
+        START_TYPE         : 1   SYSTEM_START
+        ERROR_CONTROL      : 1   NORMAL
+        BINARY_PATH_NAME   : \??\C:\Program Files\AntiCheatExpert\ACE-BOOT.sys
+        LOAD_ORDER_GROUP   : 
+        TAG                : 0
+        DISPLAY_NAME       : ACE-BOOT
+        DEPENDENCIES       : 
+        SERVICE_START_NAME :
+
+SERVICE_NAME: ACE-BOOT 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 4  RUNNING 
+                                (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+=== [B] stop ACE-BOOT (temporary) ===
+
+SERVICE_NAME: ACE-BOOT 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 3  STOP_PENDING 
+                                (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+stop exitcode=0
+
+SERVICE_NAME: ACE-BOOT 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 3  STOP_PENDING 
+                                (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+=== [C] run the boot task now ===
+running task: \CMP40HX Gen2 PostBind
+成功: 尝试运行 "\CMP40HX Gen2 PostBind"。
+task state=Ready lastRun=09/22/2026 20:50:32 lastResult=30
+=== [D] last.log ===
+==== CMP40HX Gen2 v0.1.1 package / v0.1.0 core auto run 2026/09/22 周二 20:50:32.73 ====
+[SC] StartService 失败 31:
+
+连到系统上的设备没有发挥作用。
+
+FATAL: ThrottleStop service did not start.
+=== [E] postbind.log tail ===
+==== PostBind EXIT=0 2026/09/22 周二 19:37:08.51 ====
+PASS: physical Gen2 post-bind step succeeded
+==== PostBind start 2026/09/22 周二 20:44:15.13 ====
+---- attempt 1 ----
+attempt 1 exit=30, retry in 15s
+==== PostBind EXIT=30 2026/09/22 周二 20:44:30.92 ====
+FAIL: post-bind step did not reach Gen2
+==== PostBind start 2026/09/22 周二 20:50:32.69 ====
+---- attempt 1 ----
+attempt 1 exit=30, retry in 15s
+==== PostBind EXIT=30 2026/09/22 周二 20:50:47.87 ====
+FAIL: post-bind step did not reach Gen2
+=== [F] ACE-BOOT after (left stopped pending decision) ===
+
+SERVICE_NAME: ACE-BOOT 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 3  STOP_PENDING 
+                                (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+=== [G] ThrottleStop svc state ===
+
+SERVICE_NAME: ThrottleStop 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 1  STOPPED 
+        WIN32_EXIT_CODE    : 31  (0x1f)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+**********************
+Windows PowerShell 脚本结束
+结束时间: 20260922205049
+**********************

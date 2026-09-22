@@ -1,0 +1,116 @@
+﻿**********************
+Windows PowerShell 脚本开始
+开始时间: 20260922204910
+用户名: DESKTOP-QS20G0K\吴
+RunAs 用户: DESKTOP-QS20G0K\吴
+配置名称: 
+计算机: DESKTOP-QS20G0K (Microsoft Windows NT 10.0.26200.0)
+主机应用程序: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Temp\40hx-ace-check.ps1
+进程 ID: 4732
+PSVersion: 5.1.26100.9168
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.9168
+BuildVersion: 10.0.26100.9168
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+=== [1] ThrottleStop service state / start test ===
+
+SERVICE_NAME: ThrottleStop 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 1  STOPPED 
+        WIN32_EXIT_CODE    : 31  (0x1f)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+[SC] StartService 失败 31:
+
+连到系统上的设备没有发挥作用。
+sc start exitcode=31
+=== [2] Vulnerable driver blocklist (MS WDAC) ===
+
+
+VulnerableDriverBlocklistEnable : 0
+RevocationListLcuKirValue       : 0
+=== [3] mount ESP and read 40hx_log.txt ===
+
+ESP log lastwrite=09/22/2026 20:43:38
+tu102 pre:   wpr2lo=0x01ffe000
+tu102 v62: set WPR2 up (lo=0x01ffe000 hi=0x01ffee00)...
+tu102 v62: rb wpr2hi=0x01ffee00 wpr2lo=0x01ffe000
+tu102 v62: read SEC2_RESET_PLM(0x8403C4)...
+tu102 v62:   reset_plm=0x000000ff (cyridd  0xff)
+
+--- tu102 attempt 1/2: no-reset (driver-style) ---
+tu102: A-no-reset: read cpuctl...
+tu102:   cpuctl=0x10 (halted?=1)
+tu102: port load IMEM ns+sec + DMEM...
+tu102: rb IMEM[0]=0xce100049(exp 0xce100049) IMEM_S[0x100]=0xdead5ec1 DMEM[0x200]=0x67436032(exp sig 0x67436032)
+tu102: mailbox=wprMetaPhys>4G (no low copy)...
+tu102: BOOTVEC=0, mailbox0=0x1882b000 mailbox1=0x00000001, STARTCPU...
+tu102: started; hold 3s WITHOUT reg reads (v57 lesson)
+tu102: read#1 cpu...
+tu102:   cpu=0x10
+tu102: read#2 irq...
+tu102:   irq=0x10
+tu102: read#3 dbg...
+tu102:   dbg=0xdeadb00d
+tu102: read#4 mbox...
+tu102:   m0=0x0 m1=0x1
+tu102: RESULT: PLM=0xffffff8f SS0=0x88888888 SS1=0x00000008
+tu102: RESULT: WPR2=0x00000000:0x1ffffe00
+tu102: *** mbox0=0 ?booter OK (attempt 1) ***
+[40HX] booter_load_tu102_direct returned 0
+[health v55-post-booter] hwcfg2=0x00000000 cpu=0x00000010 irq=0x00000010 mbox0 0x00000000->wr=0x00000000 dmabase 0x00000000->wr=0x00000000 | gsp cpu=0x00000010 mbox0=0x00000000
+[v55 post-booter]: PLM=0xffffff8f SS0=0x88888888 SS1=0x00000008 GFW=0x000003ff WPR2lo=0x1ffffe00
+[40HX] RESULT: PLM=0xffffff8f SS0=0x88888888 SS1=0x00000008
+[40HX] *** UNLOCKED (SS0=0x88888888 SS1=0x8) ***
+[40HX v89] SEC2 sanitize (engine reset + MB clear)...
+[40HX v89] sanitize done cpu=0x10 mbox0=0x0
+[v55 final]: PLM=0xffffff8f SS0=0x88888888 SS1=0x00000008 GFW=0x000003ff WPR2lo=0x1ffffe00
+
+=== EFI-B native injected Gen2 sequence ===
+[efi-b] Root TLS=Gen2; GPU TLS intentionally unchanged
+[efi-b] NO-RETRAIN: TLS2 set; skip EFI retrain
+chainload-pre: fallback to SFS path
+chainload: bootmgfw.efi from current device
+chainload: starting Windows Boot Manager...
+--- ESP 40HX dir ---
+
+FullName                         Length LastWriteTime     
+--------                         ------ -------------     
+Y:\EFI\40HX\drv                         2026/9/11 16:22:04
+Y:\EFI\40HX\40HXUNLK.EFI         590868 2026/9/11 11:14:36
+Y:\EFI\40HX\drv\ThrottleStop.sys 50216  2026/9/11 16:20:42
+Y:\EFI\40HX\drv\WinRing0x64.sys  14544  2026/9/11 16:20:42
+--- ESP driver fallback sources ---
+
+Name             Length LastWriteTime     
+----             ------ -------------     
+ThrottleStop.sys  50216 2026/9/11 16:20:42
+WinRing0x64.sys   14544 2026/9/11 16:20:42
+=== [4] EFI hashes (onlyefi check) ===
+Y:\EFI\40HX\40HXUNLK.EFI  1E9CA43FAB3D5CE851E8FCD09DC9BE63282FBF3CE3828C3DBCDCBB21CF7CE1C7
+Y:\EFI\Boot\bootx64.efi  1E9CA43FAB3D5CE851E8FCD09DC9BE63282FBF3CE3828C3DBCDCBB21CF7CE1C7
+
+=== [5] scheduled tasks 40HX ===
+
+TaskName                   State
+--------                   -----
+40HX PCIe Gen2 Bring-up Disabled
+40HX-Gen2-Retrain       Disabled
+CMP40HX Gen2 PostBind      Ready
+=== [6] ACE / game presence ===
+
+
+ProcessName    Id Path                                         
+-----------    -- ----                                         
+ACE-Tray    10676 C:\Program Files\AntiCheatExpert\ACE-Tray.exe
+PS>$global:?
+True
+**********************
+Windows PowerShell 脚本结束
+结束时间: 20260922204913
+**********************

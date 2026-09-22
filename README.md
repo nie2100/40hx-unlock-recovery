@@ -2,6 +2,8 @@
 
 > 目的：重装 Windows / 换盘 / 清 CMOS 之后，照本文把 **算力解锁 + PCIe Gen2 x16 两全** 的状态恢复回来，不必重新摸索。
 > 最近一次端到端验证：**2026-09-20 00:09 冷启动 PASS** —— EFI 日志 `*** UNLOCKED (SS0=0x88888888 SS1=0x8) ***`，开机任务 `CMP40HX Gen2 PostBind` → `EXIT=0` + `PASS: physical Gen2 x16 reached.`，同一次运行里 `GUARD=PASS SS0=0x88888888`（算力与 Gen2 同时成立）。
+> 最近一次 ACE 相关验证：**2026-09-22 22:08 真·开机（BootTrigger）PASS** —— 腾讯 ACE 升级后 ACE-BOOT 会在映像加载阶段拦 `ThrottleStop.sys`（Gen2 驱动），
+> 已实测出「杀 `ACE-Tray.exe` → 停 ACE-BOOT → 重训 → 再恢复 ACE」的完整解法并写进开机任务，**反作弊正常运行与 Gen2 解锁可以并存**。详见 `docs/06-ace-boot.md`。
 > 本仓库自含所需二进制（解锁 EFI、Windows 侧 helper、两个签名驱动、脚本），重装后不依赖网上重新找。
 
 ---
@@ -118,7 +120,9 @@ C:\ProgramData\CMP40HXGen2\
    sc create ThrottleStop    type= kernel start= demand binPath= "\SystemRoot\System32\drivers\ThrottleStop.sys"
    sc create WinRing0_1_2_0  type= kernel start= demand binPath= "\SystemRoot\System32\drivers\WinRing0x64.sys"
    ```
-4. `RunPostBind.cmd` = 多源自愈包装（每轮补驱动 → 补/建服务 → 调 `AutoRetrain.cmd`，失败重试 3 次），模板见 `payload/windows-live/RunPostBind.cmd`（**注意里面写死的源路径要按新机器改**）
+4. `RunPostBind.cmd` = 多源自愈包装（每轮补驱动 → 补/建服务 → 调 `AutoRetrain.cmd`，失败重试 3 次），仓库里那份 **已含 ACE 处理**（`:ace_off` / `:ace_wait` / `:ace_on`：先停 `ACE-BOOT`，
+   `STOP_PENDING` 卡住就 `taskkill /IM ACE-Tray.exe /F`，只在重训成功后才把反作弊恢复成 `SYSTEM_START`），模板见 `payload/windows-live/RunPostBind.cmd`（**注意里面写死的源路径要按新机器改**）；
+   改前的老版本留档 `payload/windows-live/RunPostBind.no-ace.cmd.bak`。原理与踩坑：`docs/06-ace-boot.md`
 5. 注册开机任务（SYSTEM / ONSTART）：
    ```
    schtasks /create /tn "CMP40HX Gen2 PostBind" /sc onstart /ru SYSTEM /rl HIGHEST ^
@@ -135,6 +139,28 @@ C:\ProgramData\CMP40HXGen2\
 
 自愈机制已内建（普通目录 + ESP `\EFI\40HX\drv\` 兜底源自愈 + 重建服务），但**信任区仍要加**，否则每轮开机都靠自愈，链路会间歇失败。
 
+### 步骤 5b — 腾讯 ACE（装了腾讯游戏才有，但**必读**）
+
+腾讯 ACE 升级（2026-09-22 实测）后，「反作弊预启动模式」的内核驱动 `ACE-BOOT.sys`
+（`C:\Program Files\AntiCheatExpert\ACE-BOOT.sys`，`SYSTEM_START`）会在**映像加载阶段**拦掉
+`ThrottleStop.sys` → 该次开机 Gen2 落地失败（任务 `EXIT=30`，`last.log` = `[SC] StartService 失败 31`），
+而**算力是好的**（EFI 那条链条 ACE 管不到）。
+
+厂商文档没写的关键一步：**`sc stop ACE-BOOT` 会永久卡在 `STOP_PENDING`，必须先结束持有它的用户态托盘 `ACE-Tray.exe`**：
+
+```
+taskkill /IM ACE-Tray.exe /F        :: 等价托盘右键「退出」
+sc stop ACE-BOOT                    :: 这次立刻 STOPPED
+sc start ThrottleStop               :: exitcode=0
+:: 重训成功后把反作弊恢复回去（Gen2 是链路寄存器状态，不会被撤销）
+sc config ACE-BOOT start= system
+sc start ACE-BOOT
+```
+
+以上已全部自动化进 `payload/windows-live/RunPostBind.cmd`（只放行成功路径才恢复 ACE），
+真·开机路径连托盘都不用杀（那时 `ACE-Tray.exe` 还没启动）。完整判据、误判陷阱、A/B 实测、
+厂商诊断的"驱动未拉起"误报：**`docs/06-ace-boot.md`**。
+
 ### 步骤 6 — 验证（判据，别用 nvidia-smi）
 
 1. **算力**：ESP 根目录 `40hx_log.txt` 出现 `*** UNLOCKED (SS0=0x88888888 SS1=0x8) ***`；文件不存在 = 本次开机 EFI 没跑（启动项/兜底 没生效）
@@ -143,12 +169,17 @@ C:\ProgramData\CMP40HXGen2\
 4. **带宽交叉验证**：跑 `release\OpenCL.exe` 基准，输出里会标注 `PCIe Bandwidth (bidirectional) (Gen2 x16)` 且 ≈ 5.7–6.2 GB/s（Gen1 只有 3.2–4）
    ⚠ 该工具会把机器上**所有** GPU 依次跑一遍：`Device ID 0` 是 40HX（FP32 ≈ 8.3 TFLOPs/s），再往后是核显（本机 ≈ 0.54 TFLOPs/s）——别看错段
 5. **别信 `nvidia-smi` 的 `pcie.link.gen.current`**：纯计算负载不产生 PCIe 流量时它会动态降到 1，实测 100% 负载也照样显示 1。看 `LNKSTA` 寄存器或带宽工具
-6. 冷启动端到端验证（可选）：一次性开机任务，3 分钟后自动出报告，脚本见 `scripts/coldboot-report.ps1` + `scripts/register-coldboot-task.ps1`
+7. **一键自检**（推荐日常用）：双击 `scripts\40HX解锁状态.bat` → 5 步输出，末行 `结论: 全绿 -- WDDM 模式 + PCIe Gen2, 解锁正常` 即正常。
+   它用 **CUDA ctypes 实测带宽**（H2D ≥ 4.5 GB/s 判 Gen2）代替不可信的 `nvidia-smi` 速率读数，无需管理员权限
+8. **ACE 相关**：日志里应出现 `ACE: ACE-BOOT running - temporary stop…` → `ACE: ACE-BOOT stopped` → `---- attempt 1 ----` → `PASS` → `ACE: ACE-BOOT restored (SYSTEM_START)`（见 `docs/06-ace-boot.md`）
 
 ---
 
 ## 3. 关键坑（摘要）
 
+- **腾讯 ACE（反作弊预启动模式）会拦 Gen2 驱动的映像加载**（2026-09-22 起实测必遇）：ACE 弹窗点名 `C:\Windows\System32\drivers\ThrottleStop.sys`，该次开机任务 `EXIT=30` / `last.log` = `[SC] StartService 失败 31`，
+  而 ESP 固件日志仍有 `UNLOCKED` → **算力正常，只是 Gen2 没落地**，别误判成整机解锁崩了。
+  解法：**先 `taskkill /IM ACE-Tray.exe /F` 再 `sc stop ACE-BOOT`**（只 `sc stop` 会永久卡 `STOP_PENDING`），重训成功后 `sc start ACE-BOOT` 恢复反作弊，Gen2 不会被撤销。已自动化进 `RunPostBind.cmd`；完整过程见 `docs/06-ace-boot.md`
 - **厂商安装器会静默覆盖 ESP 上的解锁 EFI**（`\EFI\40HX\40HXUNLK.EFI` 与 `\EFI\Boot\bootx64.efi` 变回厂商版，MD5 `A2D47F4C…`）→ OnlyEFI 的 Windows helper 立刻失效（每天 `exit 14`），Gen2 永不落地。**试厂商包前先备份这两个文件，试完写回并复核 sha256。**
 - **算力与 Gen2 在部分主板上互斥**：厂商方案若走 Stage2 硬回退（Root Link Disable + PnP 禁用/启用显卡）→ 显卡一复位，算力（易失寄存器）清零。本机 v3.2 实测：retrain-only 6 轮全败，只能硬回退，且**显卡会变 Code 43，热重启无效，必须完全关机冷启动**。OnlyEFI 路线正是为绕开这一点（不复位设备）。
 - **升级厂商工具后**：`HKLM\SOFTWARE\40HXUnlock` 的 `Gen2AutoHard=0` / `Gen2PnpFallback=0` 会被改回，HKCU Run 的 `40HXGen2` 与两个厂商计划任务会被放回来 —— 每次升级后都要复查并重新禁用（`scripts/restore-onlyefi.ps1` 一条命令做完：备份厂商 EFI → 写回 OnlyEFI EFI → 校验哈希 → 禁厂商任务 → 清 HKCU Run → 设策略键）。
@@ -170,13 +201,15 @@ docs/02-how-it-works.md       原理：EFI 阶段与 Windows 阶段做了什么
 docs/03-pitfalls.md           坑清单与历史踩坑记录（含厂商 v3.2 回滚经过）
 docs/04-verify.md             验证判据与证据
 docs/05-inventory.md          文件清点（来源、哈希、用途）
+docs/06-ace-boot.md           **过腾讯 ACE**：ACE-BOOT 拦驱动的判据、杀 ACE-Tray 的关键一步、自动化与误判陷阱
 payload/onlyefi-v0.1.1/       OnlyEFI v0.1.1 完整发布包（EFI + Windows helper + 源码 + 文档）
-payload/windows-live/         本机在用的 Windows 侧文件（含多源自愈 RunPostBind.cmd）
+payload/windows-live/         本机在用的 Windows 侧文件（含多源自愈 + ACE 处理 的 RunPostBind.cmd；老版本 RunPostBind.no-ace.cmd.bak）
 payload/drivers/              两个 BYOVD 驱动：base64 文本备份（裸 .sys 会被杀软秒删）+ RESTORE-DRIVERS.ps1 还原脚本
 payload/esp-2026-09-20/       当前 ESP 快照（解锁固件 + 固件日志 + drv 备份）
 payload/nvram-backup-20260911/ NVRAM 引导变量原始二进制备份（BootOrder/Boot0000/0002/0003/0005…）
-scripts/                      可直接跑的 PowerShell 脚本（见 docs/05-inventory.md）
+scripts/                      可直接跑的 PowerShell 脚本（见 docs/05-inventory.md）+ 状态自检 `40HX解锁状态.bat`（双击即用）
 evidence/                     实测证据：冷启动报告、基准输出、helper 日志、固件日志
+evidence/ace-20260922/        ACE 专项证据：诊断 / STOP_PENDING / 杀托盘后驱动加载 / A-B 双 PASS + 原始 ps1
 ```
 
 ## 5. 回滚到"没有解锁"的干净状态

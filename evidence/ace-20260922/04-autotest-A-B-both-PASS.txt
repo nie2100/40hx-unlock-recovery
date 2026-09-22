@@ -1,0 +1,71 @@
+﻿**********************
+Windows PowerShell 脚本开始
+开始时间: 20260922210416
+用户名: DESKTOP-QS20G0K\吴
+RunAs 用户: DESKTOP-QS20G0K\吴
+配置名称: 
+计算机: DESKTOP-QS20G0K (Microsoft Windows NT 10.0.26200.0)
+主机应用程序: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Temp\40hx-autotest.ps1
+进程 ID: 8152
+PSVersion: 5.1.26100.9168
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.9168
+BuildVersion: 10.0.26100.9168
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+=== before: ACE-Tray pid / ACE-BOOT / log mtime ===
+ACE-Tray pid: 6436
+        STATE              : 4  RUNNING
+postbind.log mtime: 09/22/2026 21:03:52
+=== run task ===
+成功: 尝试运行 "CMP40HX Gen2 PostBind"。
+state=Ready lastRun=09/22/2026 21:04:17 lastResult=0
+postbind.log mtime now: 09/22/2026 21:04:44
+--- C:\ProgramData\CMP40HXGen2\windows\logs\postbind.log ---
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+ACE: stop still pending - killing ACE-Tray.exe (it keeps ACE-BOOT open)
+成功: 已终止进程 "ACE-Tray.exe"，其 PID 为 6436。
+ACE: ACE-BOOT stopped after killing ACE-Tray
+---- attempt 1 ----
+==== PostBind EXIT=0 2026/09/22 周二 21:04:43.14 ====
+PASS: physical Gen2 post-bind step succeeded
+[SC] ChangeServiceConfig 成功
+
+SERVICE_NAME: ACE-BOOT
+        TYPE               : 1  KERNEL_DRIVER
+        STATE              : 4  RUNNING
+                                (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+        PID                : 0
+        FLAGS              :
+ACE: ACE-BOOT restored (SYSTEM_START). ACE-Tray returns on next logon via HKLM Run; run ACE-Tray.exe manually if the tray icon is missing this session.
+--- C:\ProgramData\CMP40HXGen2\windows\logs\last.log ---
+        WAIT_HINT          : 0x0
+        PID                : 0
+        FLAGS              :
+=== CMP40HX Production Gen2 v0.1.0 (minimal validated path) ===
+EFI retrain: none. Windows restores LINK_CONFIG_0 + PRIV_MISC_1 only, then Root Retrain SET-only up to x2.
+No TLS writes / no GPU retrain / no PnP / no FLR / no D3 / no SBR / no Link Disable.
+
+GPU=01:00.0
+ROOT=00:01.0
+BAR0=0x0000000040000000
+PASS: already physical Gen2 x16; no writes needed.
+==== EXIT=0 2026/09/22 周二 21:04:43.08 ====
+=== after: ACE-Tray pid / ACE-BOOT / driver ===
+ACE-Tray pid:
+        STATE              : 4  RUNNING
+        START_TYPE         : 1   SYSTEM_START
+        STATE              : 4  RUNNING
+**********************
+Windows PowerShell 脚本结束
+结束时间: 20260922210724
+**********************

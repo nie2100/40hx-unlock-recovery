@@ -1,0 +1,66 @@
+==== CMP40HX Gen2 v0.1.1 package / v0.1.0 core auto run 2026/09/22 周二 22:40:45.77 ====
+
+SERVICE_NAME: ThrottleStop 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 4  RUNNING 
+                                (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+        PID                : 0
+        FLAGS              : 
+
+SERVICE_NAME: WinRing0_1_2_0 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 4  RUNNING 
+                                (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+        PID                : 0
+        FLAGS              : 
+=== CMP40HX Production Gen2 v0.1.0 (minimal validated path) ===
+EFI retrain: none. Windows restores LINK_CONFIG_0 + PRIV_MISC_1 only, then Root Retrain SET-only up to x2.
+No TLS writes / no GPU retrain / no PnP / no FLR / no D3 / no SBR / no Link Disable.
+
+GPU=01:00.0
+ROOT=00:01.0
+BAR0=0x0000000040000000
+GUARD=PASS
+BOOT0=0x166000A1
+LINK_CONFIG_0=0x800C5800
+PRIV_MISC_1=0xE0B40D00
+XVE_OVR=0x00000006
+CYA_0=0x068731B3
+PL_LINK_RATE=0x00220036
+VSEC_DEVICE=0x00000801
+SS0=0x88888888
+SS1=0x00000008
+GPU LNKCAP=0x00453D02
+GPU LNKCAP2=0x00000006
+GPU: Gen1 x16 LNKSTA=0x1101
+ROOT: Gen1 x16 LNKSTA=0x7101
+TLS GPU=2 ROOT=2
+
+[1] Restore only the two driver-clobbered policy registers
+LINK_CONFIG_0 old=800C5800 req=80085800 rb=80085800
+PRIV_MISC_1   old=E0B40D00 req=E0B42D00 rb=E0B42D00
+
+[2] Root Retrain #1 (SET_ONLY)
+ROOT1 SET_ONLY old=0040 req=0060 rb=0040
+ROOT1 poll LT=0 ROOT_GEN=1 GPU_GEN=1 LNKSTA=7101
+ROOT1 settled saw_LT=0 reads=20
+GPU after ROOT1: Gen1 x16 LNKSTA=0x1101
+ROOT after ROOT1: Gen1 x16 LNKSTA=0x7101
+
+[3] Root Retrain #2 (SET_ONLY)
+ROOT2 SET_ONLY old=0040 req=0060 rb=0040
+ROOT2 poll LT=1 ROOT_GEN=1 GPU_GEN=2 LNKSTA=F901
+ROOT2 poll LT=0 ROOT_GEN=2 GPU_GEN=2 LNKSTA=F102
+ROOT2 settled saw_LT=1 reads=20
+GPU final: Gen2 x16 LNKSTA=0x1102
+ROOT final: Gen2 x16 LNKSTA=0xF102
+PASS: physical Gen2 x16 reached.
+==== EXIT=0 2026/09/22 周二 22:40:47.53 ====

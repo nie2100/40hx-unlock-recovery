@@ -31,6 +31,18 @@
 - 根因：解锁态要求 `EnableGpuFirmware=1`；Above 4G Decoding 是本平台头号失败原因。
 - 处理：`HKLM\SYSTEM\CurrentControlSet\Services\nvlddmkm\Parameters\EnableGpuFirmware = 1`；BIOS 里 Above 4G Decoding = Enabled。
 
+### A6. 腾讯 ACE（ACE-BOOT）拦 Gen2 驱动的映像加载
+- 症状：开机后 ACE 弹「检测到与游戏可能存在兼容问题的软件程序加载：`C:\Windows\System32\drivers\ThrottleStop.sys`」；
+  该次开机任务 `EXIT=30`（`last.log` = `[SC] StartService 失败 31` + `FATAL: ThrottleStop service did not start`），Gen2 停在 Gen1；
+  **但 ESP `40hx_log.txt` 仍有 `*** UNLOCKED ***`** —— 算力正常，只是 Windows 侧落地失败，别误判成整机解锁崩了。
+- 根因：ACE「反作弊预启动模式」的引导期内核驱动 `ACE-BOOT.sys`（`SYSTEM_START`）在映像加载阶段拒载 `ThrottleStop.sys`
+  （SC 31 = ERROR_GEN_FAILURE）。**只拦 `ThrottleStop.sys`，同目录 `WinRing0x64.sys` 不受影响**。
+  已排除系统 WDAC 易受攻击驱动列表（`VulnerableDriverBlocklistEnable=0`）。
+- 处理：**`sc stop ACE-BOOT` 会永久卡 `STOP_PENDING`（用户态 `ACE-Tray.exe` 持有它）→ 必须先 `taskkill /IM ACE-Tray.exe /F`**，
+  再 `sc stop` 立即 STOPPED。重训成功后 `sc config ACE-BOOT start= system` + `sc start ACE-BOOT` 恢复反作弊，
+  **Gen2 是链路寄存器状态，不会被撤销**。已自动化进 `RunPostBind.cmd`。完整实测与误判陷阱见 `docs/06-ace-boot.md`。
+  排查顺序：先看 ESP 固件日志 + `last.log`，**不要**在排查前跑厂商 `40HXCheck.exe`（它会删驱动和服务）。
+
 ## B. 引导项相关的
 
 ### B1. 部分主板忽略 `bcdedit` 写的固件启动项
@@ -87,3 +99,12 @@
 | 2026-09-20 00:06 | `restore-onlyefi.ps1` 一键回滚：写回 OnlyEFI EFI（哈希校验）、禁用两个厂商任务、清 HKCU Run 里的 `40HXGen2` 残留键、策略键归零 |
 | 2026-09-20 00:09:44 | **冷启动**；00:09:30 固件日志 `UNLOCKED` + `NO-RETRAIN`；00:10:10 开机任务 `EXIT=0` + `PASS: physical Gen2 x16 reached`（守卫 `SS0=0x88888888`）→ 端到端两全确认 |
 | 2026-09-20 00:13 | 一次性冷启动验证任务出报告：算力 PASS / Gen2 PASS；顺手清掉一个 `Problem=0x2D` 幽灵设备实例 |
+| 2026-09-22 20:43 | 该次开机固件日志 `UNLOCKED` + `NO-RETRAIN`（算力与 Gen2 预埋都正常），但 Windows 侧任务 `EXIT=30` —— 首次遇到 ACE 拦截 |
+| 2026-09-22 20:49 | 现场诊断：`ThrottleStop` 服务 STOPPED + `WIN32_EXIT_CODE 31`；WDAC 列表已关；ESP EFI 哈希仍是 OnlyEFI `1e9ca43f…`；`ACE-Tray.exe` 在跑 |
+| 2026-09-22 20:50 | 只 `sc stop ACE-BOOT` → **卡 STOP_PENDING**，任务仍 `EXIT=30`（厂商文档没写这一步） |
+| 2026-09-22 20:51 | **`taskkill ACE-Tray.exe` → `sc stop` → 立刻 STOPPED → `sc start ThrottleStop` = exitcode 0** → 定位成功 |
+| 2026-09-22 21:03 / 21:04 | A/B 双验证：ACE-BOOT 停止态直接跑任务 `EXIT=0`；ACE-BOOT 运行态由脚本自动"杀托盘→停→重训→恢复" 也 `EXIT=0` + `PASS: already physical Gen2 x16` |
+| 2026-09-22 21:07 | 任务 `lastResult=0`；ACE-BOOT 已恢复 `STATE=RUNNING` / `START_TYPE=SYSTEM_START` → 「反作弊正常 + Gen2 已解锁」并存成立 |
+| 2026-09-22 22:08 | **真·开机（BootTrigger）验证**：托盘未启动，无需杀进程，`sc stop` 直接成功 → `EXIT=0`（开机自动路径无需人工） |
+| 2026-09-22 22:40 | 稳态复跑：`ACE: ACE-BOOT running - temporary stop…` → `stopped` → `EXIT=0` → `ACE: ACE-BOOT restored (SYSTEM_START)` |
+| 2026-09-23 00:20 | 把 ACE 全套结论、含 ACE 处理的 `RunPostBind.cmd`、状态自检 `.bat`、原始证据归档进本仓库（`docs/06-ace-boot.md`） |
