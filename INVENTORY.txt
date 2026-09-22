@@ -6,10 +6,10 @@ e0d0b1538c90f7ed731cd19502d2685d      4646  docs/05-inventory.md
 ff09b8290565e0e80f90b34d79423f77     13588  docs/06-ace-boot.md
 253b5d1ddc930b883b1be28b516e1c69      3904  evidence/40HXCheck.log
 b90ffdbeac1cc1a035de05e0d58971c3      7960  evidence/40hx_log_efi.txt
-58ffcf4da412efb51bc726dc85c0b199      4632  evidence/ace-20260922/01-diagnose.txt
-ebcef9caaae431a1654b6721a6b34ae5      4596  evidence/ace-20260922/02-stop-pending-then-task-EXIT30.txt
-a7f179b5be830c861c77a41f1f2dca6f      2362  evidence/ace-20260922/03-kill-tray-then-driver-loads.txt
-936d8789483eb6ab0945c6fdb13a481a      2932  evidence/ace-20260922/04-autotest-A-B-both-PASS.txt
+9557edcb8f2e4d99ebd495abe8d16c7f      4643  evidence/ace-20260922/01-diagnose.txt
+2bd0876a5487fd1b411b0961c464a45c      4607  evidence/ace-20260922/02-stop-pending-then-task-EXIT30.txt
+33020e48a3b236783cfcfca2bca52e34      2373  evidence/ace-20260922/03-kill-tray-then-driver-loads.txt
+21c55c1f97f94731af0cace2596f9b60      2943  evidence/ace-20260922/04-autotest-A-B-both-PASS.txt
 4aa8cd3644d203bcf78f14aeaa6df9ca     16508  evidence/ace-20260922/05-postbind.log
 d250b4dda7e7474c6e36f79a4be0537a      2318  evidence/ace-20260922/06-last.log.txt
 c8e2c82d920e82ab8a7842bfb89d058a      2265  evidence/ace-20260922/40hx-ace-check.ps1

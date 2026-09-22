@@ -1,10 +1,10 @@
 ﻿**********************
 Windows PowerShell 脚本开始
 开始时间: 20260922205126
-用户名: DESKTOP-QS20G0K\吴
-RunAs 用户: DESKTOP-QS20G0K\吴
+用户名: %COMPUTERNAME%\%USERNAME%
+RunAs 用户: %COMPUTERNAME%\%USERNAME%
 配置名称: 
-计算机: DESKTOP-QS20G0K (Microsoft Windows NT 10.0.26200.0)
+计算机: %COMPUTERNAME% (Microsoft Windows NT 10.0.26200.0)
 主机应用程序: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Temp\40hx-ace-stop2.ps1
 进程 ID: 5452
 PSVersion: 5.1.26100.9168
