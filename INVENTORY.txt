@@ -17,13 +17,13 @@ c8e2c82d920e82ab8a7842bfb89d058a      2265  evidence/ace-20260922/40hx-ace-check
 3273fb7d0c5f361e5436db329e90549e      1227  evidence/ace-20260922/40hx-ace-stop2.ps1
 c4b80662af656ff3ea85012a60addff4      1706  evidence/ace-20260922/40hx-autotest.ps1
 e4169ce97ccc496854f60d784e563d23      2144  evidence/bcd-firmware.txt
-e8e43af74002e071d059a0ebca905c37      6452  evidence/bench-20260920.txt
+3799a8268875b3a001fafa392f41e004      6459  evidence/bench-20260920.txt
 feafcd3312bb179ea155ae3ae8cf44fb      3660  evidence/coldboot-report.txt
-75b078c922e8618f8b148c166ad285e3     19472  evidence/diag-v32.txt
+06c94bf72961163302bf2d155aa41439     19493  evidence/diag-v32.txt
 c347f3494ef394011f3466b2da6ca989      9672  evidence/esp-snapshot.txt
 41c17fdc162a764f7182c378171c1ea5      7074  evidence/final_check.txt
 1f8ef94bce66ca34be40c8f298df778d       203  evidence/gen2_status.txt
-20f96fa9370916d07999fe9095b864d1      1456  evidence/ghost-clean.txt
+8d8e7f516516152c7fd26f8de535c71e      1462  evidence/ghost-clean.txt
 3968df4808ceeb5ee565e3abd1f3a1fd      3909  evidence/nvram_chk.txt
 5ad006a10e06a0decff47aed8e54b73d      1305  evidence/restore-onlyefi.txt
 1c8fbe99f653e4f0cb43ab90255e7ffe       479  evidence/sysinfo.txt
