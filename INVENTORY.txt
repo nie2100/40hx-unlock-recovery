@@ -111,7 +111,7 @@ a263240ac52b02cb91cf692e965be17c       996  scripts/clean-run-keys.ps1
 f2525946886c15641200231bd1b797b8      3496  scripts/fw-inspect.ps1
 f89f68142e3bd79eb8dc4b33e65b495b      3083  scripts/ghost-clean.ps1
 2da60222aa768ca0fa4669c41a154273      2204  scripts/install_onlyefi.ps1
-0bdfdc208064d12d1f2c713b82501775       404  scripts/make-inventory.sh
+cd11ade0c41673676a6fdd5d50197619       526  scripts/make-inventory.sh
 592bc67ffeeaceb76f1bbcbd1cfb9034      3744  scripts/nvram_bootorder.ps1
 06d3c07d57810008ca74104758242ae4      2532  scripts/nvram_chk.ps1
 43c83008af55c704636b79cd02b1a99a      2879  scripts/nvram_dbg.ps1
