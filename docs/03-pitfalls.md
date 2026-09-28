@@ -45,6 +45,16 @@
   **Gen2 是链路寄存器状态，不会被撤销**。已自动化进 `RunPostBind.cmd`。完整实测与误判陷阱见 `docs/06-ace-boot.md`。
   排查顺序：先看 ESP 固件日志 + `last.log`，**不要**在排查前跑厂商 `40HXCheck.exe`（它会删驱动和服务）。
 
+### A7. ACE 弹「初始化失败」：停 ACE-BOOT 的窗口撞上登录时启动的托盘（2026-09-28）
+
+- **症状**：算力 + Gen2 都是好的（`40hx_log.txt` 有 `UNLOCKED`、开机任务 `EXIT=0`），却弹 ACE 初始化失败。
+- **原因**：`ACE-Tray.exe` 由 HKLM Run 在登录时拉起一次；若落在「停 ACE-BOOT → 恢复」的几秒窗口内启动，
+  托盘初始化时 ACE-BOOT 不在 → 失败，且 Run 不会重试。
+- **判据**：托盘 `CreationDate` ∈ [postbind.log 的「已停止」,「已恢复运行」]；或用 explorer 登录时刻与窗口重叠判定
+  （后者在托盘已被重启过时仍有效）。
+- **修**：`ACE-Toggle.ps1 -Action HealTray`（开机任务里已自动调用，见 `docs/06` 第 10 节）。
+- **别做**：重装解锁包、重跑厂商安装器（后者还会覆盖 ESP 上的 OnlyEFI 固件，见 A1）。
+
 ## B. 引导项相关的
 
 ### B1. 部分主板忽略 `bcdedit` 写的固件启动项
@@ -148,6 +158,26 @@ PASS: already physical Gen2 x16; no writes needed.   ← 幂等：本来就已�
 两种正确写法：① 调用处**不传**日志路径，让脚本把输出打到标准输出、由 `>>` 落盘（当前 `RunPostBind.cmd` 采用）；
 ② 脚本自己写日志、调用处就不重定向。脚本内再包一层 try/catch 回退到标准输出，双保险。
 
+### D6. 在 `$ErrorActionPreference='Stop'` 的 PowerShell 里调原生命令会直接终止脚本（2026-09-28）
+
+- PowerShell 5.1：外部程序（`schtasks.exe` / `sc.exe` / `mountvol` / `nvidia-smi`）往 **stderr** 写字会产生
+  `NativeCommandError`，**即使写成 `... 2>&1 | Out-Null` 也照样终止脚本**。
+- 现场后果：全新机器首次安装时开机任务还不存在，`Install-40HXUnlock.ps1` 的 `schtasks /delete`（869 行）吐 stderr
+  → 安装中断在「开机任务 + 厂商自启收尾」，用户看到一片 `NativeCommandError`。
+  本机当初没炸，只是因为任务早已存在（旧任务来自 9/11）。
+- 实测对照：`schtasks /run|delete <不存在的任务>` → 抛；`sc.exe query <不存在的服务>` → **不抛**（错误走 stdout）。
+- 修法（最小侵入、命令与输出文本不变）：所有原生调用统一包一层
+  `function Invoke-Native { param([scriptblock]$Code) $p=$ErrorActionPreference; $ErrorActionPreference='Continue'; try { & $Code } finally { $ErrorActionPreference=$p } }`
+  删除型再加「先 `Get-ScheduledTask` 判断存在」。回归：`-Mode Check` 0 项失败、查询文本照旧可解析。
+
+### D7. `.cmd` 里不要写中文注释（2026-09-28）
+
+- 文件存成 UTF-8 而 cmd 按 GBK 代码页解析 → 中文 `rem` 行被当成命令，每次 `call :label` 都报
+  「'…' 不是内部或外部命令，也不是可运行的程序」。
+- **它只打到控制台、不写进 `postbind.log`**（放日志的重定向只作用于那一行 `powershell` 调用；
+  任务计划本身把 stdout/stderr 丢掉），所以长期没人发现 —— 排查 `postbind.log` 是找不到的。
+- 处理：`RunPostBind.cmd` 已改成**纯 ASCII**（纯 ASCII 文件对任何代码页都安全）。
+
 ## 历史时间线（本机）
 
 | 时间 | 事件 |
@@ -178,4 +208,6 @@ PASS: already physical Gen2 x16; no writes needed.   ← 幂等：本来就已�
 | 2026-09-28 18:57 | `一键安装.cmd`（提权后不再二次询问）端到端跑通：`安装退出码 = 0`；幂等 Install 连跑 4 次均 EXIT=0 |
 | 2026-09-28 19:09 | 补「报错指引」：失败自动打印退出码含义/日志路径/体检命令/`排查指引.md`/回滚命令；故意不带 `-Yes` 跑 Uninstall 验证（退出码 2），Check/SelfTest 回归仍 EXIT=0 |
 | 2026-09-28 19:20 | 把整包归档进仓库 `oneclick/`（不含 logs/backup/state），README 增加一键入口章节，docs/03 增补 B4~B6、C5、D4 |
+| 2026-09-28 23:00~24:00 | 装机后 ACE 弹「初始化失败」→ 定位为「停窗撞上登录启动托盘」；`ACE-Toggle.ps1` 增 `HealTray` + `On` 记 `ResumedAt`，`RunPostBind.cmd` 加自愈调用并改纯 ASCII；`Install-40HXUnlock.ps1` 修掉 EAP=Stop 下原生命令的 NativeCommandError（D6）；新增 `oneclick/ACE排查/` 与 `oneclick/hotfix-20260928/` |
 | 2026-09-28 19:20~19:40 | ACE 处理加固成 `ACE-Toggle.ps1`（路径定位 + 原启动类型还原 + 其它反作弊提示）；7 个模拟用例 + 真机 Off/On + `-Mode Install -RunNow` 端到端 `EXIT=0`；修掉 `postbind.log` 句柄冲突导致的日志报错 |
+

@@ -1,0 +1,47 @@
+===== 来源: hotfix-test.log =====
+================ CMP40HX 热修（ACE 托盘撞窗自愈）================
+时间: 2026-09-29 00:01:01
+
+已备份原文件到: C:\ProgramData\CMP40HXGen2\windows\logs\pre-hotfix-20260929-000101
+
+[OK] RunPostBind.cmd  ->  C:\ProgramData\CMP40HXGen2\windows\RunPostBind.cmd   (3533 B, B0F1B6A1B77554D9)
+[OK] ACE-Toggle.ps1  ->  C:\ProgramData\CMP40HXGen2\windows\ACE-Toggle.ps1   (15833 B, CAC0ED9DA7BF8FFA)
+[OK] ACE-Toggle.ps1 语法校验通过
+[OK] RunPostBind.cmd 已包含托盘自愈调用
+
+热修已应用。下次开机（或下次重启）就会自动生效：
+  · Gen2 落地流程不变（停 ACE-BOOT → 重训 → 恢复 ACE-BOOT）
+  · 新增：恢复 ACE-BOOT 之后，若发现 ACE 托盘是在“停窗”里启动的（初始化会失败），
+          或托盘被停窗流程结束掉了，就自动把它重启回你的桌面会话 —— 不再需要手动重启托盘。
+
+================ 立刻端到端验证（会短暂停/起 ACE-BOOT，约 1 分钟）================
+开机任务退出码 = 0  [OK]
+--- postbind.log 本次新增 ---
+  | ==== PostBind start 2026/09/29 周二  0:01:01.16 ====
+  | [00:01:01] ACE INFO: ACE-BOOT 正在运行（start=System）—— 临时停掉，好让 Gen2 驱动加载
+  | [00:01:23] ACE INFO: ACE-BOOT 仍是 STOP_PENDING —— 托盘进程持有它，按路径定位并结束托盘
+  | [00:01:23] ACE INFO: 结束托盘: PID=5280 C:\Program Files\AntiCheatExpert\ACE-Tray.exe
+  | [00:01:26] ACE INFO: ACE-BOOT 结束托盘后已停止
+  | ---- attempt 1 ----
+  | ==== PostBind EXIT=0 2026/09/29 周二  0:01:27.54 ====
+  | PASS: physical Gen2 post-bind step succeeded 
+  | [00:01:28] ACE INFO: 已恢复原始启动类型: ACE-BOOT start= system（原 System）
+  | [00:01:31] ACE INFO: ACE-BOOT 已恢复运行
+  | [00:01:31] ACE INFO: Gen2 是链路寄存器状态，恢复反作弊不会撤销它（2026-09-22 实测）；ACE-Tray 由下次登录的 HKLM Run 拉起，本会话缺图标可手工运行 ACE-Tray.exe
+  | [00:01:32] ACE INFO: 需要恢复 ACE 托盘: 托盘不在运行，且刚刚停过 ACE-BOOT（多半被 Off 流程结束掉了）→ 拉起它
+  | [00:01:40] ACE INFO:   新托盘 PID=10544 session=1
+  | [00:01:40] ACE INFO: 托盘已在用户会话重新启动（ACE 托盘图标应已恢复）
+--- 当前 ACE 托盘 ---
+  ACE-Tray.exe PID=10544 session=1 启动=09/29/2026 00:01:34
+--- ACE-BOOT ---
+SERVICE_NAME: ACE-BOOT 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 4  RUNNING 
+                                (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+
+完成。有异常就把本窗口内容发回给 Hermes。
+EXIT=0 

@@ -22,16 +22,18 @@ for /L %%I in (1,1,3) do (
 if "!RC!"=="0" ( >>"%LOG%" echo PASS: physical Gen2 post-bind step succeeded ) else ( >>"%LOG%" echo FAIL: post-bind step did not reach Gen2 )
 rem restore the anti-cheat only when Gen2 was actually reached
 if "!RC!"=="0" call :ace_toggle on
+rem restore ACE tray into the interactive session if it was started inside the ACE-BOOT stop window
+if "!RC!"=="0" call :ace_toggle HealTray
 exit /b !RC!
 
 :heal
 set "SYS=%SystemRoot%\System32\drivers"
-rem ---- 1) 普通目录源: 每轮都补(火绒会在驱动加载后隔离文件并删服务) ----
-for %%S in ("D:\40hx-unlock\drv" "C:\ProgramData\CMP40HXGen2\drivers" "C:\ProgramData\40HXUnlock\drivers" "D:\40hx-unlock\onlyefi-v0.1.1\windows\drivers") do (
+rem ---- 1) normal driver source dirs: refresh every round (AV quarantines the .sys after it loads) ----
+for %%S in ("C:\ProgramData\CMP40HXGen2\drivers" "C:\ProgramData\40HXUnlock\drivers") do (
   if not exist "%SYS%\ThrottleStop.sys" if exist "%%~S\ThrottleStop.sys" copy /y "%%~S\ThrottleStop.sys" "%SYS%\ThrottleStop.sys" >nul 2>&1
   if not exist "%SYS%\WinRing0x64.sys" if exist "%%~S\WinRing0x64.sys" copy /y "%%~S\WinRing0x64.sys" "%SYS%\WinRing0x64.sys" >nul 2>&1
 )
-rem ---- 2) 兜底源: ESP(EFI 分区, 杀软不扫) 下的 drv 备份 ----
+rem ---- 2) fallback source: drv backup on the ESP (AV does not scan the EFI partition) ----
 if not exist "%SYS%\ThrottleStop.sys" (
   for %%L in (Y X W V U T S R Q) do (
     if not exist "%SYS%\ThrottleStop.sys" if not exist "%%L:\" (
@@ -47,7 +49,7 @@ if not exist "%SYS%\ThrottleStop.sys" (
 )
 if not exist "%SYS%\ThrottleStop.sys" >>"%LOG%" echo heal WARN: ThrottleStop.sys source not found
 if not exist "%SYS%\WinRing0x64.sys" >>"%LOG%" echo heal WARN: WinRing0x64.sys source not found
-rem ---- 3) 服务必须存在: 厂商 AutoRetrain 只启动不创建(实测 1060) ----
+rem ---- 3) services must exist: vendor AutoRetrain only starts them, never creates (1060 observed) ----
 sc query ThrottleStop >nul 2>&1
 if errorlevel 1 ( >>"%LOG%" echo heal: create service ThrottleStop & sc create ThrottleStop type= kernel start= demand binPath= "\SystemRoot\System32\drivers\ThrottleStop.sys" >>"%LOG%" 2>&1 )
 sc query WinRing0_1_2_0 >nul 2>&1
@@ -55,8 +57,8 @@ if errorlevel 1 ( >>"%LOG%" echo heal: create service WinRing0_1_2_0 & sc create
 exit /b 0
 
 :ace_toggle
-rem 参数 %1 = off / on
-rem ACE(腾讯反作弊)的定位与停止/恢复全部交给 ACE-Toggle.ps1：它按 ImagePath 里的 AntiCheatExpert 定位，
-rem 不写死服务名/安装目录，并记录原始启动类型用于恢复（换安装目录、改服务名都不受影响）。
+rem param %1 = off / on
+rem ACE (Tencent anti-cheat) locate/stop/restore is handled by ACE-Toggle.ps1: it matches on ImagePath
+rem containing AntiCheatExpert, so no hardcoded service name / install dir; original start type is recorded for restore.
 powershell -NoProfile -ExecutionPolicy Bypass -File "C:\ProgramData\CMP40HXGen2\windows\ACE-Toggle.ps1" -Action %1 >>"%LOG%" 2>&1
 exit /b 0

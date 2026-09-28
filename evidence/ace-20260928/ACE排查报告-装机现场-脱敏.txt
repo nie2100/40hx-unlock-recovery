@@ -1,0 +1,183 @@
+===== 来源: ACE排查报告-<机器名>-<时间>.txt =====
+ACE / CMP40HX 排查报告    2026-09-28 23:46:32
+计算机: %COMPUTERNAME%    用户: %USERNAME%    管理员: 是
+
+==== 1. 系统 ====
+  系统      : Microsoft Windows 11 专业工作站版 (Build 28000)
+  上次开机  : 09/28/2026 23:05:18
+  已运行    : 41 分钟
+  交互登录用户: %COMPUTERNAME%\%USERNAME%
+
+==== 2. 一键包的开机任务（CMP40HX Gen2 PostBind） ====
+  存在      : 是    State=Ready
+  上次运行  : 09/28/2026 23:05:25    上次结果=0x0
+  下次运行  : 
+  触发器    : MSFT_TaskBootTrigger
+  动作      : cmd.exe /d /c C:\ProgramData\CMP40HXGen2\windows\RunPostBind.cmd
+  相关任务  : CMP40HX Gen2 PostBind   State=Ready
+
+==== 3. 腾讯 ACE 的服务与驱动（启动类型决定 ACE-BOOT 会不会自己起来） ====
+  ACE-ADVT               start=Manual(手动)       state=STOPPED
+        路径: \??\C:\Windows\system32\drivers\ACE-ADVT.sys
+  ACE-BASE               start=Manual(手动)       state=STOPPED
+        路径: \??\C:\Windows\system32\drivers\ACE-BASE.sys
+  ACE-BOOT               start=System(系统)       state=RUNNING
+        路径: \??\C:\Program Files\AntiCheatExpert\ACE-BOOT.sys
+  ACE-CORE102706         start=Manual(手动)       state=STOPPED
+        路径: \??\C:\Program Files\AntiCheatExpert\ACE-CORE102706.sys
+  ACE-CORE202706         start=Manual(手动)       state=STOPPED
+        路径: \??\C:\Program Files\AntiCheatExpert\ACE-CORE202706.sys
+  ACE-CORE302706         start=Manual(手动)       state=STOPPED
+        路径: \??\C:\Windows\system32\drivers\ACE-CORE302706.sys
+  ACE-SSC-DRV64          start=Manual(手动)       state=STOPPED
+        路径: \??\C:\Program Files\AntiCheatExpert\SGuard\x64\plugins\ACE-SSC-DRV64.sys
+  AntiCheatExpert Protection start=Manual(手动)       state=STOPPED
+        路径: "C:\Program Files\AntiCheatExpert\ACE-Service64.exe"  -autorun
+  AntiCheatExpert Service start=Manual(手动)       state=STOPPED
+        路径: "C:\Program Files\AntiCheatExpert\SGuard\x64\SGuardSvc64.exe" -autorun
+
+==== 4. ACE 进程（重点看托盘在哪个会话、什么时候启动的） ====
+  ACE-Tray.exe         PID=8128 session=1 启动=09/28/2026 23:05:33
+
+  最近一次开机任务的时间线（2026-09-28）:
+    停 ACE-BOOT : 23:05:32
+    恢复 ACE-BOOT: 23:05:38
+    任务退出码   : 0
+    托盘启动时刻 : 23:05:33
+  >> 竞态成立：ACE 托盘在 23:05:33 启动，正落在 ACE-BOOT 停掉的窗口(23:05:32~23:05:38)里 —— 托盘初始化必然失败。这就是"ACE 弹窗初始化失败"的机理
+  本次登录时刻(explorer 启动) : 23:05:27   ← 注册表 Run 就是在这前后拉起 ACE 托盘的
+  >> 本次登录与 ACE-BOOT 停窗重叠（停 23:05:32 / 恢复 23:05:38 / 登录 23:05:27）—— 这台机器属于"高风险撞车"：托盘由登录时拉起，撞上窗口就会初始化失败。哪怕现在托盘看着正常（已被重启过），也按第 9 节做根治
+
+==== 5. 一键包日志（postbind.log 尾部 / last.log 判据行 / ace-state.json） ====
+  --- C:\ProgramData\CMP40HXGen2\windows\logs\postbind.log 尾部 30 行 ---
+  | ==== PostBind start 2026/09/28 周一 23:00:59.44 ====
+  | [23:01:04] ACE INFO: ACE-BOOT 正在运行（start=System）—— 临时停掉，好让 Gen2 驱动加载
+  | [23:01:04] ACE INFO: ACE-BOOT 已停止
+  | ---- attempt 1 ----
+  | ==== PostBind EXIT=0 2026/09/28 周一 23:01:06.74 ====
+  | PASS: physical Gen2 post-bind step succeeded 
+  | [23:01:08] ACE INFO: 已恢复原始启动类型: ACE-BOOT start= system（原 System）
+  | [23:01:11] ACE INFO: ACE-BOOT 已恢复运行
+  | [23:01:11] ACE INFO: Gen2 是链路寄存器状态，恢复反作弊不会撤销它（2026-09-22 实测）；ACE-Tray 由下次登录的 HKLM Run 拉起，本会话缺图标可手工运行 ACE-Tray.exe
+  | ==== PostBind start 2026/09/28 周一 23:03:55.67 ====
+  | [23:03:59] ACE INFO: ACE-BOOT 正在运行（start=System）—— 临时停掉，好让 Gen2 驱动加载
+  | [23:04:00] ACE INFO: ACE-BOOT 已停止
+  | ---- attempt 1 ----
+  | ==== PostBind EXIT=0 2026/09/28 周一 23:04:02.37 ====
+  | PASS: physical Gen2 post-bind step succeeded 
+  | [23:04:04] ACE INFO: 已恢复原始启动类型: ACE-BOOT start= system（原 System）
+  | [23:04:06] ACE INFO: ACE-BOOT 已恢复运行
+  | [23:04:06] ACE INFO: Gen2 是链路寄存器状态，恢复反作弊不会撤销它（2026-09-22 实测）；ACE-Tray 由下次登录的 HKLM Run 拉起，本会话缺图标可手工运行 ACE-Tray.exe
+  | ==== PostBind start 2026/09/28 周一 23:05:27.75 ====
+  | [23:05:31] ACE INFO: ACE-BOOT 正在运行（start=System）—— 临时停掉，好让 Gen2 驱动加载
+  | [23:05:32] ACE INFO: ACE-BOOT 已停止
+  | ---- attempt 1 ----
+  | ==== PostBind EXIT=0 2026/09/28 周一 23:05:33.96 ====
+  | PASS: physical Gen2 post-bind step succeeded 
+  | [23:05:35] ACE INFO: 已恢复原始启动类型: ACE-BOOT start= system（原 System）
+  | [23:05:38] ACE INFO: ACE-BOOT 已恢复运行
+  | [23:05:38] ACE INFO: Gen2 是链路寄存器状态，恢复反作弊不会撤销它（2026-09-22 实测）；ACE-Tray 由下次登录的 HKLM Run 拉起，本会话缺图标可手工运行 ACE-Tray.exe
+  --- last.log 关键行 ---
+  | SERVICE_NAME: ThrottleStop
+  | SERVICE_NAME: WinRing0_1_2_0
+  | GUARD=PASS
+  | PASS: physical Gen2 x16 reached.
+  | ==== EXIT=0 2026/09/28 周一 23:05:33.92 ====
+  --- ace-state.json ---
+  | {
+  | "StartKeyword":  "system",
+  | "Stopped":  true,
+  | "Name":  "ACE-BOOT",
+  | "StartMode":  "System",
+  | "Time":  "2026-09-28T23:05:31"
+  | }
+
+==== 6. 近 2 天系统日志里与 ACE / 驱动加载有关的记录 ====
+  [09-28 23:18:26] 7045 Service Control Manager :: 服务已安装在系统中。 |  | 服务名称: GPU-Z-v2 | 服务文件名: C:\Users\ADMINI~1\AppData\Local\Temp\\GPU-Z-v2.sys | 服务类型: 内核模式驱动程序 | 服务启动类型: 按需启动 | 服务账户: 
+  [09-28 23:05:27] 7026 Service Control Manager :: 以下引导启动或系统启动驱动程序未加载:  | dam
+  [09-28 23:05:27] 7001 Microsoft-Windows-Winlogon :: 客户体验改善计划的用户登录通知
+  [09-28 23:05:26] 7000 Service Control Manager :: 由于下列错误，iaStorAfsService 服务启动失败:  | 操作成功完成。
+  [09-28 23:05:26] 7001 Service Control Manager :: 与 NcaSvc 服务相依的 IpHlpSvc 服务因下列错误而无法启动:  | 无法启动服务，原因可能是已被禁用或与其相关联的设备没有启动。
+  [09-28 23:05:25] 7000 Service Control Manager :: 由于下列错误，UCPD 服务启动失败:  | 操作成功完成。
+  [09-28 23:05:25] 7000 Service Control Manager :: 由于下列错误，luafv 服务启动失败:  | 操作成功完成。
+  [09-28 23:03:55] 7001 Microsoft-Windows-Winlogon :: 客户体验改善计划的用户登录通知
+  [09-28 23:03:55] 7026 Service Control Manager :: 以下引导启动或系统启动驱动程序未加载:  | dam
+  [09-28 23:03:54] 7000 Service Control Manager :: 由于下列错误，iaStorAfsService 服务启动失败:  | 操作成功完成。
+  [09-28 23:03:54] 7001 Service Control Manager :: 与 NcaSvc 服务相依的 IpHlpSvc 服务因下列错误而无法启动:  | 无法启动服务，原因可能是已被禁用或与其相关联的设备没有启动。
+  [09-28 23:03:53] 7000 Service Control Manager :: 由于下列错误，UCPD 服务启动失败:  | 操作成功完成。
+  [09-28 23:03:53] 7000 Service Control Manager :: 由于下列错误，luafv 服务启动失败:  | 操作成功完成。
+  [09-28 23:02:34] 7045 Service Control Manager :: 服务已安装在系统中。 |  | 服务名称: GPU-Z-v2 | 服务文件名: C:\Users\ADMINI~1\AppData\Local\Temp\\GPU-Z-v2.sys | 服务类型: 内核模式驱动程序 | 服务启动类型: 按需启动 | 服务账户: 
+  [09-28 23:00:59] 7026 Service Control Manager :: 以下引导启动或系统启动驱动程序未加载:  | dam
+  [09-28 23:00:59] 7001 Microsoft-Windows-Winlogon :: 客户体验改善计划的用户登录通知
+  [09-28 23:00:58] 7000 Service Control Manager :: 由于下列错误，iaStorAfsService 服务启动失败:  | 操作成功完成。
+  [09-28 23:00:58] 7001 Service Control Manager :: 与 NcaSvc 服务相依的 IpHlpSvc 服务因下列错误而无法启动:  | 无法启动服务，原因可能是已被禁用或与其相关联的设备没有启动。
+  [09-28 23:00:58] 7000 Service Control Manager :: 由于下列错误，UCPD 服务启动失败:  | 操作成功完成。
+  [09-28 23:00:58] 7000 Service Control Manager :: 由于下列错误，luafv 服务启动失败:  | 操作成功完成。
+  [09-28 22:35:45] 7045 Service Control Manager :: 服务已安装在系统中。 |  | 服务名称: WinRing0_1_2_0 | 服务文件名: \SystemRoot\System32\drivers\WinRing0x64.sys | 服务类型: 内核模式驱动程序 | 服务启动类型: 按需启动 | 服务账户: 
+  [09-28 22:35:45] 7045 Service Control Manager :: 服务已安装在系统中。 |  | 服务名称: ThrottleStop | 服务文件名: \SystemRoot\System32\drivers\ThrottleStop.sys | 服务类型: 内核模式驱动程序 | 服务启动类型: 按需启动 | 服务账户: 
+  [09-28 18:08:06] 7045 Service Control Manager :: 服务已安装在系统中。 |  | 服务名称: GPU-Z-v2 | 服务文件名: C:\Users\ADMINI~1\AppData\Local\Temp\\GPU-Z-v2.sys | 服务类型: 内核模式驱动程序 | 服务启动类型: 按需启动 | 服务账户: 
+  [09-28 18:04:06] 7045 Service Control Manager :: 服务已安装在系统中。 |  | 服务名称: ComputerZ_x64 | 服务文件名: D:\LuDaShi\LuDaShi\ComputerZ_x64.sys | 服务类型: 内核模式驱动程序 | 服务启动类型: 按需启动 | 服务账户: 
+  [09-28 18:03:31] 7045 Service Control Manager :: 服务已安装在系统中。 |  | 服务名称: FvKMDSvc | 服务文件名: C:\Windows\system32\VRFCAT-Plugins\FrameViewKM_x64.sys | 服务类型: 内核模式驱动程序 | 服务启动类型: 按需启动 | 服务账户: 
+  [09-28 13:37:36] 7045 Service Control Manager :: 服务已安装在系统中。 |  | 服务名称: ACE-SSC-DRV64 | 服务文件名: C:\Program Files\AntiCheatExpert\SGuard\x64\plugins\ACE-SSC-DRV64.sys | 服务类型: 内核模式驱动程序 | 服务启动类型: 按需启动 | 服务账户: 
+  [09-28 13:37:18] 7045 Service Control Manager :: 服务已安装在系统中。 |  | 服务名称: HWiNFO Kernel Driver (v215) | 服务文件名: C:\Users\ADMINI~1\AppData\Local\Temp\HWiNFO_x64_215.sys | 服务类型: 内核模式驱动程序 | 服务启动类型: 按需启动 | 服务账户: 
+  [09-28 13:24:55] 7026 Service Control Manager :: 以下引导启动或系统启动驱动程序未加载:  | dam
+  [09-28 13:24:55] 7001 Microsoft-Windows-Winlogon :: 客户体验改善计划的用户登录通知
+  [09-28 13:24:54] 7000 Service Control Manager :: 由于下列错误，iaStorAfsService 服务启动失败:  | 操作成功完成。
+  [09-28 13:24:54] 7001 Service Control Manager :: 与 NcaSvc 服务相依的 IpHlpSvc 服务因下列错误而无法启动:  | 无法启动服务，原因可能是已被禁用或与其相关联的设备没有启动。
+  [09-28 13:24:54] 7000 Service Control Manager :: 由于下列错误，UCPD 服务启动失败:  | 操作成功完成。
+  [09-28 13:24:54] 7000 Service Control Manager :: 由于下列错误，luafv 服务启动失败:  | 操作成功完成。
+  [09-28 04:46:07] 7045 Service Control Manager :: 服务已安装在系统中。 |  | 服务名称: ACE-SSC-DRV64 | 服务文件名: C:\Program Files\AntiCheatExpert\SGuard\x64\plugins\ACE-SSC-DRV64.sys | 服务类型: 内核模式驱动程序 | 服务启动类型: 按需启动 | 服务账户: 
+  [09-28 04:37:34] 7045 Service Control Manager :: 服务已安装在系统中。 |  | 服务名称: NVIDIA Broadcast | 服务文件名: \SystemRoot\system32\drivers\nvrtxvad64v.sys | 服务类型: 内核模式驱动程序 | 服务启动类型: 按需启动 | 服务账户: 
+  [09-28 03:53:35] 7045 Service Control Manager :: 服务已安装在系统中。 |  | 服务名称: ACE-SSC-DRV64 | 服务文件名: C:\Program Files\AntiCheatExpert\SGuard\x64\plugins\ACE-SSC-DRV64.sys | 服务类型: 内核模式驱动程序 | 服务启动类型: 按需启动 | 服务账户: 
+  [09-28 03:53:33] 7045 Service Control Manager :: 服务已安装在系统中。 |  | 服务名称: HWiNFO Kernel Driver (v215) | 服务文件名: C:\Users\ADMINI~1\AppData\Local\Temp\HWiNFO_x64_215.sys | 服务类型: 内核模式驱动程序 | 服务启动类型: 按需启动 | 服务账户: 
+  [09-28 03:52:31] 7001 Microsoft-Windows-Winlogon :: 客户体验改善计划的用户登录通知
+  [09-28 03:52:31] 7026 Service Control Manager :: 以下引导启动或系统启动驱动程序未加载:  | dam
+  [09-28 03:52:30] 7000 Service Control Manager :: 由于下列错误，iaStorAfsService 服务启动失败:  | 操作成功完成。
+
+==== 7. 杀软与其它反作弊（ACE 初始化失败的另一个常见原因） ====
+  在跑的杀软进程: 360ChromeX
+  其它反作弊服务: BEService
+  提示：火绒/其它杀软把 ThrottleStop.sys 判成 Exploit/Vulndriver 会秒删（属预期）—— 但只要 ACE-BOOT 正常、托盘正常，这与"ACE 初始化失败"无关。
+
+==== 8. ACE 安装目录里的关键文件 ====
+  --- C:\Program Files\AntiCheatExpert ---
+  | ACE-BASE.sys                          4125432  09/28/2026 03:53:17
+  | ace-boot.dat                            81960  09/27/2026 11:24:05
+  | ACE-BOOT.sys                          2015848  09/27/2026 11:24:05
+  | ace-boot-20260928-230404.log                0  09/28/2026 23:04:04
+  | ace-boot-20260928-230520.log           509165  09/28/2026 23:05:32
+  | ace-boot-20260928-230535.log                0  09/28/2026 23:05:35
+  | ACE-CORE302706.sys                    4357888  09/28/2026 03:53:17
+  | ACE-Service64.exe                     3251672  09/04/2026 03:02:39
+  | ACE-Tray.exe                          7675792  09/27/2026 11:24:04
+  | Uninstaller.exe                        904520  09/04/2026 03:02:39
+  ! 近 2 天被改动过: ACE-BASE.sys  09/28/2026 03:53:17
+  ! 近 2 天被改动过: ace-boot-20260928-230404.log  09/28/2026 23:04:04
+  ! 近 2 天被改动过: ace-boot-20260928-230520.log  09/28/2026 23:05:32
+  ! 近 2 天被改动过: ace-boot-20260928-230535.log  09/28/2026 23:05:35
+  ! 近 2 天被改动过: ace-boot.dat  09/27/2026 11:24:05
+  ! 近 2 天被改动过: ACE-BOOT.sys  09/27/2026 11:24:05
+  ! 近 2 天被改动过: ACE-CORE302706.sys  09/28/2026 03:53:17
+  ! 近 2 天被改动过: ACE-Tray.exe  09/27/2026 11:24:04
+  --- C:\ProgramData\AntiCheatExpert ---
+  | ace-boot.dat                            81960  09/27/2026 12:12:05
+  | ace-drc.dat                          21820968  09/28/2026 17:57:05
+  | ACE-Tray.dat                             1208  09/28/2026 23:05:33
+  | sldh.dat                                12288  09/28/2026 22:44:28
+  ! 近 2 天被改动过: ace-boot.dat  09/27/2026 12:12:05
+  ! 近 2 天被改动过: ace-drc.dat  09/28/2026 17:57:05
+  ! 近 2 天被改动过: ACE-Tray.dat  09/28/2026 23:05:33
+  ! 近 2 天被改动过: sldh.dat  09/28/2026 22:44:28
+
+==== 9. 结论与建议 ====
+  [1] 竞态成立：ACE 托盘在 23:05:33 启动，正落在 ACE-BOOT 停掉的窗口(23:05:32~23:05:38)里 —— 托盘初始化必然失败。这就是"ACE 弹窗初始化失败"的机理
+  [2] 本次登录与 ACE-BOOT 停窗重叠（停 23:05:32 / 恢复 23:05:38 / 登录 23:05:27）—— 这台机器属于"高风险撞车"：托盘由登录时拉起，撞上窗口就会初始化失败。哪怕现在托盘看着正常（已被重启过），也按第 9 节做根治
+
+  处理顺序建议：
+   1) 先只想"让 ACE 立刻能用"：杀掉 ACE-Tray 再重新启动它（用户会话里启动），或直接重启电脑。
+   2) 若 ACE-BOOT 是 Disabled：改回 system 并启动，然后重启。
+   3) 想"以后每次开机都不再犯"：用带自愈的新版 RunPostBind.cmd / ACE-Toggle.ps1（Hermes 已备好，覆盖后跑一次 Repair）。
+   4) 想同时确认算力 + Gen2 没有掉：跑本包里的 状态自检.bat（不用管理员，出"全绿"即正常）。
+
+报告文件: C:\Users\%USERNAME%\Desktop\ACE排查报告-%COMPUTERNAME%-20260928-234632.txt
+把这份报告整份发回给 Hermes 即可（含上面的第 2/3/4/5/6 节最有价值）。

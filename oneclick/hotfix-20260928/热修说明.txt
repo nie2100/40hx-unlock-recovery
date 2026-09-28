@@ -1,0 +1,49 @@
+CMP40HX 一键包 —— ACE「弹窗初始化失败」热修包   2026-09-28
+=========================================================
+
+【这个包解决什么】
+装了 CMP40HX 一键包后，PCIe Gen2 会正常落地，但腾讯 ACE 有时弹「初始化失败」。
+已在那台问题机器（另一台装机机器）上抓到实证：
+    停 ACE-BOOT  23:05:32
+    恢复 ACE-BOOT 23:05:38
+    ACE-Tray 启动 23:05:33   <-- 正好卡在“ACE-BOOT 不在”的这几秒里
+ACE 托盘是登录时由注册表 Run 拉起一次的，撞进这个窗口就会初始化失败，而 Run 不会自己重试。
+（算力与 Gen2 都是好的：那次开机任务 EXIT=0、GUARD=PASS、Gen2 已落地 —— 别去重装解锁包。）
+
+【这个包做什么】
+把新版的两个文件覆盖上去：
+  C:\ProgramData\CMP40HXGen2\windows\RunPostBind.cmd
+  C:\ProgramData\CMP40HXGen2\windows\ACE-Toggle.ps1
+新版在“恢复 ACE-BOOT 之后”多做一步自愈：
+  · 托盘是撞窗启动的（启动时刻落在 [停, 恢复] 之间）  -> 杀掉并重启到你的桌面会话
+  · 托盘被停窗流程结束掉了（Off 那段会结束持有 ACE-BOOT 的托盘） -> 重新拉起
+  · 托盘跑在 session 0（系统会话，看不到图标）          -> 重启到桌面会话
+  · 一切正常（托盘在恢复之后才启动）                    -> 什么都不动（幂等，不会反复重启）
+   同一轮里重复调用也会跳过（状态文件里记了 HealedAt）。
+
+【怎么用】
+1. 把整个文件夹拷到那台电脑（U盘/微信都行，别只拷一个文件）
+2. 双击「应用热修.cmd」            -> 覆盖文件 + 校验，UAC 点“是”
+   或双击「应用热修并立即验证.cmd」 -> 覆盖后立刻跑一次开机任务做端到端验证（约 1 分钟，
+                                      期间会短暂停/起 ACE-BOOT，别在玩腾讯游戏时跑）
+3. 看到 [OK] 即完成；不改任何 EFI / 引导项 / 分区
+
+【备份与回滚】
+原文件自动备份到：
+  C:\ProgramData\CMP40HXGen2\windows\logs\pre-hotfix-<时间>\
+想回滚：把备份里的两个文件拷回 C:\ProgramData\CMP40HXGen2\windows\ 覆盖即可（管理员）。
+
+【已经在本机（同款环境）验证过的场景】
+  · 撞窗托盘 -> HealTray 识别并重启到 session=1            PASS
+  · 同一轮重复调用 -> 幂等跳过，PID 不变                    PASS
+  · 托盘在恢复之后启动（真实良好路径）-> 不动作，PID 不变    PASS
+  · 托盘被杀掉（Off 流程持有 ACE-BOOT 的情形）-> 拉回 session=1 PASS
+  · 完整跑一次开机任务 -> EXIT=0，日志里能看到托盘自愈记录   PASS
+
+【另外附带】
+  Install-40HXUnlock.ps1   —— 修好“首次安装必炸”的版本，可选替换你 Downloads 里那份。
+    你遇到的那个报错根因：PS 5.1 在 $ErrorActionPreference='Stop' 下，外部程序往 stderr 写字
+    会产生 NativeCommandError 并**终止脚本**，连 `2>&1 | Out-Null` 都挡不住；全新机器上
+    `schtasks /delete`（任务还不存在）正好吐 stderr，于是安装中断。新版把所有原生命令
+    （schtasks / sc / mountvol / nvidia-smi）统一走一层包装，只在调用期间临时放宽，
+    命令与输出文本完全不变。本机已用 -Mode Check 回归（0 项失败）。

@@ -1,0 +1,71 @@
+===== 来源: schtasks-eap-test.txt =====
+=== A) EAP=Stop + "schtasks /delete ... 2>&1 | Out-Null" (原写法) ===
+A: TERMINATING ERROR -> NativeCommandError | ERROR: The system cannot find the file specified.
+
+=== B) 修法1: cmd /c "schtasks ... 1>nul 2>nul" ===
+B: no error thrown -> continued
+
+=== C) 修法2: if (Get-ScheduledTask ...) { Unregister-ScheduledTask } ===
+C: no error thrown -> continued (task existed: False)
+
+=== D) EAP=Stop 下 "schtasks /query /tn <不存在>" 用 2>&1|Out-String 捕获（同 870 行写法） ===
+D: TERMINATING ERROR -> NativeCommandError
+
+=== E) 同样查询但用 cmd 包一层 ===
+E: no error thrown; out=ERROR: The system cannot find the file specified.
+===== 来源: native-eap-scan.txt =====
+== 同族 native 调用在 $ErrorActionPreference='Stop' 下的行为 ==
+[OK  ] sc.exe query <不存在的服务> 2>&1|Out-String  -> [SC] EnumQueryServicesStatus:OpenService 失败 1060: 指定的服务未安装。
+[OK  ] sc.exe query WinRing0_1_2_0(存在,Stopped) 2>&1|Out-String  -> SERVICE_NAME: WinRing0_1_2_0 TYPE : 1 KERNEL_DRIVER STATE : 1 STOPPED WIN32_EXIT_CODE : 0 (0x0) SERVICE_EXIT_CODE : 0 (0x0) CHECKPOINT : 0x0 WAIT_HINT
+[OK  ] sc.exe stop <不存在的服务> 2>&1|Out-Null  -> silent
+[OK  ] sc.exe delete <不存在的服务> 2>&1|Out-Null  -> silent
+[THROW] schtasks /run <不存在的任务> 2>&1|Out-Null  -> NativeCommandError | 错误: 系统找不到指定的文件。
+[OK  ] nvidia-smi -q 2>&1|Out-String (前120字)  -> ==============NVSMI LOG============== Timestamp : Mon Sep 28 23:48:40 2026 Driver Version : 616.92 [Deprecated; will be removed in CUDA 14.0. Use KMD 
+
+--- mountvol 现状 ---
+创建、删除或列出卷装入点。
+
+MOUNTVOL [drive:]path VolumeName
+MOUNTVOL [drive:]path /D
+MOUNTVOL [drive:]path /L
+MOUNTVOL [drive:]path /P
+MOUNTVOL /R
+MOUNTVOL /N
+MOUNTVOL /E
+MOUNTVOL drive: /S
+
+    path        指定装入点将驻留的现有 NTFS 目录。
+    VolumeName  指定装入点的目标的卷名称。
+    /D          从指定的目录中删除卷装入点。
+    /L          列出指定目录的已装入的卷名称。
+    /P          从指定目录删除卷装入点，卸下此卷并使此卷无法装入。你可以创建
+                一个卷来再次使此卷可以装入。
+    /R          删除不在系统中的、卷的装入点目录和注册表设置。
+    /N          禁用新卷的自动装入。
+    /E          再次启用新卷的自动装入。
+    /S          将 EFI 系统分区装载到提供的驱动器。
+
+当前装入点的 VolumeName 可能值为:
+
+    \\?\Volume{5f5216ea-044f-46e2-b3a9-45f4d19072e0}\
+        C:\
+
+    \\?\Volume{a425c66f-49c3-4827-9ebe-c6c75495976f}\
+        E:\
+
+    \\?\Volume{c570081d-a0ae-4120-ad09-7fce2dcd58f7}\
+        F:\
+
+    \\?\Volume{3f0ea28b-ce6a-4813-88e8-d4fee65adb0a}\
+        *** 无装入点 ***
+
+    \\?\Volume{23c30206-9595-11f1-add4-18c04dfab26c}\
+        O:\
+
+    \\?\Volume{07be611a-9591-11f1-add2-18c04dfab26c}\
+        D:\
+
+--- 尝试 mountvol X: /S（若 X: 未用）---
+[OK  ] mountvol X: /S 2>&1|Out-String  -> 
+--- 卸载 ---
+[OK  ] mountvol X: /D 2>&1|Out-Null  -> silent

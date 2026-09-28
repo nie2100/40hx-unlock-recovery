@@ -6,7 +6,7 @@ set "LOG=%LOGDIR%\postbind.log"
 >>"%LOG%" echo ==== PostBind start %DATE% %TIME% ====
 
 rem ---- ACE-BOOT (Tencent pre-boot anti-cheat) blocks driver IMAGE LOAD only: stop -> retrain -> restore ----
-call :ace_toggle off
+call :ace_off
 
 set "RC=99"
 for /L %%I in (1,1,3) do (
@@ -21,19 +21,17 @@ for /L %%I in (1,1,3) do (
 >>"%LOG%" echo ==== PostBind EXIT=!RC! %DATE% %TIME% ====
 if "!RC!"=="0" ( >>"%LOG%" echo PASS: physical Gen2 post-bind step succeeded ) else ( >>"%LOG%" echo FAIL: post-bind step did not reach Gen2 )
 rem restore the anti-cheat only when Gen2 was actually reached
-if "!RC!"=="0" call :ace_toggle on
-rem restore ACE tray into the interactive session if it was started inside the ACE-BOOT stop window
-if "!RC!"=="0" call :ace_toggle HealTray
+if "!RC!"=="0" call :ace_on
 exit /b !RC!
 
 :heal
 set "SYS=%SystemRoot%\System32\drivers"
-rem ---- 1) normal driver source dirs: refresh every round (AV quarantines the .sys after it loads) ----
-for %%S in ("C:\ProgramData\CMP40HXGen2\drivers" "C:\ProgramData\40HXUnlock\drivers") do (
+rem ---- 1) 普通目录源: 每轮都补(火绒会在驱动加载后隔离文件并删服务) ----
+for %%S in ("D:\40hx-unlock\drv" "C:\ProgramData\CMP40HXGen2\drivers" "C:\ProgramData\40HXUnlock\drivers" "D:\40hx-unlock\onlyefi-v0.1.1\windows\drivers") do (
   if not exist "%SYS%\ThrottleStop.sys" if exist "%%~S\ThrottleStop.sys" copy /y "%%~S\ThrottleStop.sys" "%SYS%\ThrottleStop.sys" >nul 2>&1
   if not exist "%SYS%\WinRing0x64.sys" if exist "%%~S\WinRing0x64.sys" copy /y "%%~S\WinRing0x64.sys" "%SYS%\WinRing0x64.sys" >nul 2>&1
 )
-rem ---- 2) fallback source: drv backup on the ESP (AV does not scan the EFI partition) ----
+rem ---- 2) 兜底源: ESP(EFI 分区, 杀软不扫) 下的 drv 备份 ----
 if not exist "%SYS%\ThrottleStop.sys" (
   for %%L in (Y X W V U T S R Q) do (
     if not exist "%SYS%\ThrottleStop.sys" if not exist "%%L:\" (
@@ -49,16 +47,50 @@ if not exist "%SYS%\ThrottleStop.sys" (
 )
 if not exist "%SYS%\ThrottleStop.sys" >>"%LOG%" echo heal WARN: ThrottleStop.sys source not found
 if not exist "%SYS%\WinRing0x64.sys" >>"%LOG%" echo heal WARN: WinRing0x64.sys source not found
-rem ---- 3) services must exist: vendor AutoRetrain only starts them, never creates (1060 observed) ----
+rem ---- 3) 服务必须存在: 厂商 AutoRetrain 只启动不创建(实测 1060) ----
 sc query ThrottleStop >nul 2>&1
 if errorlevel 1 ( >>"%LOG%" echo heal: create service ThrottleStop & sc create ThrottleStop type= kernel start= demand binPath= "\SystemRoot\System32\drivers\ThrottleStop.sys" >>"%LOG%" 2>&1 )
 sc query WinRing0_1_2_0 >nul 2>&1
 if errorlevel 1 ( >>"%LOG%" echo heal: create service WinRing0_1_2_0 & sc create WinRing0_1_2_0 type= kernel start= demand binPath= "\SystemRoot\System32\drivers\WinRing0x64.sys" >>"%LOG%" 2>&1 )
 exit /b 0
 
-:ace_toggle
-rem param %1 = off / on
-rem ACE (Tencent anti-cheat) locate/stop/restore is handled by ACE-Toggle.ps1: it matches on ImagePath
-rem containing AntiCheatExpert, so no hardcoded service name / install dir; original start type is recorded for restore.
-powershell -NoProfile -ExecutionPolicy Bypass -File "C:\ProgramData\CMP40HXGen2\windows\ACE-Toggle.ps1" -Action %1 >>"%LOG%" 2>&1
+:ace_off
+set "ACE_WAS_RUNNING=0"
+set "ACE_STOPPED=0"
+sc query "ACE-BOOT" >nul 2>&1
+if errorlevel 1 ( >>"%LOG%" echo ACE: service ACE-BOOT not present & exit /b 0 )
+sc query "ACE-BOOT" | findstr /I "RUNNING" >nul 2>&1
+if errorlevel 1 ( >>"%LOG%" echo ACE: ACE-BOOT not running - already stopped or disabled & exit /b 0 )
+set "ACE_WAS_RUNNING=1"
+>>"%LOG%" echo ACE: ACE-BOOT running - temporary stop so the Gen2 driver can load
+sc stop "ACE-BOOT" >>"%LOG%" 2>&1
+call :ace_wait 20
+if "%ACE_STOPPED%"=="1" (
+  >>"%LOG%" echo ACE: ACE-BOOT stopped
+  exit /b 0
+)
+rem Still STOP_PENDING: ACE-Tray holds the driver open. Killing it is what the tray menu exit does.
+>>"%LOG%" echo ACE: stop still pending - killing ACE-Tray.exe (it keeps ACE-BOOT open)
+taskkill /IM ACE-Tray.exe /F >>"%LOG%" 2>&1
+sc stop "ACE-BOOT" >nul 2>&1
+call :ace_wait 40
+if "%ACE_STOPPED%"=="1" (
+  >>"%LOG%" echo ACE: ACE-BOOT stopped after killing ACE-Tray
+) else (
+  >>"%LOG%" echo ACE: WARN ACE-BOOT still not STOPPED - retrain will likely fail with exit 30
+)
+exit /b 0
+
+:ace_wait
+set "ACE_STOPPED=0"
+powershell -NoProfile -Command "$d=(Get-Date).AddSeconds(%1); while((Get-Date) -lt $d){ if((sc.exe query ACE-BOOT | Out-String) -match 'STOPPED'){ exit 0 }; Start-Sleep -Seconds 3 }; exit 1" >nul 2>&1
+if not errorlevel 1 set "ACE_STOPPED=1"
+exit /b 0
+
+:ace_on
+if not "%ACE_WAS_RUNNING%"=="1" ( >>"%LOG%" echo ACE: not restored - was not running before this run & exit /b 0 )
+rem Gen2 is a link-register state: restoring the anti-cheat afterwards does not undo it (verified 2026-09-22).
+sc config "ACE-BOOT" start= system >>"%LOG%" 2>&1
+sc start "ACE-BOOT" >>"%LOG%" 2>&1
+>>"%LOG%" echo ACE: ACE-BOOT restored (SYSTEM_START). ACE-Tray returns on next logon via HKLM Run; run ACE-Tray.exe manually if the tray icon is missing this session.
 exit /b 0

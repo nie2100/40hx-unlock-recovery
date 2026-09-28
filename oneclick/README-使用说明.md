@@ -152,3 +152,15 @@ powershell -ExecutionPolicy Bypass -File Install-40HXUnlock.ps1 -Mode Check
 ## 8. 这份包在本机的验证记录
 
 见 `验证记录.md`（含每一步的日志文件名与实测读数）。
+
+## 9. 已经装过：ACE 弹「初始化失败」怎么办（2026-09-28 热修）
+
+装完重启后如果算力/Gen2 都正常（`状态自检.bat` 全绿），但腾讯 ACE 弹「初始化失败」——
+那是**开机任务临停 ACE-BOOT 的那几秒窗口**撞上了登录时启动的 ACE 托盘，**不是解锁失败**。
+
+- 先取证：`ACE排查\排查ACE.cmd`（双击，只读，报告落桌面，末节直接给判据结论）；
+  急着恢复就带 `-Fix`（会结束托盘并重新在桌面会话启动它，顺带禁用被启用的厂商 Gen2 任务）。
+- 根治：`hotfix-20260928\` 里双击 `应用热修并立即验证.cmd` —— 覆盖 `RunPostBind.cmd` + `ACE-Toggle.ps1`
+  两个文件（自动备份到 `C:\ProgramData\CMP40HXGen2\windows\logs\pre-hotfix-<时间>\`），
+  之后每次开机都会在恢复 ACE-BOOT 后检查/修复托盘。
+- 本包 `payload\windows\` 里的这两个文件已是新版：用本包重装/`Repair` 出来的就是带自愈的版本。

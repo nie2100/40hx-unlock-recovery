@@ -259,3 +259,62 @@ PASS: already physical Gen2 x16; no writes needed.
 
 **自动化的部署方式**：`oneclick/Install-40HXUnlock.ps1` 会把 `ACE-Toggle.ps1` 一起装到 `%ProgramData%\CMP40HXGen2\windows\`，
 并把 `RunPostBind.cmd` 的驱动源行改成这台机器的实际路径 —— 不需要手工改 `:ace_off`/`:ace_on` 这些子过程了（老章节里那套已被替代）。
+
+## 10. ACE 弹「初始化失败」= 停窗撞上登录时启动托盘（2026-09-28 实测 + 根治）
+
+### 症状
+装机重启后：**算力与 Gen2 都正常**（ESP `40hx_log.txt` 有 `*** UNLOCKED (SS0=0x88888888 SS1=0x8) ***`、
+开机任务 `EXIT=0`、helper `GUARD=PASS`），但腾讯 ACE 弹「初始化失败」、托盘图标异常。
+**这不是解锁失败**，别去重装解锁包 / 重跑安装器。
+
+### 机理（现场取证）
+`ACE-Tray.exe` 由 `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run` 在**登录时只拉起一次**。
+若它恰好落在开机任务「停 ACE-BOOT → 恢复」的那几秒窗口里启动，托盘初始化时 ACE-BOOT 不在 → 初始化失败，
+而 Run 项不会重试。实测（机器名已脱敏）：
+
+```
+停 ACE-BOOT    23:05:32
+ACE-Tray 启动  23:05:33   ← 正好卡在窗口里
+恢复 ACE-BOOT  23:05:38
+登录(explorer)  23:05:27
+开机任务退出码 0 / GUARD=PASS / Gen2 x16 已落地
+```
+
+### 判据（两条，第二条在托盘已被重启过时仍然有效）
+1. `ACE-Tray` 进程的 `CreationDate` ∈ [postbind.log 里「ACE-BOOT 已停止」,「ACE-BOOT 已恢复运行」] 之间；
+2. `explorer.exe` 的 `CreationDate`（登录时刻）与停窗重叠（放宽 ±30~60 秒）。
+
+### 根治：`HealTray` 动作（已实装进 oneclick 包）
+`RunPostBind.cmd` 在 `call :ace_toggle on` 之后增加 `call :ace_toggle HealTray`，`ACE-Toggle.ps1` 里的判据：
+
+| 情形 | 动作 |
+|---|---|
+| a 托盘不存在 且 15 分钟内有停止记录 | 拉起（Off 那段会结束持有 ACE-BOOT 的托盘） |
+| b 托盘启动时刻 ∈ [StopTime-2s, ResumedAt+2s] | 撞窗 → 杀掉并重启 |
+| c 托盘跑在 session 0（系统会话） | 重启到用户会话 |
+| d 其余（托盘在恢复之后才启动） | 什么都不做 |
+
+- 重启手段：以 `Interactive` 登录类型注册临时计划任务并 `Start-ScheduledTask` —— 任务以 SYSTEM 身份跑时，
+  只有这样才能把进程放进**用户会话**（实测 `session=1`；直接 `Start-Process` 只会落 session 0，托盘不可见）。
+  用完 `Unregister-ScheduledTask`（实测不会杀掉它已启动的进程）。
+- 窗口上界必须用**恢复时刻**：`On` 会把 `ResumedAt` 写进 `ace-state.json`，`HealTray` 拿它当上界。
+  若图省事用「当前时间」当上界，修复后新起的托盘会落在 `[Stop, now]` 里被**反复误判重启**（实测踩到）。
+- 幂等：恢复成功写 `HealedAt`，同一轮停止内重复调用直接跳过。
+
+### 验证（本机同款环境，4 场景 + 端到端）
+| 场景 | 期望 | 结果 |
+|---|---|---|
+| 托盘撞进停窗 | 杀掉并重启到用户会话 | PASS（新托盘 `session=1`） |
+| 同一轮重复调用 | 幂等跳过、PID 不变 | PASS |
+| 托盘在恢复之后才启动（真实良好路径） | 不动作、PID 不变 | PASS |
+| 托盘被 Off 流程结束掉 | 重新拉起 | PASS（`session=1`） |
+| 完整跑 `RunPostBind.cmd` | `EXIT=0` 且日志有自愈记录 | PASS |
+
+### 现场排查工具：`oneclick/ACE排查/`
+`排查ACE.cmd` 双击即跑（自提权、只读采集 → 桌面生成报告），`排查ACE.cmd -Fix` 会顺手修；
+报告含：开机任务 rc/触发器、ACE 全部服务与启动类型、托盘会话与启动时刻、停/恢复时间线、
+postbind/last/ace-state 日志、SCM 事件、杀软与其它反作弊、ACE 目录文件时间，并直接给出判据结论。
+
+### 只想补这一个改动
+`oneclick/hotfix-20260928/`：双击 `应用热修.cmd`（或 `应用热修并立即验证.cmd`）即可覆盖两个文件，
+自动备份到 `C:\ProgramData\CMP40HXGen2\windows\logs\pre-hotfix-<时间>\`，不动 EFI / 引导项 / 分区。

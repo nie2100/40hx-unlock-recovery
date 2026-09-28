@@ -1,0 +1,64 @@
+ACE 初始化失败 —— 在那台机器上怎么查（先读我）
+======================================================
+
+【最快的三步】
+1. 把本文件夹整个拷到那台电脑（U盘/微信/QQ 都行，不用安装）。
+2. 双击  排查ACE.cmd   → 弹 UAC 点“是” → 等约 20 秒。
+3. 桌面上会出现  ACE排查报告-<电脑名>-<时间>.txt   → 整份发回给 Hermes；报告最后一节
+   “结论与建议”就是判据命中情况的直接结论。
+
+想让它顺手把能修的先修掉：右键用管理员打开 cmd，或者直接跑    排查ACE.cmd -Fix
+（-Fix 只做三件事，都是可逆的小动作：
+   · ACE-BOOT 启动类型若是 Disabled → 改回 System（原样是 System）
+   · ACE-BOOT 若没在运行 → sc start 启动它
+   · 结束桌面会话里的 ACE 托盘并重新启动它（托盘初始化失败时这一下就好））
+
+
+【为什么怀疑跟一键解锁包有关】
+一键包为了让 PCIe Gen2 落地，必须在开机那十几秒里**临时停掉腾讯反作弊引导驱动 ACE-BOOT**
+（它会在驱动映像加载阶段拦 ThrottleStop.sys），Gen2 成功后再把它恢复。于是有两条会“伤到 ACE”的路径：
+  A) 竞态：ACE 托盘 ACE-Tray.exe 是登录时由注册表 Run 拉起的。如果它恰好落在
+     “ACE-BOOT 已停 → 还没恢复”的那几秒里启动，托盘就会初始化失败 → 你看到的“初始化失败”弹窗。
+     判据：托盘进程的启动时刻落在 postbind.log 里 “ACE-BOOT 已停止” 和 “ACE-BOOT 已恢复运行” 两行之间。
+  B) 未恢复：那次 Gen2 没成功（任务退出码≠0）时，脚本按设计**不恢复** ACE-BOOT；
+     或者 ACE-BOOT 的启动类型被改成了 Disabled（某些安装选项/厂商工具会这么干）。
+不在这两条里的（ACE 目录缺失、杀软拦、其它反作弊冲突）报告里也会一并列出来。
+
+
+【不想拷文件？手工 6 条命令也能判】
+在那台电脑上开**管理员** PowerShell，逐条贴：
+
+  # 1) ACE-BOOT 在不在、启动类型对不对（START_TYPE 应为 SYSTEM_START）
+  sc.exe query ACE-BOOT ; sc.exe qc ACE-BOOT
+
+  # 2) ACE 托盘在哪个会话、什么时候启动的（SessionId 应为 1；启动时刻很重要）
+  Get-CimInstance Win32_Process | ? { $_.ExecutablePath -match 'AntiCheatExpert' } |
+    select Name,ProcessId,SessionId,CreationDate,ExecutablePath
+
+  # 3) 开机任务跑成功没有（rc=0 才对）
+  Get-ScheduledTaskInfo -TaskName 'CMP40HX Gen2 PostBind'
+
+  # 4) 看“停/恢复”窗口与退出码
+  Get-Content "$env:ProgramData\CMP40HXGen2\windows\logs\postbind.log" -Encoding Default | select -last 25
+
+  # 5) 一键包记下的原始启动类型
+  Get-Content "$env:ProgramData\CMP40HXGen2\windows\logsce-state.json" -Encoding UTF8
+
+  # 6) ACE 自己的目录有没有、多久没更新
+  dir "$env:ProgramFiles\AntiCheatExpert"
+
+
+【判定对照表】
+  · sc query ACE-BOOT 不是 RUNNING          → 被停了没恢复（先用 sc start ACE-BOOT 救回来，再重启）
+  · sc qc ACE-BOOT 的 START_TYPE 是 DISABLED → 持久禁用（sc config ACE-BOOT start= system，然后重启）
+  · 托盘 CreationDate 落在 postbind.log 的“已停止/已恢复运行”之间 → 就是上面说的竞态（重启托盘即好）
+  · 托盘 SessionId = 0                       → 托盘跑在系统会话，桌面看不到图标（要重启托盘到用户会话）
+  · 开机任务 rc 不是 0                        → Gen2 没落地；ACE 只是被这次失败连累了，看 postbind.log 尾部
+  · ACE 目录为空 / 没有 AntiCheatExpert 服务  → 与一键包无关，ACE 装坏了：开一次腾讯游戏让它自修复
+
+
+【本次已经查实的机理（本机同款环境实测，不是猜）】
+  2026-09-28 22:24 那次开机：任务 22:24:34 起 → 22:24:44 停 ACE-BOOT → 22:24:47 Gen2 PASS
+  → 22:24:51 恢复 ACE-BOOT；而 explorer 22:24:35 起、ACE 托盘 22:24:46 被拉起 ——
+  正好卡在停窗口里 5 秒 → 托盘初始化失败。即：这是“窗口与登录启动撞车”，与算力/Gen2 是否成功无关。
+  只杀掉托盘再重启一次（在桌面会话里）即可恢复；要根治得让开机任务在恢复 ACE-BOOT 后自愈托盘。

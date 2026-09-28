@@ -16,7 +16,9 @@ bash scripts/make-inventory.sh        # 在仓库根目录跑，输出 INVENTORY
 | `payload/onlyefi-v0.1.1/windows/CMP40HXGen2.exe` | Windows 侧 helper（守卫 + 两个寄存器恢复 + Root Retrain） | md5 `1490de9bd90105e6ebc73e50abecc5cf` |
 | `payload/onlyefi-v0.1.1/source/windows/CMP40HXGen2_prod.c` | helper 源码（可自行编译，`BUILD_CLANG.cmd`） | — |
 | `payload/onlyefi-v0.1.1/source/efi/apply_no_efi_retrain.py` | 上游用来生成"不重训版" EFI 的脚本（含输入/输出镜像哈希双校验） | — |
-| `payload/windows-live/RunPostBind.cmd` | **本机在用的**自愈包装（多源补驱动 + 补服务 + 重试 3 次 + **ACE 处理** `:ace_off`/`:ace_wait`/`:ace_on`） | md5 `7573f1e0407c055ee58e1096d5b7abd1` |
+| `payload/windows-live/RunPostBind.cmd` | **本机在用的**自愈包装（多源补驱动 + 补服务 + 重试 3 次 + **ACE 处理走 `ACE-Toggle.ps1`**：`call :ace_toggle off\|on\|HealTray`）；纯 ASCII，见 `docs/03` D7 | md5 `c7c28a0972d3bc2e024e4a766d16f516` |
+| `payload/windows-live/ACE-Toggle.ps1` | 与本机 `%ProgramData%\CMP40HXGen2\windows\ACE-Toggle.ps1` 逐字节相同（含 `HealTray` 托盘自愈），随开机任务一起被调用 | md5 `e150f4ff59d543148af7bbcabd363bad` |
+| `payload/windows-live/RunPostBind.ace-bat-20260922.cmd.bak` | 加 `ACE-Toggle.ps1` 之前的 ACE 处理版（把 `ACE-BOOT` 服务名/目录写死在 `.cmd` 里），留档对照 | md5 `7573f1e0407c055ee58e1096d5b7abd1` |
 | `payload/windows-live/RunPostBind.no-ace.cmd.bak` | 加 ACE 处理之前的版本（留档对照） | md5 `71458e1cbf9d86c288c1a1faa714e0bd` |
 | `payload/windows-live/AutoRetrain.cmd` | 上游脚本：起服务 + 跑 helper（只 start 不 create 服务） | md5 `0021c1978b749ee7e55834e2aa7ef59a` |
 | `payload/drivers/ThrottleStop.sys.b64` | BYOVD 驱动（base64 文本，还原后 50216 B） | md5 `6bc8e3505d9f51368ddf323acb6abc49` |
@@ -32,7 +34,7 @@ bash scripts/make-inventory.sh        # 在仓库根目录跑，输出 INVENTORY
 | `scripts/ghost-clean.ps1` | 清理幽灵 PnP 实例（先 `reg export` 备份） | — |
 | `scripts/40HX解锁状态.bat` | **日常一键自检**（双击即用，6 步）：nvidia-smi + WDDM 模式 + CUDA ctypes 实测链路带宽判 Gen2 + **PTX 实测算力**（SM 数 / FP32 / FP16 / FP16-TC / 显存带宽）+ 开机任务日志 + 厂商状态文件，末行给三态结论 | md5 `66396b8918d75af0b42adcef24cab38d`（与本机桌面文件逐字节一致；GBK + CRLF） |
 | `oneclick/一键安装.cmd` | **一键安装入口**（双击；先摘要+确认再提权，提权后那份不再二次询问） | GBK + CRLF（`.gitattributes` 已禁止转换） |
-| `oneclick/Install-40HXUnlock.ps1` | 自含安装/修复/取证脚本：`Check`/`SelfTest`/`Install`/`Repair`/`Verify`/`MakeDefault`/`Uninstall`；退出码 0/1/2/3/4/5，失败自动打印「出错怎么办」 | UTF-8 **带 BOM** |
+| `oneclick/Install-40HXUnlock.ps1` | 自含安装/修复/取证脚本：`Check`/`SelfTest`/`Install`/`Repair`/`Verify`/`MakeDefault`/`Uninstall`；退出码 0/1/2/3/4/5，失败自动打印「出错怎么办」；**2026-09-28 修掉**：所有原生命令（`schtasks`/`sc`/`mountvol`/`nvidia-smi`）统一走 `Invoke-Native` 包装 —— 此前 `$ErrorActionPreference='Stop'` 下首次安装必断在 `schtasks /delete`（见 `docs/03` D6） | UTF-8 **带 BOM** |
 | `oneclick/状态自检.bat` | 与 `scripts/40HX解锁状态.bat` **逐字节相同**（md5 `66396b8918d75af0b42adcef24cab38d`），包内自带一份以保持自含 | GBK + CRLF |
 | `oneclick/README-使用说明.md` / `排查指引.md` / `验证记录.md` | 包内说明、**按报错原话/退出码索引的排查指引**、交付前本机实测记录 | UTF-8 |
 | `oneclick/payload/windows/ACE-Toggle.ps1` | **ACE(腾讯反作弊) 定位与停/恢复**：按 ImagePath 含 `AntiCheatExpert` 定位（换目录/改名无关）、托盘按路径定位、
@@ -40,6 +42,9 @@ bash scripts/make-inventory.sh        # 在仓库根目录跑，输出 INVENTORY
 | `oneclick/payload/` | EFI 解锁固件 + Windows helper + 两个驱动的 base64 + `sha256.txt`（与仓库其它 payload 目录内容等价：EFI/helper 逐字节相同；`*.b64` 仅换行方式不同，**解码后字节一致**、哈希与期望值相符） | 同仓库其它 payload |
 | `docs/06-ace-boot.md` | **过腾讯 ACE**：判据、`ACE-Tray` 关键一步、自动化、厂商诊断误判、完整时间线 | — |
 | `evidence/ace-20260922/` | ACE 专项原始证据（诊断/STOP_PENDING/杀托盘后成功/A-B 双 PASS + 当时用的 ps1） | — |
+| `oneclick/ACE排查/` | **装机后 ACE 报错的现场排查包**：`排查ACE.cmd`（双击/自提权/只读采集 → 桌面报告，判据结论在末节）、`ACE-Diag.ps1`、`怎么用-先读我.txt`、`状态自检.bat`；`-Fix` 可顺手修（ACE-BOOT 启动类型/状态、重启托盘、禁用被启用的厂商 Gen2 任务） | UTF-8 BOM(.ps1) / GBK(.cmd) |
+| `oneclick/hotfix-20260928/` | **最小热修包**（只补「ACE 弹初始化失败」）：`应用热修.cmd`、`应用热修并立即验证.cmd`、`apply-hotfix.ps1`、`payload\{RunPostBind.cmd,ACE-Toggle.ps1}`、`热修说明.txt`；覆盖前自动备份到 `logs\pre-hotfix-<时间>\` | — |
+| `evidence/ace-20260928/` | **本次证据**（已脱敏）：装机现场排查报告、HealTray 四场景实测、EAP=Stop NativeCommandError 复现与修法对照、热修后端到端输出 | — |
 | `evidence/` | 实测证据：冷启动报告、基准输出、helper 日志、固件日志、NVRAM 读取、回滚日志 | — |
 
 ## 恢复时的顺序提示

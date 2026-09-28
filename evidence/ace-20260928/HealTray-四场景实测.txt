@@ -1,0 +1,131 @@
+===== 来源: healtray-test2.txt =====
+== 起点 == 托盘: [PID=7392 sess=1 start=23:53:29]
+
+#### 场景 A：托盘撞进停窗 → HealTray 必须杀掉并重启到用户会话 ####
+Off: [23:54:13] ACE INFO: ACE-BOOT 正在运行（start=System）—— 临时停掉，好让 Gen2 驱动加载
+[23:54:14] ACE INFO: ACE-BOOT 已停止
+撞窗托盘: [PID=2484 sess=1 start=23:54:14]
+On : [23:54:21] ACE INFO: 已恢复原始启动类型: ACE-BOOT start= system（原 System）
+[23:54:24] ACE INFO: ACE-BOOT 已恢复运行
+[23:54:24] ACE INFO: Gen2 是链路寄存器状态，恢复反作弊不会撤销它（2026-09-22 实测）；ACE-Tray 由下次登录的 HKLM Run 拉起，本会话缺图标可手工运行 ACE-Tray.exe
+HealTray: [23:54:25] ACE INFO: 需要恢复 ACE 托盘: 托盘启动时刻 23:54:14 落在 ACE-BOOT 停窗 [23:54:13~23:54:24] 内 → 它初始化已失败，重启它
+[23:54:25] ACE INFO:   结束旧托盘 PID=2484 session=1
+[23:54:34] ACE INFO:   新托盘 PID=7380 session=1
+[23:54:34] ACE INFO: 托盘已在用户会话重新启动（ACE 托盘图标应已恢复）
+结果托盘: [PID=7380 sess=1 start=23:54:28]  <= 期望 session=1 且 PID 与撞窗那个不同
+
+#### 场景 A2：同一轮再调一次 → 必须幂等跳过（不许再重启托盘）####
+HealTray: [23:54:37] ACE INFO: 本轮 ACE-BOOT 停止的托盘恢复已经做过 —— 跳过
+托盘: [PID=7380 sess=1 start=23:54:28]  之前: [PID=7380 sess=1 start=23:54:28]  <= 期望 PID 不变
+
+#### 场景 B：托盘在恢复之后才启动（真实良好路径：登录晚于开机任务）→ 必须报“不需要恢复”####
+Off: [23:54:38] ACE INFO: ACE-BOOT 正在运行（start=System）—— 临时停掉，好让 Gen2 驱动加载
+[23:54:59] ACE INFO: ACE-BOOT 仍是 STOP_PENDING —— 托盘进程持有它，按路径定位并结束托盘
+[23:54:59] ACE INFO: 结束托盘: PID=7380 C:\Program Files\AntiCheatExpert\ACE-Tray.exe
+[23:55:02] ACE INFO: ACE-BOOT 结束托盘后已停止
+On : [23:55:03] ACE INFO: 已恢复原始启动类型: ACE-BOOT start= system（原 System）
+[23:55:06] ACE INFO: ACE-BOOT 已恢复运行
+[23:55:06] ACE INFO: Gen2 是链路寄存器状态，恢复反作弊不会撤销它（2026-09-22 实测）；ACE-Tray 由下次登录的 HKLM Run 拉起，本会话缺图标可手工运行 ACE-Tray.exe
+正常托盘: [PID=8532 sess=1 start=23:55:06]
+HealTray: [23:55:13] ACE INFO: 需要恢复 ACE 托盘: 托盘启动时刻 23:55:06 落在 ACE-BOOT 停窗 [23:54:38~23:55:06] 内 → 它初始化已失败，重启它
+[23:55:13] ACE INFO:   结束旧托盘 PID=8532 session=1
+[23:55:22] ACE INFO:   新托盘 PID=12332 session=1
+[23:55:22] ACE INFO: 托盘已在用户会话重新启动（ACE 托盘图标应已恢复）
+托盘: [PID=12332 sess=1 start=23:55:16]  之前: [PID=8532 sess=1 start=23:55:06]  <= 期望 PID 不变 + 输出“托盘正常…不需要恢复”
+
+#### 场景 C：托盘不存在（被 Off 流程结束掉了）→ HealTray 必须拉回来 ####
+Off: [23:55:23] ACE INFO: ACE-BOOT 正在运行（start=System）—— 临时停掉，好让 Gen2 驱动加载
+[23:55:44] ACE INFO: ACE-BOOT 仍是 STOP_PENDING —— 托盘进程持有它，按路径定位并结束托盘
+[23:55:44] ACE INFO: 结束托盘: PID=12332 C:\Program Files\AntiCheatExpert\ACE-Tray.exe
+[23:55:47] ACE INFO: ACE-BOOT 结束托盘后已停止
+On : [23:55:48] ACE INFO: 已恢复原始启动类型: ACE-BOOT start= system（原 System）
+[23:55:51] ACE INFO: ACE-BOOT 已恢复运行
+[23:55:51] ACE INFO: Gen2 是链路寄存器状态，恢复反作弊不会撤销它（2026-09-22 实测）；ACE-Tray 由下次登录的 HKLM Run 拉起，本会话缺图标可手工运行 ACE-Tray.exe
+杀掉托盘后: []
+HealTray: [23:55:54] ACE INFO: 需要恢复 ACE 托盘: 托盘不在运行，且刚刚停过 ACE-BOOT（多半被 Off 流程结束掉了）→ 拉起它
+[23:56:02] ACE INFO:   新托盘 PID=2732 session=1
+[23:56:02] ACE INFO: 托盘已在用户会话重新启动（ACE 托盘图标应已恢复）
+结果托盘: [PID=2732 sess=1 start=23:55:56]  <= 期望 session=1
+
+== 收尾 == ACE-BOOT=STATE : 4 RUNNING | 托盘: [PID=2732 sess=1 start=23:55:56]
+ace-state.json: { "StartKeyword": "system", "Stopped": true, "Name": "ACE-BOOT", "StartMode": "System", "Time": "2026-09-28T23:55:23", "ResumedAt": "2026-09-28T23:55:51", "Resumed": true, "HealedAt": "2026-09-28T23:56:03" } 
+===== 来源: healtray-test3.txt =====
+#### 场景 B（改）：托盘在 ACE-BOOT 恢复 10 秒后才启动 = 真实良好路径 → 必须“不需要恢复”，PID 不许变 ####
+Off: [23:56:23] ACE INFO: ACE-BOOT 正在运行（start=System）—— 临时停掉，好让 Gen2 驱动加载
+[23:56:44] ACE INFO: ACE-BOOT 仍是 STOP_PENDING —— 托盘进程持有它，按路径定位并结束托盘
+[23:56:44] ACE INFO: 结束托盘: PID=2732 C:\Program Files\AntiCheatExpert\ACE-Tray.exe
+[23:56:47] ACE INFO: ACE-BOOT 结束托盘后已停止
+On : [23:56:48] ACE INFO: 已恢复原始启动类型: ACE-BOOT start= system（原 System）
+[23:56:51] ACE INFO: ACE-BOOT 已恢复运行
+[23:56:51] ACE INFO: Gen2 是链路寄存器状态，恢复反作弊不会撤销它（2026-09-22 实测）；ACE-Tray 由下次登录的 HKLM Run 拉起，本会话缺图标可手工运行 ACE-Tray.exe
+正常托盘: [PID=12376 sess=1 start=23:57:01]
+HealTray: [23:57:09] ACE INFO: 托盘正常（PID=12376 session=1 启动=23:57:01）—— 不需要恢复
+托盘: [PID=12376 sess=1 start=23:57:01]   之前: [PID=12376 sess=1 start=23:57:01]
+
+############ 端到端：完整跑一次开机任务 RunPostBind.cmd（真实路径，含 STOP_PENDING→杀托盘）############
+跑之前托盘: [PID=12376 sess=1 start=23:57:01]
+RunPostBind 退出码 = 0
+跑之后托盘: [PID=3820 sess=1 start=23:57:43]
+--- postbind.log 新增内容 ---
+  |     + FullyQualifiedErrorId : GetContentWriterIOError,Microsoft.PowerShell.Commands.AddContentCommand
+  |  
+  | Add-Content : 文件“C:\ProgramData\CMP40HXGen2\windows\logs\postbind.log”正由另一进程使用，因此该进程无法访问此文件。
+  | 所在位置 C:\ProgramData\CMP40HXGen2\windows\ACE-Toggle.ps1:36 字符: 26
+  | + ... :LogPath) { Add-Content -LiteralPath $script:LogPath -Value $line -En ...
+  | +                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  |     + CategoryInfo          : WriteError: (C:\ProgramData\...gs\postbind.log:String) [Add-Content], IOException
+  |     + FullyQualifiedErrorId : GetContentWriterIOError,Microsoft.PowerShell.Commands.AddContentCommand
+  |  
+  | Add-Content : 文件“C:\ProgramData\CMP40HXGen2\windows\logs\postbind.log”正由另一进程使用，因此该进程无法访问此文件。
+  | 所在位置 C:\ProgramData\CMP40HXGen2\windows\ACE-Toggle.ps1:36 字符: 26
+  | + ... :LogPath) { Add-Content -LiteralPath $script:LogPath -Value $line -En ...
+  | +                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  |     + CategoryInfo          : WriteError: (C:\ProgramData\...gs\postbind.log:String) [Add-Content], IOException
+  |     + FullyQualifiedErrorId : GetContentWriterIOError,Microsoft.PowerShell.Commands.AddContentCommand
+  |  
+  | ==== PostBind start 2026/09/28 周一 19:38:09.50 ====
+  | [19:38:10] ACE INFO: ACE-BOOT 正在运行（start=System）—— 临时停掉，好让 Gen2 驱动加载
+  | [19:38:11] ACE INFO: ACE-BOOT 已停止
+  | ---- attempt 1 ----
+  | ==== PostBind EXIT=0 2026/09/28 周一 19:38:12.25 ====
+  | PASS: physical Gen2 post-bind step succeeded 
+  | [19:38:13] ACE INFO: 已恢复原始启动类型: ACE-BOOT start= system（原 System）
+  | [19:38:16] ACE INFO: ACE-BOOT 已恢复运行
+  | [19:38:16] ACE INFO: Gen2 是链路寄存器状态，恢复反作弊不会撤销它（2026-09-22 实测）；ACE-Tray 由下次登录的 HKLM Run 拉起，本会话缺图标可手工运行 ACE-Tray.exe
+  | ==== PostBind start 2026/09/28 周一 20:38:52.82 ====
+  | [20:39:00] ACE INFO: ACE-BOOT 正在运行（start=System）—— 临时停掉，好让 Gen2 驱动加载
+  | [20:39:01] ACE INFO: ACE-BOOT 已停止
+  | ---- attempt 1 ----
+  | ==== PostBind EXIT=0 2026/09/28 周一 20:39:03.01 ====
+  | PASS: physical Gen2 post-bind step succeeded 
+  | [20:39:04] ACE INFO: 已恢复原始启动类型: ACE-BOOT start= system（原 System）
+  | [20:39:08] ACE INFO: ACE-BOOT 已恢复运行
+  | [20:39:08] ACE INFO: Gen2 是链路寄存器状态，恢复反作弊不会撤销它（2026-09-22 实测）；ACE-Tray 由下次登录的 HKLM Run 拉起，本会话缺图标可手工运行 ACE-Tray.exe
+  | ==== PostBind start 2026/09/28 周一 22:24:34.39 ====
+  | [22:24:44] ACE INFO: ACE-BOOT 正在运行（start=System）—— 临时停掉，好让 Gen2 驱动加载
+  | [22:24:45] ACE INFO: ACE-BOOT 已停止
+  | ---- attempt 1 ----
+  | ==== PostBind EXIT=0 2026/09/28 周一 22:24:47.41 ====
+  | PASS: physical Gen2 post-bind step succeeded 
+  | [22:24:50] ACE INFO: 已恢复原始启动类型: ACE-BOOT start= system（原 System）
+  | [22:24:54] ACE INFO: ACE-BOOT 已恢复运行
+  | [22:24:54] ACE INFO: Gen2 是链路寄存器状态，恢复反作弊不会撤销它（2026-09-22 实测）；ACE-Tray 由下次登录的 HKLM Run 拉起，本会话缺图标可手工运行 ACE-Tray.exe
+  | ==== PostBind start 2026/09/28 周一 23:57:09.53 ====
+  | [23:57:10] ACE INFO: ACE-BOOT 正在运行（start=System）—— 临时停掉，好让 Gen2 驱动加载
+  | [23:57:31] ACE INFO: ACE-BOOT 仍是 STOP_PENDING —— 托盘进程持有它，按路径定位并结束托盘
+  | [23:57:31] ACE INFO: 结束托盘: PID=12376 C:\Program Files\AntiCheatExpert\ACE-Tray.exe
+  | [23:57:34] ACE INFO: ACE-BOOT 结束托盘后已停止
+  | ---- attempt 1 ----
+  | ==== PostBind EXIT=0 2026/09/28 周一 23:57:36.01 ====
+  | PASS: physical Gen2 post-bind step succeeded 
+  | [23:57:36] ACE INFO: 已恢复原始启动类型: ACE-BOOT start= system（原 System）
+  | [23:57:39] ACE INFO: ACE-BOOT 已恢复运行
+  | [23:57:39] ACE INFO: Gen2 是链路寄存器状态，恢复反作弊不会撤销它（2026-09-22 实测）；ACE-Tray 由下次登录的 HKLM Run 拉起，本会话缺图标可手工运行 ACE-Tray.exe
+  | [23:57:40] ACE INFO: 需要恢复 ACE 托盘: 托盘不在运行，且刚刚停过 ACE-BOOT（多半被 Off 流程结束掉了）→ 拉起它
+  | [23:57:49] ACE INFO:   新托盘 PID=3820 session=1
+  | [23:57:49] ACE INFO: 托盘已在用户会话重新启动（ACE 托盘图标应已恢复）
+--- last.log 判据行 ---
+  | PASS: already physical Gen2 x16; no writes needed.
+  | ==== EXIT=0 2026/09/28 周一 23:57:35.90 ====
+ACE-BOOT=STATE : 4 RUNNING
+ace-state.json: { "StartKeyword": "system", "Stopped": true, "Name": "ACE-BOOT", "StartMode": "System", "Time": "2026-09-28T23:57:10", "ResumedAt": "2026-09-28T23:57:39", "Resumed": true, "HealedAt": "2026-09-28T23:57:50" } 

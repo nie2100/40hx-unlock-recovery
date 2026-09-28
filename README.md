@@ -20,8 +20,19 @@ oneclick\
 ├─ README-使用说明.md           包内使用说明（前提、模式、退出码、装了什么）
 ├─ 排查指引.md                  **报错时按日志原话/退出码索引**（杀软/前提/ESP-NVRAM/重启无效/驱动服务）
 ├─ 验证记录.md                  交付前的本机实测记录（每条日志文件名 + 读数）
+├─ ACE排查\                     **装机后 ACE 报错先跑这个**：双击 排查ACE.cmd 出桌面报告；-Fix 顺手修
+├─ hotfix-20260928\             只想补「ACE 弹初始化失败」这一个改动时的最小热修包
 └─ payload\                     EFI 解锁固件 + Windows helper + 两个驱动的 base64 + sha256 清单
 ```
+
+> **2026-09-28 深夜更新（两处「装了才暴露」的问题，都已修）**
+> ① **全新机器首次安装会中断**：PS 5.1 在 `$ErrorActionPreference='Stop'` 下，外部程序往 stderr 写字会产生
+>    `NativeCommandError` 并**终止脚本**（`schtasks /delete` 在开机任务还不存在时就会），连 `2>&1 | Out-Null` 都挡不住。
+>    现在所有原生命令统一走一层包装（命令与输出文本不变）。本机当初没炸，只因任务早已存在。
+> ② **装机后 ACE 可能弹「初始化失败」**：`ACE-Tray.exe` 由注册表 Run 在登录时只拉起一次，若撞上开机任务
+>    「停 ACE-BOOT」的那几秒窗口，托盘初始化必然失败（算力/Gen2 其实是好的）。现在开机任务在恢复 ACE-BOOT 之后
+>    会自动检查并把托盘修回用户会话（`ACE-Toggle.ps1 -Action HealTray`）。
+>    取证：`oneclick\ACE排查\`；只补这一处：`oneclick\hotfix-20260928\`；原理：`docs/06-ace-boot.md` 第 10 节。
 
 它自己做完这些事（**不调用厂商安装器**，因为那会覆盖 ESP 上的 OnlyEFI 固件 → helper 守卫失效、Gen2 永不落地）：
 
@@ -191,6 +202,13 @@ sc start ACE-BOOT
 真·开机路径连托盘都不用杀（那时 `ACE-Tray.exe` 还没启动）。完整判据、误判陷阱、A/B 实测、
 厂商诊断的"驱动未拉起"误报：**`docs/06-ace-boot.md`**。
 
+**装了之后 ACE 弹「初始化失败」（2026-09-28 实测）**：如果算力/Gen2 都是好的（`40hx_log.txt` 有 `UNLOCKED`、
+开机任务 rc=0），那多半是 ACE 托盘被开机任务的「停窗」撞坏了 —— 托盘由 HKLM Run 在登录时只拉起一次，
+撞在「停 ACE-BOOT → 恢复」的几秒里就会初始化失败。两条判据：① 托盘进程 `CreationDate` 落在
+`postbind.log` 的「已停止」与「已恢复运行」之间；② explorer 的登录时刻与该窗口重叠（托盘已被重启过也有效）。
+现在开机任务会自动修（`HealTray`）；手动救急用 `oneclick\ACE排查\排查ACE.cmd -Fix`，根治用
+`oneclick\hotfix-20260928\`。详见 `docs/06-ace-boot.md` 第 10 节。
+
 ### 步骤 6 — 验证（判据，别用 nvidia-smi）
 
 1. **算力**：ESP 根目录 `40hx_log.txt` 出现 `*** UNLOCKED (SS0=0x88888888 SS1=0x8) ***`；文件不存在 = 本次开机 EFI 没跑（启动项/兜底 没生效）
@@ -229,6 +247,8 @@ sc start ACE-BOOT
 ```
 README.md                     本手册（恢复主流程）
 oneclick/                     **自含一键迁移包**（双击 一键安装.cmd 装/修；含 排查指引.md、验证记录.md、payload/）
+oneclick/ACE排查/             现场排查包：排查ACE.cmd（只读采集 ACE 弹窗/初始化失败 → 桌面报告，-Fix 顺手修）
+oneclick/hotfix-20260928/     最小热修包（只覆盖 RunPostBind.cmd + ACE-Toggle.ps1，含 应用热修*.cmd）
 docs/01-hardware.md           本机硬件/固件/拓扑实测
 docs/02-how-it-works.md       原理：EFI 阶段与 Windows 阶段做了什么
 docs/03-pitfalls.md           坑清单与历史踩坑记录（含厂商 v3.2 回滚经过）
