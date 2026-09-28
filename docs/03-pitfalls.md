@@ -32,6 +32,8 @@
 - 处理：`HKLM\SYSTEM\CurrentControlSet\Services\nvlddmkm\Parameters\EnableGpuFirmware = 1`；BIOS 里 Above 4G Decoding = Enabled。
 
 ### A6. 腾讯 ACE（ACE-BOOT）拦 Gen2 驱动的映像加载
+> 2026-09-28 起，定位与停/恢复由 `oneclick/payload/windows/ACE-Toggle.ps1` 完成：按驱动 `ImagePath` 含 `AntiCheatExpert` 定位（换目录/改服务名都不受影响），
+> 托盘按可执行文件路径定位，恢复时按记录还原**原始启动类型**。细节与验证见 `docs/06-ace-boot.md` 第 9 节。
 - 症状：开机后 ACE 弹「检测到与游戏可能存在兼容问题的软件程序加载：`C:\Windows\System32\drivers\ThrottleStop.sys`」；
   该次开机任务 `EXIT=30`（`last.log` = `[SC] StartService 失败 31` + `FATAL: ThrottleStop service did not start`），Gen2 停在 Gen1；
   **但 ESP `40hx_log.txt` 仍有 `*** UNLOCKED ***`** —— 算力正常，只是 Windows 侧落地失败，别误判成整机解锁崩了。
@@ -46,9 +48,10 @@
 ## B. 引导项相关的
 
 ### B1. 部分主板忽略 `bcdedit` 写的固件启动项
+
 - 症状：用 `bcdedit /copy {bootmgr}` + `{fwbootmgr} displayorder /addfirst` 建了 "40HX Unlock"，但开机不跑解锁；`bcdedit /enum firmware` 里只多出重复的 `{bootmgr}`。
 - 根因：技嘉/AMI 固件不会真的在 NVRAM 里生成对应的 `Boot####` 项。
-- 处理：三选一 —— ① BIOS 里把第一启动项设为该项；② 设为**硬盘本身**（走 `\EFI\Boot\bootx64.efi` 兜底，该文件已替换为解锁固件）；③ 自己写 NVRAM `Boot####`（见 C1）。
+- 处理：三选一 —— ① BIOS 里把第一启动项设为该项；② 设为**硬盘本身**（走 `\EFI\Boot\bootx64.efi` 兜底，该文件已替换为解锁固件）；③ 自己写 NVRAM `Boot####`（构造细节见 **B4**）。
 
 ### B2. 读/写固件变量报 err=1314
 - 根因：进程未启用 `SeSystemEnvironmentPrivilege`。
@@ -58,6 +61,35 @@
 - 处理：写入前**备份全部 `Boot####` 与 `BootOrder`**（本仓库 `payload/nvram-backup-20260911/` 就是一份样本）；
 - 新项先只设 `BootNext=<新编号>` 做**一次性试跑**（失败断电重开即恢复，最安全），验证成功后才写 `BootOrder`；
 - **`Boot####` 编号随机器不同**，本机实际是 `BootOrder = 0005, 0003, 0002`（`Boot0005` = `40HX Unlock`），而仓库里历史脚本 `nvram_bootorder.ps1` 里硬编码的 `0003` 是早期版本 —— 用前先按 `nvram_chk.ps1` 的实际编号改。
+
+### B4. 自建 `Boot####` 的 HardDrive 设备路径节点：末两字节**不是**保留位（2026-09-28）
+`EFI_LOAD_OPTION` 的 HardDrive 设备路径节点固定 **42 字节**：
+
+```
+4B 头(0x04,0x01,0x00,0x00) + 4B 分区号 + 8B 起始 LBA + 8B 扇区数 + 16B 分区 GUID
++ 1B MBRType + 1B SignatureType
+```
+
+末两字节必须按介质填：**GPT → `MBRType=0x02` + `SignatureType=0x02`（GUID 签名）**。按"保留位"写 `00-00` 在自家机器上可能侥幸能用，换机器就会不被采纳/启动不了。
+踩到的经过：自检把构造出的节点与固件里**正在使用**的 `Boot0003`/`Boot0005` 逐字节比对时发现末两字节不一致 → 改 `02-02` 后完全一致。
+
+**同时**：别拿现成启动项当模板。本机 NVRAM 里名为 "Windows Boot Manager" 的两条是**过期项**（分区 GUID 与现场 ESP 不符、甚至没有 FilePath 节点）。
+正确做法是从现场 ESP 分区取参数（`Get-Partition` 的 `PartitionNumber`/`Offset`/`Size` + 分区 GPT GUID）现构造。
+
+### B5. ESP 已挂在别的盘符时，`mountvol <新字母>: /S` 直接报“参数错误”（2026-09-28）
+不是"换个字母"而是直接失败（`mountvol` 报 `参数错误`/`系统找不到指定的文件`）→ 安装脚本会误报 `ESP 挂载失败`。
+正确顺序：**先扫现有盘符**找已经挂载出来的 ESP（判据 `\EFI\Boot` 或 `\EFI\Microsoft` 存在），找不到再尝试空盘符挂载。
+（`oneclick/Install-40HXUnlock.ps1` 的 `Mount-Esp` 已按此实现，并把 `mountvol` 的原话一起打进日志。）
+
+### B6. 验证自己构造的启动项固件收不收 —— 安全的做法（2026-09-28）
+别去动正在用的那一条。用**同款构造算法**写一个临时项（如 `Boot0000`），然后：
+
+```
+bcdedit /enum firmware      :: 应立刻多出一条带 description / device partition / path 的条目
+```
+
+看到它被枚举出来（实测 `path \EFI\40HX\40HXUNLK.EFI`、`device partition=\Device\HarddiskVolume2`）就说明固件的确采纳了这种构造；随后删掉它并复核 `BootOrder` 与正在用的那条**逐字节未变**。
+可选数据（description 段）留空是被接受的 —— 不需要照抄别人条目里的 136 字节 optional data。
 
 ## C. 容易误判的读数
 
@@ -75,6 +107,20 @@
 ### C4. 驱动"用完即卸"后读不到 SS0 属正常
 - 终态就该如此。要现场读，跑一次 helper（它会按需起服务）。
 
+### C5. 判据别写死一种 PASS 文案（2026-09-28）
+helper 有**两条成功路径**，文案不同：
+
+```
+PASS: physical Gen2 x16 reached           ← 本次真的做了重训
+PASS: already physical Gen2 x16; no writes needed.   ← 幂等：本来就已经是 Gen2
+```
+
+只匹配 `PASS: physical Gen2 x16` 的判据会把**正常的幂等成功**误判成 FAIL（本机第一版 `-Mode Verify` 就误判过一次）。
+正确写法：正则 `PASS:\s*(already\s+)?physical Gen2 x16`。`scripts/coldboot-report.ps1` 里同款写法已一并修正。
+
+顺带一个 .NET 正则坑：`(?m)$` 匹配位置停在 `\n` **之前**，所以对 CRLF 文件做行尾锚定的替换（`^...do \($`）永远匹配不上，
+要用 lookahead `(?=\r?$)`；同一坑也适用于 `^` 与 `\r` 相邻的各种改写脚本。
+
 ## D. 杂项
 
 ### D1. 幽灵设备实例
@@ -86,6 +132,21 @@
 
 ### D3. 提权方式
 - 本机用户属 Administrators 且 `ConsentPromptBehaviorAdmin=0`，可用 `Start-Process ... -Verb RunAs -Wait` 静默提权（无弹窗）。
+
+### D4. 改 `.cmd` / 写 `.ps1` 时的编码与命名坑（2026-09-28）
+- **`.cmd` 的编码不能假设**：上游 `RunPostBind.cmd` 是 **UTF-8**，本机在用的那份也是 UTF-8；当 GBK 读回写会把中文注释改坏（反之亦然）。
+  改之前先探测（BOM → 严格 UTF-8 → GBK 依次试），**并按原编码写回**。
+- **PowerShell 函数/变量名大小写不敏感**：`$l` 与 `$L` 是同一个变量；`RV` 是内置别名 `Remove-Variable`。自动化脚本里别用单字母/短名（实测因此让一个探针脚本 exit 1 且不写输出）。
+- **WSL 侧调 `powershell.exe` 偶发失败**：`UtilAcceptVsock: accept4 failed 110` → 启动失败/退出码 1，重试 2~3 次即可；
+  提权进程创建的文件 WSL 侧删不掉（Permission denied），要用提权 PowerShell 或先 `Stop-Process` 掉占用它的进程。
+- **一键 `.cmd` 提权后必须跳过二次确认**：否则新窗口卡在 `set /p` 等按键（没人能按）。用标记参数（如 `elevated`）区分两条路径；
+  测试带 `pause` 的 `.cmd` 用 `cmd /c "x.cmd < NUL"` 提权跑 + 输出重定向到文件再读。
+
+### D5. 调外部脚本时别让两边同时写同一个日志文件（2026-09-28）
+`.cmd` 里 `powershell -File x.ps1 >>"%LOG%" 2>&1` 时，cmd **自己**持有 `%LOG%` 的写句柄；被调脚本里再 `Add-Content` 同一个文件会报
+`文件正由另一进程使用`，日志里刷一片报错（实测 19:34 那次）。
+两种正确写法：① 调用处**不传**日志路径，让脚本把输出打到标准输出、由 `>>` 落盘（当前 `RunPostBind.cmd` 采用）；
+② 脚本自己写日志、调用处就不重定向。脚本内再包一层 try/catch 回退到标准输出，双保险。
 
 ## 历史时间线（本机）
 
@@ -109,3 +170,12 @@
 | 2026-09-22 22:40 | 稳态复跑：`ACE: ACE-BOOT running - temporary stop…` → `stopped` → `EXIT=0` → `ACE: ACE-BOOT restored (SYSTEM_START)` |
 | 2026-09-23 00:20 | 把 ACE 全套结论、含 ACE 处理的 `RunPostBind.cmd`、状态自检 `.bat`、原始证据归档进本仓库（`docs/06-ace-boot.md`） |
 | 2026-09-23 01:08 | 状态自检脚本升级为 6 步：新增第 4 步**实测算力验证**（内嵌 PTX kernel：SM 数 / FP32 / FP16 / FP16-TC / 显存带宽，判据 SM≥34、FP32≥7.0、FP16≥13.0、TC≥40.0 TFLOPS、显存≥330 GB/s），结论改为三态 `全绿 -- WDDM + PCIe Gen2 + 算力满血` |
+| 2026-09-28 18:24~18:42 | 自写的一键安装脚本（`oneclick/Install-40HXUnlock.ps1`）落地：Check 体检 EXIT=0；实测发现 NVRAM 里两条 "Windows Boot Manager" 是**过期项**（分区 GUID 与现场 ESP 不符、无 FilePath 节点）→ 改为从现场 ESP 分区现构造启动项 |
+| 2026-09-28 18:44 | `-Mode SelfTest` 首次跑就查出**设备路径节点末两字节**写错（应为 `MBRType=0x02`+`SignatureType=0x02`）；改后与固件里在用的 `Boot0003` **逐字节一致** |
+| 2026-09-28 18:49 | 固件接受度探针：用同款算法写临时 `Boot0000` → `bcdedit /enum firmware` 立刻枚举出该条目（`path \EFI\40HX\40HXUNLK.EFI`）；删除后 `BootOrder`/`Boot0005` 逐字节未变 |
+| 2026-09-28 18:53 | 安装脚本在 ESP 已被挂到 `Y:` 时报 `ESP 挂载失败` → 定位为 `mountvol <新字母>: /S` 在 ESP 已挂载时会直接报错；改为"先扫已挂载的 ESP" |
+| 2026-09-28 18:56 | `-Mode Verify` 双 PASS：固件日志 `*** UNLOCKED (SS0=0x88888888 SS1=0x8) ***` + helper `PASS: already physical Gen2 x16` → 「两全达成」 |
+| 2026-09-28 18:57 | `一键安装.cmd`（提权后不再二次询问）端到端跑通：`安装退出码 = 0`；幂等 Install 连跑 4 次均 EXIT=0 |
+| 2026-09-28 19:09 | 补「报错指引」：失败自动打印退出码含义/日志路径/体检命令/`排查指引.md`/回滚命令；故意不带 `-Yes` 跑 Uninstall 验证（退出码 2），Check/SelfTest 回归仍 EXIT=0 |
+| 2026-09-28 19:20 | 把整包归档进仓库 `oneclick/`（不含 logs/backup/state），README 增加一键入口章节，docs/03 增补 B4~B6、C5、D4 |
+| 2026-09-28 19:20~19:40 | ACE 处理加固成 `ACE-Toggle.ps1`（路径定位 + 原启动类型还原 + 其它反作弊提示）；7 个模拟用例 + 真机 Off/On + `-Mode Install -RunNow` 端到端 `EXIT=0`；修掉 `postbind.log` 句柄冲突导致的日志报错 |

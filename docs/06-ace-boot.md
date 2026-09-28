@@ -229,3 +229,33 @@ PASS: already physical Gen2 x16; no writes needed.
 
 **没装 ACE 的机器**：`:ace_off` 会打印 `ACE: service ACE-BOOT not present` 后直接返回 0，
 其余流程不受影响（幂等，可安全使用同一份脚本）。
+
+---
+
+## 9. ACE 换安装目录 / 改服务名也能处理（2026-09-28 加固）
+
+原来的实现只认服务名 `ACE-BOOT`、托盘只按映像名 `taskkill /IM ACE-Tray.exe`、恢复时写死 `start= system`。
+现在这部分逻辑独立成 `oneclick/payload/windows/ACE-Toggle.ps1`（开机任务由 `RunPostBind.cmd` 的 `:ace_toggle off|on` 调用）：
+
+| 环节 | 做法 | 为什么 |
+|---|---|---|
+| 定位 | ①正在运行 **且** 驱动 `ImagePath` 含 `AntiCheatExpert` 且名字是 `ACE-BOOT` → ②正在运行 且 `ImagePath` 含 `AntiCheatExpert` → ③名字是 `ACE-BOOT` | 腾讯换目录/改名都不影响；三级回退保证老机器仍然命中 |
+| 停 | `sc stop <定位到的服务名>`；仍 `STOP_PENDING` 才动托盘 | 大部分机器直接停得掉，不需要杀进程 |
+| 托盘 | 按**可执行文件完整路径**匹配 `AntiCheatExpert` 定位进程并结束；一个都没找到才回退 `taskkill /IM ACE-Tray.exe /F` | 托盘换了名字/路径也能处理；回退保证兼容 |
+| 恢复 | 停止前把原始 `StartMode`（Boot/System/Auto/Manual/Disabled→sc 关键字）写进 `logs\ace-state.json`，恢复时按记录 `sc config start=` + `sc start` | 不写死 `system`，避免把别人的配置改坏；启动类型未知时**只启动不改类型** |
+| 其它反作弊 | 检测并 WARN 提示 `vgk/vgc/EasyAntiCheat/BEDaisy/BEService/XIGNCODE/nProtect/TenProtect`（**只提示不动手**） | 这些不是腾讯 ACE，贸然停掉会破坏别的软件；提示出来便于人工判断 |
+| ACE 不存在/没在跑 | 直接跳过，**不改任何启动类型** | 幂等、可安全重复调用 |
+
+匹配规则细节：其它反作弊用「完全相等 或 前缀」匹配（`EasyAntiCheat_EOS` 能命中）。
+早期版本用子串匹配，结果把 Windows 自己的 `HTTP`/`TPM`/`WindowsTrustedRTProxy` 误报成“其它反作弊”（因为关键词里有个过短的 `TP`）—— 已改掉。
+
+**验证过的用例**（详见 `oneclick/验证记录.md`）：改服务名+换目录（`D:\Tencent\AntiCheatExpert\ACE-BOOT2.sys`）、换目录的 `SGuard64`、
+混入 `nvlddmkm`、混入 `HTTP/TPM/WindowsTrustedRTProxy`（不得误报）、真的 `vgk`（要提示）、`EasyAntiCheat_EOS`（前缀命中）、没装 ACE、ACE 未运行；
+本机真机：`Off` → `STATE=STOPPED` 且状态文件记录 `system`；`On` → `STATE=RUNNING` + `START_TYPE=1 SYSTEM_START`；`-Mode Install -RunNow` 端到端 `EXIT=0` 且日志干净。
+
+**调用时的日志句柄坑（踩过）**：`RunPostBind.cmd` 通过 `>>"%LOG%"` 重定向收集脚本输出，此时它**自己持有** `postbind.log` 的写句柄，
+脚本内再 `Add-Content` 同一文件会失败（`文件正由另一进程使用`，日志里会看到一堆报错）。现在的写法是：调用处**不传** `-Log`，脚本把每行打到标准输出由 `>>` 落盘；
+脚本里若确实要自己写文件，写失败会回退到标准输出，不会中断流程。
+
+**自动化的部署方式**：`oneclick/Install-40HXUnlock.ps1` 会把 `ACE-Toggle.ps1` 一起装到 `%ProgramData%\CMP40HXGen2\windows\`，
+并把 `RunPostBind.cmd` 的驱动源行改成这台机器的实际路径 —— 不需要手工改 `:ace_off`/`:ace_on` 这些子过程了（老章节里那套已被替代）。

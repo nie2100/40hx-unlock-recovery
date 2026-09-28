@@ -59,7 +59,7 @@ if (Test-Path $ll) {
   W "  [last.log]"
   Get-Content $ll | Where-Object { $_ -match 'GUARD|PASS|ERROR|EXIT|LINK_CONFIG|PRIV_MISC|final|TLS|LNKCAP|SS0' } | ForEach-Object { W ("    " + $_) }
   $l2 = Get-Content $ll
-  if (-not ($l2 -match 'PASS: physical Gen2 x16')) { $gen2Ok = $false }
+  if (-not ($l2 -match 'PASS:\s*(already\s+)?physical Gen2 x16')) { $gen2Ok = $false }
 } else { W "  last.log missing" }
 
 # ---- vendor-side status file ----

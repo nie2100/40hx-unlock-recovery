@@ -31,6 +31,13 @@ bash scripts/make-inventory.sh        # 在仓库根目录跑，输出 INVENTORY
 | `scripts/nvram_chk.ps1` / `nvram_write.ps1` / `nvram_bootorder.ps1` | 读写 UEFI 引导变量（`SeSystemEnvironmentPrivilege`） | — |
 | `scripts/ghost-clean.ps1` | 清理幽灵 PnP 实例（先 `reg export` 备份） | — |
 | `scripts/40HX解锁状态.bat` | **日常一键自检**（双击即用，6 步）：nvidia-smi + WDDM 模式 + CUDA ctypes 实测链路带宽判 Gen2 + **PTX 实测算力**（SM 数 / FP32 / FP16 / FP16-TC / 显存带宽）+ 开机任务日志 + 厂商状态文件，末行给三态结论 | md5 `66396b8918d75af0b42adcef24cab38d`（与本机桌面文件逐字节一致；GBK + CRLF） |
+| `oneclick/一键安装.cmd` | **一键安装入口**（双击；先摘要+确认再提权，提权后那份不再二次询问） | GBK + CRLF（`.gitattributes` 已禁止转换） |
+| `oneclick/Install-40HXUnlock.ps1` | 自含安装/修复/取证脚本：`Check`/`SelfTest`/`Install`/`Repair`/`Verify`/`MakeDefault`/`Uninstall`；退出码 0/1/2/3/4/5，失败自动打印「出错怎么办」 | UTF-8 **带 BOM** |
+| `oneclick/状态自检.bat` | 与 `scripts/40HX解锁状态.bat` **逐字节相同**（md5 `66396b8918d75af0b42adcef24cab38d`），包内自带一份以保持自含 | GBK + CRLF |
+| `oneclick/README-使用说明.md` / `排查指引.md` / `验证记录.md` | 包内说明、**按报错原话/退出码索引的排查指引**、交付前本机实测记录 | UTF-8 |
+| `oneclick/payload/windows/ACE-Toggle.ps1` | **ACE(腾讯反作弊) 定位与停/恢复**：按 ImagePath 含 `AntiCheatExpert` 定位（换目录/改名无关）、托盘按路径定位、
+恢复按状态文件里记录的原始启动类型；WARN 提示其它厂商反作弊。被 `RunPostBind.cmd` 的 `:ace_toggle off|on` 调用 | UTF-8 带 BOM |
+| `oneclick/payload/` | EFI 解锁固件 + Windows helper + 两个驱动的 base64 + `sha256.txt`（与仓库其它 payload 目录内容等价：EFI/helper 逐字节相同；`*.b64` 仅换行方式不同，**解码后字节一致**、哈希与期望值相符） | 同仓库其它 payload |
 | `docs/06-ace-boot.md` | **过腾讯 ACE**：判据、`ACE-Tray` 关键一步、自动化、厂商诊断误判、完整时间线 | — |
 | `evidence/ace-20260922/` | ACE 专项原始证据（诊断/STOP_PENDING/杀托盘后成功/A-B 双 PASS + 当时用的 ps1） | — |
 | `evidence/` | 实测证据：冷启动报告、基准输出、helper 日志、固件日志、NVRAM 读取、回滚日志 | — |

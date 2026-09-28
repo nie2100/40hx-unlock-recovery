@@ -8,6 +8,36 @@
 
 ---
 
+## 一键入口（推荐）：`oneclick/` 自含迁移包
+
+2026-09-28 新增。**不需要厂商安装器、不需要联网**，整个 `oneclick/` 目录拷到任意一台装了 CMP 40HX 的 Windows 上，双击 `一键安装.cmd` 即可把「算力解锁 + PCIe Gen2 两全」这套状态完整装出来；也可以在本机重装系统后直接用它恢复。
+
+```
+oneclick\
+├─ 一键安装.cmd                 双击（先摘要+确认，再自己申请 UAC；提权后那份不再问第二次）
+├─ 状态自检.bat                 双击看结论（与 scripts/40HX解锁状态.bat 逐字节相同）
+├─ Install-40HXUnlock.ps1       主脚本：Check / SelfTest / Install / Repair / Verify / MakeDefault / Uninstall
+├─ README-使用说明.md           包内使用说明（前提、模式、退出码、装了什么）
+├─ 排查指引.md                  **报错时按日志原话/退出码索引**（杀软/前提/ESP-NVRAM/重启无效/驱动服务）
+├─ 验证记录.md                  交付前的本机实测记录（每条日志文件名 + 读数）
+└─ payload\                     EFI 解锁固件 + Windows helper + 两个驱动的 base64 + sha256 清单
+```
+
+它自己做完这些事（**不调用厂商安装器**，因为那会覆盖 ESP 上的 OnlyEFI 固件 → helper 守卫失效、Gen2 永不落地）：
+
+1. 两个 BYOVD 驱动 → `System32\drivers` + `%ProgramData%\CMP40HXGen2\drivers` + `%ProgramData%\40HXUnlock\drivers`，缺服务则 `sc create`；
+2. OnlyEFI 固件 → `\EFI\40HX\40HXUNLK.EFI`（原文件先备份）+ `\EFI\Boot\bootx64.efi` 兜底；
+3. **自己构造**固件启动项 `40HX Unlock` 并写进 NVRAM（含现场 ESP 的设备路径节点），按需写 `BootOrder`；
+4. 注册开机任务 `CMP40HX Gen2 PostBind`（含 ACE 处理与多源自愈），禁用厂商残留任务/自启；
+   ACE 处理走 `payload\windows\ACE-Toggle.ps1`：**按安装路径定位** ACE-BOOT（换目录/改服务名都行），临时停掉让 Gen2 落地后，按记录的原始启动类型恢复；
+5. 全新命令 `-Mode Verify` 现场取证：一次给出「算力解锁 PASS/FAIL + PCIe Gen2 PASS/FAIL」结论。
+
+退出码：`0` 成功 / `1` 一般失败 / `2` 前提或权限 / `3` 载荷哈希 / `4` 固件变量 / `5` 驱动服务；失败时会自动打印「出错怎么办」（退出码含义＋日志绝对路径＋体检命令＋`排查指引.md`＋回滚命令）。
+
+交付前本机实测（2026-09-28）：Check / SelfTest / Install（幂等 4 次）/ Repair / Verify / MakeDefault / Uninstall（故意缺 `-Yes` 触发报错路径）全部符合预期，`Verify` 结论为「两全达成」；把整包拷到 `C:\Temp\` 另跑一遍 Check/Repair 也 EXIT=0 → **包内无本机路径硬编码**。细节见 `oneclick/验证记录.md`。
+
+---
+
 ## 0. 本机基线（实测，非推测）
 
 | 项目 | 值 |
@@ -188,6 +218,7 @@ sc start ACE-BOOT
 - **`schtasks /ru SYSTEM` 的任务里跑 OpenCL 基准会枚举成核显**（Device 0 = Intel）→ 测显卡别用 SYSTEM 会话。
 - 幽灵设备实例（`Problem=0x2D`，`present=False`）不影响功能，可用 `pnputil /remove-device "<instanceid>"` 清掉，脚本 `scripts/ghost-clean.ps1`。
 - **裸 `ThrottleStop.sys` 会被杀软从任何非信任路径秒删**（临时目录、解压出来的上游包内都保不住，实测 10 秒内消失）→ 本仓库以 base64 文本保存；恢复时跑 `payload/drivers/RESTORE-DRIVERS.ps1`，之后把两个 .sys 加进杀软信任区。
+  **别把裸 .sys 再拷到任意目录"做备份"**：实测在 `C:\Temp\` 下写一份会立刻触发火绒弹窗（`Exploit/Vulndriver.ad`，操作进程就是当时的 powershell）。`oneclick/` 包已按这条规矩改过：裸驱动只写 `System32\drivers` 与两个 `%ProgramData%` 目录，另有 ESP `\EFI\40HX\drv` 兜底源（杀软不扫 EFI 分区）。杀软信任区怎么加、弹窗长什么样，见 `oneclick/排查指引.md` 第 2 节。
 
 细节（完整踩坑史、时间线、原始输出）：`docs/03-pitfalls.md`。
 
@@ -197,6 +228,7 @@ sc start ACE-BOOT
 
 ```
 README.md                     本手册（恢复主流程）
+oneclick/                     **自含一键迁移包**（双击 一键安装.cmd 装/修；含 排查指引.md、验证记录.md、payload/）
 docs/01-hardware.md           本机硬件/固件/拓扑实测
 docs/02-how-it-works.md       原理：EFI 阶段与 Windows 阶段做了什么
 docs/03-pitfalls.md           坑清单与历史踩坑记录（含厂商 v3.2 回滚经过）
