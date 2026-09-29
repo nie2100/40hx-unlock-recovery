@@ -1,0 +1,25 @@
+﻿==== cand diag   2026-09-29 08:42:01 ====
+  whoami        : %COMPUTERNAME%\\%USERNAME%
+  IsAdmin       : False
+  integrity lvl : 
+
+---- sc create (raw output) ----
+  create: [SC] OpenSCManager 失败 5: |  | 拒绝访问。
+  exitcode: 5
+  query : [SC] EnumQueryServicesStatus:OpenService 失败 1060: |  | 指定的服务未安装。
+  exitcode: 1060
+  registry key exists: False
+
+---- WinRing0 ----
+  query: SERVICE_NAME: WinRing0_1_2_0  |         TYPE               : 1  KERNEL_DRIVER   |         STATE              : 1  STOPPED  |         WIN32_EXIT_CODE    : 0  (0x0) |         SERVICE_EXIT_CODE  : 0  (0x0) |         CHECKPOINT         : 0x0 |         WAIT_HINT          : 0x0
+  start: [SC] StartService: OpenService 失败 5: |  | 拒绝访问。
+  CreateFile \\.\WinRing0_1_2_0 -> '-1'  err=2
+  CreateFile \\.\inpoutx64 -> '-1'  err=2
+  CreateFile \\.\asmmap64 -> '-1'  err=2
+
+---- CI / blocklist ----
+  VulnerableDriverBlocklistEnable = 0
+  SecureBoot (reg) = 0
+  HVCI Enabled     = 0
+
+==== end ====

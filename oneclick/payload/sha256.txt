@@ -1,9 +1,13 @@
+# payload 清单（md5 + 字节数 + 相对 payload/ 的路径）；用途：核对包完整性，不参与运行时校验
+aedc410f05ed43e5833543a0dc849242  590868  EFI/40HXUNLK.EFI
 87ac9051ad8dcef59f0f474252875361  68718  drivers/ThrottleStop.sys.b64
 988ad312105384fd7997718b4157b556  19904  drivers/WinRing0x64.sys.b64
-aedc410f05ed43e5833543a0dc849242  590868  EFI/40HXUNLK.EFI
-e150f4ff59d543148af7bbcabd363bad  15838  windows/ACE-Toggle.ps1
+8598c45c61f04e9ce2145628adcfe28b  134522  drivers/inpoutx64.dll.b64
+59f7f4409873dae9abb7eba851d958bc  20540  drivers/inpoutx64.sys.b64
+08a72a6720bab78c39c62f77a44f825c  15075  windows/40hx-retrain-inpout.ps1
+177df8ba35c81d94ff65c069c76d153f  18676  windows/ACE-Toggle.ps1
 0021c1978b749ee7e55834e2aa7ef59a  1551  windows/AutoRetrain.cmd
 1490de9bd90105e6ebc73e50abecc5cf  23040  windows/CMP40HXGen2.exe
-c7c28a0972d3bc2e024e4a766d16f516  3533  windows/RunPostBind.cmd
+8a2cc4a2548dda19420ebfc3844321d3  5394  windows/RunPostBind.cmd
 6e3f7dbd75d2e59fd824c195b7278477  735  windows/Status.cmd
 2a44b95ea3797a1dcffe4cf5fe4fb08f  1017  windows/Uninstall_Auto.cmd

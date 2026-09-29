@@ -1,0 +1,43 @@
+﻿==== inpoutx64 candidate test (READ ONLY)   2026-09-29 09:06:22 ====
+  running as  : %COMPUTERNAME%\\%USERNAME%
+  IsAdmin     : True
+
+---- 1) ACE state BEFORE (must stay RUNNING all along) ----
+  ACE-BOOT    : STATE              : 4  RUNNING
+  ACE-Tray    : PIDs 10128
+  ThrottleStop: STATE              : 1  STOPPED
+
+---- 2) GPU BAR0 ----
+  memory range start = 0x40000000
+  memory range start = 0x6000000000
+  memory range start = 0x6004000000
+  using BAR0 = 0x40000000
+
+---- 3) install inpoutx64.sys (temp service) ----
+  file: D:\40hx-unlock\cand2\inpoutx64.sys  15008 B
+  create : [SC] CreateService 成功
+  start  : SERVICE_NAME: inpoutx64T  |         TYPE               : 1  KERNEL_DRIVER   |         STATE              : 4  RUNNING  |                                 (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN) |         WIN32_EXIT_CODE    : 0  (0x0) |         SERVICE_EXIT_CODE  : 0  (0x0) |         CHECKPOINT         : 0x0 |         WAIT_HINT          : 0x0 |         PID                : 0 |         FLAGS              :
+  state  : SERVICE_NAME: inpoutx64T  |         TYPE               : 1  KERNEL_DRIVER   |         STATE              : 4  RUNNING  |                                 (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN) |         WIN32_EXIT_CODE    : 0  (0x0) |         SERVICE_EXIT_CODE  : 0  (0x0) |         CHECKPOINT         : 0x0 |         WAIT_HINT          : 0x0
+  ACE-BOOT after install: STATE              : 4  RUNNING
+
+---- 4) MapPhysToLin + read registers (READ ONLY) ----
+  BOOT0          = 0x166000A1   expect 0x166000A1   MATCH
+  XVE_OVR        = 0x00000006   expect 0x00000006   MATCH
+  CYA_0          = 0x068731B3   expect 0x068731B3   MATCH
+  PL_LINK_RATE   = 0x00220036   expect 0x00220036   MATCH
+  VSEC_DEVICE    = 0x00000801   expect 0x00000801   MATCH
+  LINK_CONFIG_0  = 0x80085800   expect 0x80085800   MATCH
+  PRIV_MISC_1    = 0xE0B42D00   expect 0xE0B42D00   MATCH
+  SS0            = 0x88888888   expect 0x88888888   MATCH
+  SS1            = 0x00000008   expect 0x00000008   MATCH
+
+>>> VERDICT: PASS - inpoutx64 reads GPU MMIO with ACE running. This driver can replace ThrottleStop.
+>>> Next step would be: write LINK_CONFIG_0 / PRIV_MISC_1 through the same handle (needs your OK).
+
+---- 5) cleanup ----
+  service after cleanup: SERVICE_NAME: inpoutx64T  |         TYPE               : 1  KERNEL_DRIVER   |         STATE              : 3  STOP_PENDING  |                                 (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN) |         WIN32_EXIT_CODE    : 0  (0x0) |         SERVICE_EXIT_CODE  : 0  (0x0) |         CHECKPOINT         : 0x0 |         WAIT_HINT          : 0x0
+  ACE-BOOT final : STATE              : 4  RUNNING
+  ACE-Tray final : PIDs 10128
+  ThrottleStop   : STATE              : 1  STOPPED
+
+==== end 09:06:25 ====

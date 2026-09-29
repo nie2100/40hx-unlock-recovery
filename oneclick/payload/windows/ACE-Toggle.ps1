@@ -15,13 +15,14 @@
 #
 [CmdletBinding()]
 param(
-  [ValidateSet('Locate', 'Off', 'On', 'HealTray')] [string]$Action = 'Locate',
+  [ValidateSet('Locate', 'QuiesceTray', 'Off', 'On', 'HealTray')] [string]$Action = 'Locate',
   [string]$Log = '',
   [string]$StateFile = "$env:ProgramData\CMP40HXGen2\windows\logs\ace-state.json",
   [object[]]$ServiceList = $null,   # 仅供自测：注入伪服务列表（配合 -Action Locate，只读不动作）
   [object[]]$ProcessList = $null,   # 仅供自测：注入伪进程列表
   [int]$WaitStopSeconds = 20,
   [int]$WaitKillSeconds = 40,
+  [int]$WaitTraySeconds = 30,   # QuiesceTray：等登录把托盘拉起来的最长秒数
   [switch]$DryRun
 )
 
@@ -127,6 +128,50 @@ if ($Action -eq 'Locate') {
     Write-AceLog '未发现 ACE 引导驱动（未安装或未运行）'
   }
   Warn-OtherAntiCheat -List $all -Exclude $boot.Name
+  exit 0
+}
+
+if ($Action -eq 'QuiesceTray') {
+  # 目的：把「登录时由 HKLM Run 拉起、却会落在停窗里初始化失败」的 ACE 托盘**先请下桌**，
+  #   这样停 ACE-BOOT 的窗口里就不会有托盘启动 → 用户不再看到「ACE 初始化失败」弹窗。
+  #   之后由 HealTray 在恢复 ACE-BOOT 后把托盘拉回用户会话（用户看到图标重建，但没有报错弹窗）。
+  # 依据（2026-09-28/29 实测）：托盘的失败弹窗发生在它启动那一刻；把它在窗口之前结束掉就不会有弹窗，
+  #   而 Run 项只在登录时执行一次，已被消费 → 窗口期内不会再自动拉起。
+  $exp = @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue)
+  if ($exp.Count -eq 0) {
+    Write-AceLog '还没有用户登录（无 explorer）—— 停窗会在登录之前闭合，不需要拦托盘'
+    exit 0
+  }
+
+  $trayExe = $null
+  foreach ($p in @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'Tray' -and $_.ExecutablePath -match 'AntiCheatExpert' })) {
+    if ($p.ExecutablePath) { $trayExe = $p.ExecutablePath; break }
+  }
+  if (-not $trayExe) {
+    foreach ($c in @("$env:ProgramFiles\AntiCheatExpert\ACE-Tray.exe", "${env:ProgramFiles(x86)}\AntiCheatExpert\ACE-Tray.exe")) {
+      if (Test-Path -LiteralPath $c) { $trayExe = $c; break }
+    }
+  }
+  if (-not $trayExe) { Write-AceLog '没找到 ACE 托盘可执行文件 —— 跳过（这台机器可能没装 ACE）'; exit 0 }
+
+  $found = $null
+  $deadline = (Get-Date).AddSeconds($WaitTraySeconds)
+  while ((Get-Date) -lt $deadline) {
+    $ps = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'Tray' -and $_.ExecutablePath -match 'AntiCheatExpert' })
+    if ($ps.Count -gt 0) { $found = $ps[0]; break }
+    Start-Sleep -Seconds 2
+  }
+  if (-not $found) {
+    Write-AceLog ('等托盘 ' + $WaitTraySeconds + ' 秒仍未出现 —— 继续（若它稍后才启动，由 HealTray 兜底修复）') 'WARN'
+    exit 0
+  }
+  Write-AceLog ('登录后托盘已启动（PID=' + $found.ProcessId + ' session=' + $found.SessionId + '）—— 先结束它，免得它落在停窗里初始化失败弹窗')
+  if ($DryRun) { Write-AceLog 'DryRun：不实际结束'; exit 0 }
+  foreach ($p in @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'Tray' -and $_.ExecutablePath -match 'AntiCheatExpert' })) {
+    Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+  }
+  Start-Sleep -Seconds 1
+  Write-AceLog '托盘已结束 —— 接下来停 ACE-BOOT → 重训 → 恢复 ACE-BOOT → HealTray 把托盘拉回用户会话'
   exit 0
 }
 

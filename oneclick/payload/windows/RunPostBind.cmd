@@ -5,8 +5,38 @@ if not exist "%LOGDIR%" md "%LOGDIR%" >nul 2>&1
 set "LOG=%LOGDIR%\postbind.log"
 >>"%LOG%" echo ==== PostBind start %DATE% %TIME% ====
 
+rem ---- NEW PATH (2026-09-29): inpoutx64 (MMIO) + WinRing0 (PCI config) retrain; ACE-BOOT is NEVER stopped ----
+rem The tool verifies the baseline, writes only the two driver-clobbered policy registers, retrains the root port
+rem and validates Gen2. It exits 0 only on a verified PASS, otherwise we fall back to the legacy ACE path below.
+set "NEWTOOL=C:\ProgramData\CMP40HXGen2\windows\40hx-retrain-inpout.ps1"
+if exist "%NEWTOOL%" (
+  >>"%LOG%" echo ---- NewPath start: %NEWTOOL% -Apply %DATE% %TIME% ----
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%NEWTOOL%" -Apply >>"%LOG%" 2>&1
+  set "NRC=!ERRORLEVEL!"
+  >>"%LOG%" echo ---- NewPath EXIT=!NRC! %DATE% %TIME% ----
+  if "!NRC!"=="0" (
+    >>"%LOG%" echo ==== PostBind EXIT=0 %DATE% %TIME% ====
+    >>"%LOG%" echo PASS: Gen2 reached on the new path - ACE-BOOT was never stopped
+    exit /b 0
+  )
+  >>"%LOG%" echo NewPath did not PASS - exit=!NRC! - falling back to the legacy ACE path
+) else (
+  >>"%LOG%" echo NewPath: tool not found - using the legacy ACE path
+)
+
+
+rem ---- If the driver already loaded at boot stage (Start=0 Boot) ACE must not be touched at all ----
+rem ACE-BOOT only blocks driver IMAGE LOAD; an already loaded driver keeps working, and leaving ACE-BOOT
+rem in its boot-loaded state keeps the pre-boot anti-cheat mode valid, so games do not ask for a reboot.
+set "ACE_STOPPED=1"
+sc query "ThrottleStop" | findstr /I "RUNNING" >nul 2>&1
+if not errorlevel 1 set "ACE_STOPPED=0"
+if "!ACE_STOPPED!"=="0" >>"%LOG%" echo ACE-SKIP: ThrottleStop already RUNNING, ACE-BOOT left untouched
+
 rem ---- ACE-BOOT (Tencent pre-boot anti-cheat) blocks driver IMAGE LOAD only: stop -> retrain -> restore ----
-call :ace_toggle off
+rem first ask ACE-Tray to step aside so it can not start inside the ACE-BOOT stop window (that is what pops up)
+if "!ACE_STOPPED!"=="1" call :ace_toggle QuiesceTray
+if "!ACE_STOPPED!"=="1" call :ace_toggle off
 
 set "RC=99"
 for /L %%I in (1,1,3) do (
@@ -20,10 +50,10 @@ for /L %%I in (1,1,3) do (
 )
 >>"%LOG%" echo ==== PostBind EXIT=!RC! %DATE% %TIME% ====
 if "!RC!"=="0" ( >>"%LOG%" echo PASS: physical Gen2 post-bind step succeeded ) else ( >>"%LOG%" echo FAIL: post-bind step did not reach Gen2 )
-rem restore the anti-cheat only when Gen2 was actually reached
-if "!RC!"=="0" call :ace_toggle on
+rem restore the anti-cheat only when Gen2 was reached AND we were the ones who stopped it
+if "!RC!"=="0" if "!ACE_STOPPED!"=="1" call :ace_toggle on
 rem restore ACE tray into the interactive session if it was started inside the ACE-BOOT stop window
-if "!RC!"=="0" call :ace_toggle HealTray
+if "!RC!"=="0" if "!ACE_STOPPED!"=="1" call :ace_toggle HealTray
 exit /b !RC!
 
 :heal

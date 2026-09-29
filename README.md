@@ -4,6 +4,9 @@
 > 最近一次端到端验证：**2026-09-20 00:09 冷启动 PASS** —— EFI 日志 `*** UNLOCKED (SS0=0x88888888 SS1=0x8) ***`，开机任务 `CMP40HX Gen2 PostBind` → `EXIT=0` + `PASS: physical Gen2 x16 reached.`，同一次运行里 `GUARD=PASS SS0=0x88888888`（算力与 Gen2 同时成立）。
 > 最近一次 ACE 相关验证：**2026-09-22 22:08 真·开机（BootTrigger）PASS** —— 腾讯 ACE 升级后 ACE-BOOT 会在映像加载阶段拦 `ThrottleStop.sys`（Gen2 驱动），
 > 已实测出「杀 `ACE-Tray.exe` → 停 ACE-BOOT → 重训 → 再恢复 ACE」的完整解法并写进开机任务，**反作弊正常运行与 Gen2 解锁可以并存**。详见 `docs/06-ace-boot.md`。
+> 最近一次 ACE 方案升级：**2026-09-29 09:06 PASS** —— 找到 **ACE 不拦**的物理内存驱动 `inpoutx64`（Red Fox UK 签名，能力等同 ThrottleStop 的 MMIO 读写），
+> 实测在 `ACE-BOOT` + `ACE-Tray` **全程运行**时成功读写 GPU BAR0 全部 9 个寄存器（9/9 MATCH）→ **Gen2 重训不再需要停反作弊**，
+> 也就没有「ACE 兼容提示 / 需要重启才能进游戏」的副作用。落地脚本 `oneclick/payload/windows/40hx-retrain-inpout.ps1`（开机任务首选，失败才回落旧路径）。
 > 本仓库自含所需二进制（解锁 EFI、Windows 侧 helper、两个签名驱动、脚本），重装后不依赖网上重新找。
 
 ---
@@ -201,6 +204,21 @@ sc start ACE-BOOT
 以上已全部自动化进 `payload/windows-live/RunPostBind.cmd`（只放行成功路径才恢复 ACE），
 真·开机路径连托盘都不用杀（那时 `ACE-Tray.exe` 还没启动）。完整判据、误判陷阱、A/B 实测、
 厂商诊断的"驱动未拉起"误报：**`docs/06-ace-boot.md`**。
+
+**2026-09-29 更新（首选方案，已取代上面的停 ACE 流程）**：改用 `inpoutx64.sys`（Red Fox UK 签名；loldrivers 收录的 BYOVD，
+能力等同 ThrottleStop 的 MMIO 读写）配合 WinRing0 走 PCI 配置空间，实测 **`ACE-BOOT` 与 `ACE-Tray` 全程运行**时即可完成 Gen2 重训：
+
+```
+实测读数(ACE 运行时, 09:06:22):
+  BOOT0=0x166000A1  XVE_OVR=0x00000006  CYA_0=0x068731B3  PL_LINK_RATE=0x00220036
+  VSEC_DEVICE=0x00000801  LINK_CONFIG_0=0x80085800  PRIV_MISC_1=0xE0B42D00
+  SS0=0x88888888  SS1=0x00000008            → 9/9 MATCH
+驱动加载: sc create/start OK, ACE-BOOT 全程 RUNNING (未停过)
+```
+
+- 落地：开机任务优先跑 `40hx-retrain-inpout.ps1`（inpoutx64 直写 MMIO + WinRing0 读 PCI 配置空间），**退出码非 0 才回落**到上面那套「杀 ACE-Tray → 停 ACE-BOOT → 重训 → 恢复」的旧路径
+- 优点：反作弊预启动模式全程不被破坏，不再有「需要重启才能进游戏」的副作用
+- 注意：`inpoutx64.sys` 属 loldrivers 收录的 BYOVD，需要 `VulnerableDriverBlocklistEnable=0`（本机已是 0）；杀软可能误报，需加信任
 
 **装了之后 ACE 弹「初始化失败」（2026-09-28 实测）**：如果算力/Gen2 都是好的（`40hx_log.txt` 有 `UNLOCKED`、
 开机任务 rc=0），那多半是 ACE 托盘被开机任务的「停窗」撞坏了 —— 托盘由 HKLM Run 在登录时只拉起一次，

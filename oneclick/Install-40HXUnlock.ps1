@@ -7,10 +7,14 @@
   它做什么（全部由本脚本自己完成，不调用 CMP40HX-Unlock 厂商安装器：
   厂商安装器会把 ESP 上的 OnlyEFI 解锁固件覆盖掉，导致 Windows 侧 helper 守卫失败）：
     1. 前提体检：UEFI/GPT、Secure Boot、BitLocker、CMP 40HX 是否在位、GSP 是否开启、杀软
-    2. 驱动：ThrottleStop.sys + WinRing0x64.sys（base64 还原）→ System32\drivers + 多个自愈源
+    2. 驱动：ThrottleStop.sys + WinRing0x64.sys + inpoutx64.sys/.dll（base64 还原）→ System32\drivers + 多个自愈源
              + 建服务 ThrottleStop / WinRing0_1_2_0
-    3. Windows 侧 helper：CMP40HXGen2.exe + AutoRetrain.cmd + RunPostBind.cmd（含 ACE 反作弊处理）
+             （inpoutx64 不建常驻服务：开机脚本自己 create/delete 临时服务 inpoutx64T）
+    3. Windows 侧 helper：CMP40HXGen2.exe + AutoRetrain.cmd + RunPostBind.cmd + 40hx-retrain-inpout.ps1 + ACE-Toggle.ps1
              → %ProgramData%\CMP40HXGen2\windows
+             首选路径 = 40hx-retrain-inpout.ps1：inpoutx64 直写 MMIO + WinRing0 走 PCI 配置空间，
+             **ACE-BOOT 全程不用停** → 反作弊预启动模式不被破坏，游戏不要求重启；
+             旧路径（停 ACE-BOOT → AutoRetrain → 恢复 ACE-BOOT）保留为 fallback：新路径退出码非 0 才走
     4. ESP 固件：OnlyEFI v0.1.1 的 40HXUNLK.EFI（算力解锁 + Gen2 primer，EFI 阶段不重训）
              → \EFI\40HX\40HXUNLK.EFI 与 \EFI\Boot\bootx64.efi（原文件备份 .40hx.bak）
     5. 固件启动项：自己写 NVRAM Boot#### 变量（"40HX Unlock"，指向解锁 EFI），
@@ -89,6 +93,14 @@ $script:EfiSize = 590868
 $script:Drivers = @(
   @{ Name = 'ThrottleStop.sys' ; Sha256 = '16f83f056177c4ec24c7e99d01ca9d9d6713bd0497eeedb777a3ffefa99c97f0' ; Service = 'ThrottleStop'    },
   @{ Name = 'WinRing0x64.sys'  ; Sha256 = '11bd2c9f9e2397c9a16e0990e4ed2cf0679498fe0fd418a3dfdac60b5c160ee5' ; Service = 'WinRing0_1_2_0' }
+)
+# 首选路径（2026-09-29 起）用的驱动：inpoutx64 —— 只铺文件，不建常驻服务
+#   inpoutx64.sys → System32\drivers（开机脚本用它 MMIO 读写 GPU BAR0）、两个 ProgramData 自愈目录
+#   inpoutx64.dll → 两个 ProgramData 自愈目录（脚本用 Add-Type 按绝对路径加载 MapPhysToLin）
+#   Kinds: 'sys' = 需要进 System32\drivers；'drv' = 只进 ProgramData 目录
+$script:InpoutFiles = @(
+  @{ Name = 'inpoutx64.sys' ; Sha256 = 'f8965fdce668692c3785afa3559159f9a18287bc0d53abb21902895a8ecf221b' ; Kinds = @('sys','drv') },
+  @{ Name = 'inpoutx64.dll' ; Sha256 = '5f27ed4d5cd58a1ee23deeb802e09e73f3a1d884ce2135f6e827f67b171269e7' ; Kinds = @('drv') }
 )
 $script:ExitOk = 0; $script:ExitFail = 1; $script:ExitPrereq = 2; $script:ExitHash = 3; $script:ExitNvram = 4; $script:ExitDriver = 5
 
@@ -568,15 +580,16 @@ function Show-Check {
 
   Head '杀软 / 反作弊'
   if ($Report.Huorong) {
-    Warn '检测到火绒 —— 必须在“信任区”加入下面 4 项，否则 ThrottleStop.sys 会被隔离、服务被删（自愈源可救，但会反复）'
-    Add-Action '火绒/其它杀软：把 README 第 1.1 节的 4 项加进信任区（两个 .sys 全路径 + C:\ProgramData\CMP40HXGen2 + 本包目录），并关掉它的“启动项保护”'
+    Warn '检测到火绒 —— 必须在“信任区”加入下面这几项，否则驱动会被隔离、服务被删（自愈源可救，但会反复）'
+    Add-Action '火绒/其它杀软：把 README 第 1.1 节那几项加进信任区（System32\drivers 下 ThrottleStop.sys / WinRing0x64.sys / inpoutx64.sys 全路径 + C:\ProgramData\CMP40HXGen2 + 本包目录），并关掉它的“启动项保护”'
     Info ('文件: ' + $script:SysDrv + '\ThrottleStop.sys')
     Info ('文件: ' + $script:SysDrv + '\WinRing0x64.sys')
+    Info ('文件: ' + $script:SysDrv + '\inpoutx64.sys')
     Info ('目录: ' + $script:ProgDataRoot)
     Info ('目录: ' + $script:PkgRoot)
-    Info '安装时火绒大概率会弹一次 “Exploit/Vulndriver.ad” 拦截（ThrottleStop.sys 是 BYOVD 驱动，属预期）——按提示“信任/恢复”即可，脚本有 ESP 兜底源自愈'
+    Info '安装时火绒大概率会弹一次 “Exploit/Vulndriver.ad” 拦截（这几个都是 BYOVD 类驱动，属预期）——按提示“信任/恢复”即可，脚本有 ESP 兜底源自愈'
   } else { Ok '未检测到火绒' }
-  if ($Report.AceBoot) { Warn '检测到腾讯 ACE-BOOT 反作弊（会在映像加载阶段拦 ThrottleStop.sys）—— 已由开机任务自动“停ACE→重训→恢复ACE”处理，无需手工关闭' }
+  if ($Report.AceBoot) { Warn '检测到腾讯 ACE-BOOT 反作弊（会在映像加载阶段拦 ThrottleStop.sys）—— 首选新路径用 inpoutx64 直写寄存器，ACE-BOOT 全程不用停；只有新路径失败才回落到“停ACE→重训→恢复ACE”，无需手工关闭' }
   else { Ok '未检测到 ACE-BOOT' }
 
   Head '现状'
@@ -630,6 +643,19 @@ function Show-Check {
     $q = (Invoke-Native { sc.exe query $d.Service 2>&1 } | Out-String)
     if ($q -match 'STATE\s+:\s+\d+\s+(\S+)') { Info ("服务 " + $d.Service + " = " + $Matches[1]) } else { Info ("服务 " + $d.Service + " 不存在") }
   }
+  # 新路径（首选）需要的文件：inpoutx64.sys / inpoutx64.dll + 重训工具
+  foreach ($f in $script:InpoutFiles) {
+    $p = Join-Path $script:SysDrv $f.Name
+    if (-not (Test-Path $p)) { $p = Join-Path $script:ProgDataDrv $f.Name }
+    if (Test-Path $p) {
+      $hf = Get-FileSha256 $p
+      if ($hf -eq $f.Sha256) { Ok ($f.Name + " 已就位 (" + (Get-Item $p).Length + " B, " + (Split-Path -Parent $p) + ")") }
+      else { Warn ($f.Name + " 存在但哈希不同 (" + $hf.Substring(0, 16) + "…) —— 跑一次 -Mode Repair") }
+    } else { Info ($f.Name + " 没铺（新路径需要它，Install/Repair 会铺）") }
+  }
+  $newTool = Join-Path $script:ProgDataWin '40hx-retrain-inpout.ps1'
+  if (Test-Path $newTool) { Ok '新路径工具 40hx-retrain-inpout.ps1 已就位（开机不停 ACE-BOOT）' }
+  else { Info '新路径工具还没铺（没它时开机走旧路径 = 每次开机停一次 ACE-BOOT）' }
   $lastLog = Join-Path $script:ProgDataWin 'logs\last.log'
   if (Test-Path $lastLog) {
     $c = Get-Content -LiteralPath $lastLog
@@ -639,7 +665,11 @@ function Show-Check {
     if ($guard) { Info ("helper: " + $guard.Line.Trim()) }
     if ($pass) { Ok ("helper: " + $pass.Line.Trim()) } elseif ($exit) { Warn ("helper: " + $exit.Line.Trim()) }
     Info ("last.log 时间: " + (Get-Item $lastLog).LastWriteTime)
-  } else { Info 'last.log 不存在（开机任务还没跑过）' }
+  } else { Info 'last.log 不存在（旧路径没跑过；新路径只写 postbind.log + retrain-inpout.log，属正常）' }
+  $pbLog = Join-Path $script:ProgDataWin 'logs\postbind.log'
+  if (Test-Path $pbLog) {
+    (Get-Content -LiteralPath $pbLog | Select-Object -Last 4) | ForEach-Object { Info ('postbind: ' + $_) }
+  } else { Info 'postbind.log 不存在（开机任务还没跑过）' }
   $t = Get-ScheduledTask -TaskName $script:TaskName -ErrorAction SilentlyContinue
   if ($t) {
     $ti = Get-ScheduledTaskInfo -TaskName $script:TaskName -ErrorAction SilentlyContinue
@@ -707,7 +737,7 @@ function Install-DriverFiles {
 function Install-WindowsFiles {
   Head 'Windows 侧 helper'
   $src = Join-Path $script:PayloadDir 'windows'
-  foreach ($f in @('CMP40HXGen2.exe', 'AutoRetrain.cmd', 'Status.cmd', 'Uninstall_Auto.cmd', 'ACE-Toggle.ps1')) {
+  foreach ($f in @('CMP40HXGen2.exe', 'AutoRetrain.cmd', 'Status.cmd', 'Uninstall_Auto.cmd', 'ACE-Toggle.ps1', '40hx-retrain-inpout.ps1')) {
     $s = Join-Path $src $f
     if (-not (Test-Path $s)) { Fail ("载荷缺失: " + $s) $script:ExitHash '包不完整 → 重新解压一份完整包（payload 目录必须跟脚本在一起）' }
     Copy-WithVerify $s (Join-Path $script:ProgDataWin $f) | Out-Null
@@ -727,16 +757,74 @@ function Install-WindowsFiles {
   $newLine = 'for %%S in (' + $sourceList + ') do ('
   # 注意 CRLF：用 lookahead 匹配行尾，避免把 \r 吃掉（.NET 的 (?m)$ 匹配在 \n 之前）
   $replaced = $text -replace '(?m)^for %%S in \(.*\) do \((?=\r?$)', $newLine
-  if ($replaced -eq $text) { Bad 'RunPostBind.cmd 的驱动源行没替换成功（保持原样），请检查载荷是否被改动'; Add-Action 'RunPostBind.cmd 的驱动自愈源没按本机路径重写：把包内 payload\windows\RunPostBind.cmd 手工拷到 C:\ProgramData\CMP40HXGen2\windows\ 并改那行 for %%S' }
+  if ($replaced -eq $text) {
+    # 幂等：包里的模板本来就写着本机路径 → 内容没变是正常的。
+    # 只有连“本机路径那一行”都找不到，才算真的没替换成功（旧版在这里一律报失败，会让 -Mode Repair 的退出码变成 1）
+    $alreadyLocal = $text -match ('(?m)^for %%S in \(' + [regex]::Escape($sourceList) + '\) do \(')
+    if ($alreadyLocal) { Ok 'RunPostBind.cmd 驱动自愈源本来就是这个本机路径（无需改动）' }
+    else { Bad 'RunPostBind.cmd 的驱动源行没替换成功（保持原样），请检查载荷是否被改动'; Add-Action 'RunPostBind.cmd 的驱动自愈源没按本机路径重写：把包内 payload\windows\RunPostBind.cmd 手工拷到 C:\ProgramData\CMP40HXGen2\windows\ 并改那行 for %%S' }
+  }
   else {
     $chk = ([regex]::Matches($replaced, [regex]::Escape($script:ProgDataDrv))).Count
     if ($chk -ge 1) { Ok ('RunPostBind.cmd 驱动自愈源已按本机路径重写（含 ' + $script:ProgDataDrv + '）') } else { Bad 'RunPostBind.cmd 重写后没找到本机自愈源路径' }
   }
   [IO.File]::WriteAllText((Join-Path $script:ProgDataWin 'RunPostBind.cmd'), $replaced, $read.Encoding)
-  Ok ('RunPostBind.cmd → ' + $script:ProgDataWin + '（含 ACE 停/恢复 + 多源自愈 + 3 次重试）')
+  Ok ('RunPostBind.cmd → ' + $script:ProgDataWin + '（首选新路径 + 旧 ACE 路径 fallback + 多源自愈 + 3 次重试）')
+  $tnew = Join-Path $script:ProgDataWin '40hx-retrain-inpout.ps1'
+  if (Test-Path $tnew) { Ok '40hx-retrain-inpout.ps1 就位 → 开机走新路径（inpoutx64 直写 MMIO，ACE-BOOT 全程不停）' }
+  else { Warn '40hx-retrain-inpout.ps1 没铺上 → 开机任务会回落到旧路径（每次开机停一次 ACE-BOOT）'; Add-Action '新路径工具缺失：重新解压完整包后跑一次 -Mode Repair' }
   Info ('自愈源: ' + $script:ProgDataDrv + ' , ' + $script:VendorDrvDir + ' , ESP \EFI\40HX\drv（兜底）')
   # 注意：不要把裸 .sys 再拷到包目录/C:\Temp 之类的非信任路径 —— 实测火绒会立刻报
   # Exploit/Vulndriver.ad 并删除文件（只有 System32\drivers、%ProgramData% 下那两处和 ESP 存活）
+}
+
+function Install-InpoutFiles {
+  param([string]$BackupDir)
+  Head '新路径驱动 (inpoutx64) —— ACE 不用停的那条路'
+  $rawDir = Join-Path $script:PayloadDir 'drivers'
+  foreach ($f in $script:InpoutFiles) {
+    $b64 = Join-Path $rawDir ($f.Name + '.b64')
+    if (-not (Test-Path $b64)) { Fail ("载荷缺失: " + $b64) $script:ExitHash '包不完整（漏拷/杀软删过载荷）→ 重新解压一份完整包再跑，别只拷 Install-40HXUnlock.ps1' }
+    $bytes = [IO.File]::ReadAllBytes($b64)
+    $b64text = [Text.Encoding]::ASCII.GetString($bytes) -replace "[\r\n\s]", ''
+    $bin = [Convert]::FromBase64String($b64text)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    $binHash = ([BitConverter]::ToString($sha.ComputeHash($bin)) -replace '-', '').ToLower()
+    if ($binHash -ne $f.Sha256) { Fail ($f.Name + " 载荷解码后哈希不符: " + $binHash) $script:ExitHash ('期望 ' + $f.Sha256 + ' —— 传输损坏或杀软改过文件，重新解压一份包') }
+    Ok ($f.Name + " 载荷解码 + 哈希校验通过 (" + $bin.Length + " B)")
+    $targets = New-Object System.Collections.ArrayList
+    if ($f.Kinds -contains 'sys') { [void]$targets.Add((Join-Path $script:SysDrv $f.Name)) }
+    [void]$targets.Add((Join-Path $script:ProgDataDrv $f.Name))
+    [void]$targets.Add((Join-Path $script:VendorDrvDir $f.Name))
+    foreach ($t in ($targets | Select-Object -Unique)) {
+      $parent = Split-Path -Parent $t
+      if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+      [IO.File]::WriteAllBytes($t, $bin)
+      $h = Get-FileSha256 $t
+      if ($h -eq $f.Sha256) { Ok ($f.Name + " → " + $t + " (sha256 校验通过)") } else { Bad ($f.Name + " → " + $t + " 哈希不符 " + $h) }
+    }
+  }
+  Start-Sleep -Seconds 10
+  $ioSurvived = $true
+  foreach ($f in $script:InpoutFiles) {
+    # 只检查“本来就该存在”的路径：inpoutx64.dll 本来就不进 System32\drivers（Kinds=drv），检查它会造成假警报
+    $chkTargets = New-Object System.Collections.ArrayList
+    if ($f.Kinds -contains 'sys') { [void]$chkTargets.Add((Join-Path $script:SysDrv $f.Name)) }
+    [void]$chkTargets.Add((Join-Path $script:ProgDataDrv $f.Name))
+    foreach ($t in $chkTargets) {
+      if (-not (Test-Path $t)) { $ioSurvived = $false; Warn ("新路径驱动被删: " + $t + " —— 杀软隔离，请加信任区后重跑 Install/Repair"); Add-Action '杀软隔离了 inpoutx64：把 README 第 1.1 节那几项加进信任区后跑一次 -Mode Repair' }
+    }
+  }
+  if ($ioSurvived) { Ok '10 秒后 inpoutx64 仍在（没被杀软清理）' }
+  $espRoot = Mount-Esp
+  if ($espRoot) {
+    $drvEsp = Join-Path $espRoot $script:EspDrvFallback
+    if (-not (Test-Path $drvEsp)) { New-Item -ItemType Directory -Force -Path $drvEsp | Out-Null }
+    foreach ($f in $script:InpoutFiles) {
+      Copy-Item -LiteralPath (Join-Path $script:ProgDataDrv $f.Name) -Destination (Join-Path $drvEsp $f.Name) -Force -ErrorAction SilentlyContinue
+    }
+    Ok ("ESP 兜底驱动源已含新路径驱动: " + $drvEsp)
+  } else { Warn 'ESP 挂载失败，未部署 ESP 兜底驱动源'; Add-Action 'ESP 兜底驱动源没部署成功：重跑 -Mode Repair（或看 排查指引.md 第 4 节）' }
 }
 
 function Install-Efi {
@@ -1030,8 +1118,28 @@ function Invoke-Verify {
   } else { Bad 'ESP 挂载失败' }
 
   Head '取证：PCIe Gen2（Windows 侧）'
+  # 首选路径证据（2026-09-29 起）：postbind.log 的 "PASS: Gen2 reached on the new path"
+  # + retrain-inpout.log 的逐条硬件读数。判 Gen2 看 LNKSTA（0x1102/0xF102），别看 nvidia-smi 的 link.gen.current（空闲会降速）
+  $newPass = $null
+  $pbLog2 = Join-Path $script:ProgDataWin 'logs\postbind.log'
+  $rtLog = Join-Path $script:ProgDataWin 'logs\retrain-inpout.log'
+  if (Test-Path $pbLog2) {
+    $pbAll = Get-Content -LiteralPath $pbLog2
+    $newPass = ($pbAll | Select-String -Pattern 'PASS:\s*Gen2 reached on the new path' | Select-Object -Last 1)
+    ($pbAll | Select-String -Pattern '==== PostBind start|NewPath EXIT=|PASS:|FAIL:|falling back' | Select-Object -Last 3) | ForEach-Object { Info ('postbind: ' + $_.Line.Trim()) }
+    if ($pbAll | Select-String -Pattern 'falling back to the legacy ACE path' | Select-Object -Last 1) { Info 'postbind 里出现过“回落到旧路径”：新路径那次没成功（看上面的 NewPath EXIT 码：11 基线不认识 / 12 GPU 未就绪 / 13 inpoutx64 没起来 / 10 链路没到 Gen2 / 3 WinRing0 不可用）' }
+  } else { Bad 'postbind.log 不存在（开机任务没跑过）' }
+  if ($newPass) {
+    $gen2 = 'PASS'
+    Ok 'postbind: 新路径 PASS —— inpoutx64 直写 MMIO，ACE-BOOT 全程没被停'
+    if (Test-Path $rtLog) {
+      (Get-Content -LiteralPath $rtLog | Select-String -Pattern 'pre   :|writeOk=|GPU final|ROOT final' | Select-Object -Last 6) | ForEach-Object { Info ('retrain: ' + $_.Line.Trim()) }
+      Info ('retrain-inpout.log 时间: ' + (Get-Item $rtLog).LastWriteTime)
+    } else { Warn 'retrain-inpout.log 不存在（新路径 PASS 就一定会写它，建议重跑一次任务核对）' }
+  }
   $lastLog = Join-Path $script:ProgDataWin 'logs\last.log'
-  if (Test-Path $lastLog) {
+  if ($newPass) { Info '旧路径的 last.log 本次不用看（新路径已 PASS）；下面 SC 任务时间戳与 nvidia-smi 仅作参考' }
+  elseif (Test-Path $lastLog) {
     $c = Get-Content -LiteralPath $lastLog
     $c | Select-String -Pattern 'GUARD=|SS0=|TLS |GPU final|ROOT final|PASS:|ERROR|EXIT=' | ForEach-Object { Info ($_.Line.Trim()) }
     # 幂等路径会输出 'PASS: already physical Gen2 x16; no writes needed.'，只认 'PASS: physical Gen2 x16' 会误判为失败
@@ -1102,6 +1210,14 @@ function Invoke-Uninstall {
     }
     Ok ("已删除服务与驱动: " + $d.Service)
   }
+  foreach ($f in $script:InpoutFiles) {
+    foreach ($p in @((Join-Path $script:SysDrv $f.Name), (Join-Path $script:ProgDataDrv $f.Name), (Join-Path $script:VendorDrvDir $f.Name))) {
+      if (Test-Path $p) { Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue }
+    }
+    Ok ("已删除新路径驱动文件: " + $f.Name + "（新路径工具 40hx-retrain-inpout.ps1 在 " + $script:ProgDataWin + "，要一并删就加 -Purge）")
+  }
+  Invoke-Native { sc.exe stop inpoutx64T 2>&1 | Out-Null }
+  Invoke-Native { sc.exe delete inpoutx64T 2>&1 | Out-Null }
   if ($Purge) {
     if (Test-Path $script:ProgDataRoot) { Remove-Item -LiteralPath $script:ProgDataRoot -Recurse -Force -ErrorAction SilentlyContinue; Ok ('已删除 ' + $script:ProgDataRoot) }
   } else { Info ('保留 ' + $script:ProgDataRoot + '（要一起删就加 -Purge）') }
@@ -1177,7 +1293,7 @@ $rep = Get-CheckReport
 Show-Check $rep
 
 Head '计划'
-if ($Mode -eq 'Install') { Info '安装/修复：驱动+服务 → helper → ESP 固件 → 固件启动项 → 开机任务 → 厂商自启收尾' } else { Info 'Repair：只补驱动/服务/helper/任务，不动 ESP 与固件启动项' }
+if ($Mode -eq 'Install') { Info '安装/修复：驱动+服务 → helper(含新路径工具) → 新路径驱动(inpoutx64) → ESP 固件 → 固件启动项 → 开机任务 → 厂商自启收尾' } else { Info 'Repair：只补驱动/服务/helper/新路径驱动/任务，不动 ESP 与固件启动项' }
 
 $blockers = 0
 if ($rep.Firmware -ne 'Uefi') { Bad '固件不是 UEFI 模式'; $blockers++ }
@@ -1193,6 +1309,7 @@ if ($blockers -gt 0) {
 $bk = New-BackupFolder
 Install-DriverFiles -BackupDir $bk
 Install-WindowsFiles
+Install-InpoutFiles -BackupDir $bk
 Install-Gsp
 if ($Mode -eq 'Install') {
   Install-Efi -BackupDir $bk
@@ -1215,7 +1332,11 @@ if ($RunNow) {
     (Get-Content -LiteralPath $lastLog | Select-String -Pattern 'GUARD=|PASS:|ERROR|EXIT=') | ForEach-Object { Info ('helper: ' + $_.Line.Trim()) }
   }
   $pb = Join-Path $script:ProgDataWin 'logs\postbind.log'
-  if (Test-Path $pb) { (Get-Content -LiteralPath $pb | Select-Object -Last 4) | ForEach-Object { Info ('postbind: ' + $_) } }
+  if (Test-Path $pb) {
+    (Get-Content -LiteralPath $pb | Select-Object -Last 6) | ForEach-Object { Info ('postbind: ' + $_) }
+    $np = (Get-Content -LiteralPath $pb | Select-String -Pattern 'PASS:\s*Gen2 reached on the new path' | Select-Object -Last 1)
+    if ($np) { Ok '开机任务本次走的是新路径并且 PASS（ACE-BOOT 全程没被停）' }
+  }
   if ($ti.LastTaskResult -eq 0) { Ok '开机任务端到端 PASS' }
   else {
     Warn ('开机任务退出码非 0（如果本次开机还没解锁算力，属正常：解锁要等重启后 EFI 生效）')

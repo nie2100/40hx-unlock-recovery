@@ -1,0 +1,16 @@
+﻿CMP 40HX 安装完成 —— 下一步（2026-09-29 11:29:59，模式 Repair）
+
+★ 必须重启电脑：算力解锁是每次开机由 ESP 上的解锁固件写 GPU 寄存器实现的，不重启不生效。
+
+重启后确认（三选一）：
+  a) 双击本目录的 状态自检.bat   → 看到"全绿 -- WDDM + PCIe Gen2 + 算力满血"即成功
+  b) powershell -ExecutionPolicy Bypass -File "D:\40hx-unlock\40hx-oneclick\Install-40HXUnlock.ps1" -Mode Verify
+  c) 看 ESP 里 40hx_log.txt 的时间戳是不是本次开机（应有 *** UNLOCKED (SS0=0x88888888 SS1=0x8) ***）
+
+重启前请先处理：
+  - 火绒/其它杀软：把 README 第 1.1 节那几项加进信任区（System32\drivers 下 ThrottleStop.sys / WinRing0x64.sys / inpoutx64.sys 全路径 + C:\ProgramData\CMP40HXGen2 + 本包目录），并关掉它的“启动项保护”
+
+本次结果：步骤全部成功；2 条提示
+本次日志：D:\40hx-unlock\40hx-oneclick\logs\run-20260929-112931-Repair.log
+出问题看：D:\40hx-unlock\40hx-oneclick\排查指引.md
+回滚命令：powershell -ExecutionPolicy Bypass -File "D:\40hx-unlock\40hx-oneclick\Install-40HXUnlock.ps1" -Mode Uninstall -Yes
