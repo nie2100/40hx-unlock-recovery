@@ -89,7 +89,25 @@ D:\40hx-unlock\release\OpenCL.exe
 
 冷启动整体验证：`scripts/register-coldboot-task.ps1` 注册一次性开机任务（开机后 3 分钟出报告 `coldboot-report.txt`，跑完自删），然后完全关机再开机。
 
-## ACE 拦截的诊断（2026-09-22 实测）
+## ACE：本次开机有没有被停过（2026-09-29，首选路径后新增）
+
+首选路径下**不需要**停 ACE，所以判据从"停/恢复两行对齐"变成"看新路径结论行"：
+
+```powershell
+Get-Content "$env:ProgramData\CMP40HXGen2\windows\logs\postbind.log" -Encoding Default | select -last 12
+#  想要的是： ---- NewPath EXIT=0 ----           ← 首选路径成功，全程没碰反作弊
+#              PASS: Gen2 reached on the new path - ACE-BOOT was never stopped
+#  若看到    ： ---- NewPath EXIT=11 ----  或  falling back to the legacy ACE path
+#             → 这次开机回落到旧路径（停过一次 ACE）→ 那一轮开机腾讯游戏会要求"重新安装并重启"
+Get-Content "$env:ProgramData\CMP40HXGen2\windows\logs\retrain-inpout.log" -Encoding Default | select -last 25
+#  想要的是： pre : GPU LNKSTA=0x1102 Gen2 x16 / ROOT LNKSTA=0xF102  且  ACE-BOOT=STATE : 4  RUNNING
+sc.exe qc ACE-BOOT ; sc.exe query ACE-BOOT      # START_TYPE 应为 SYSTEM_START，STATE 应为 RUNNING
+```
+
+拿不到现场读数时，让现场跑 `oneclick/ACE排查/排查ACE.cmd`（只读，桌面出报告），报告第 5b 节直接给结论。
+本机 2026-09-29 11:34 那次的完整读数：`evidence/boot-20260929/`（01 任务日志 / 02 寄存器 / 03 只读复核 / 04 判据 / 05 客户机反馈）。
+
+## ACE 拦截的诊断（2026-09-22 实测，旧路径）
 
 判据：任务 `EXIT=30` + `last.log` 里 `[SC] StartService 失败 31`，**同时** ESP `40hx_log.txt` 仍有 `UNLOCKED`
 → 是 ACE 拦了 `ThrottleStop.sys` 的映像加载，不是算力坏了。证据见 `evidence/ace-20260922/`：

@@ -210,4 +210,8 @@ PASS: already physical Gen2 x16; no writes needed.   ← 幂等：本来就已�
 | 2026-09-28 19:20 | 把整包归档进仓库 `oneclick/`（不含 logs/backup/state），README 增加一键入口章节，docs/03 增补 B4~B6、C5、D4 |
 | 2026-09-28 23:00~24:00 | 装机后 ACE 弹「初始化失败」→ 定位为「停窗撞上登录启动托盘」；`ACE-Toggle.ps1` 增 `HealTray` + `On` 记 `ResumedAt`，`RunPostBind.cmd` 加自愈调用并改纯 ASCII；`Install-40HXUnlock.ps1` 修掉 EAP=Stop 下原生命令的 NativeCommandError（D6）；新增 `oneclick/ACE排查/` 与 `oneclick/hotfix-20260928/` |
 | 2026-09-28 19:20~19:40 | ACE 处理加固成 `ACE-Toggle.ps1`（路径定位 + 原启动类型还原 + 其它反作弊提示）；7 个模拟用例 + 真机 Off/On + `-Mode Install -RunNow` 端到端 `EXIT=0`；修掉 `postbind.log` 句柄冲突导致的日志报错 |
+| 2026-09-29 09:06 | 找到 ACE **不拦**的物理内存驱动 `inpoutx64`（Red Fox UK 签名）：`ACE-BOOT` + `ACE-Tray` 全程运行时 GPU BAR0 9 个寄存器读写 **9/9 MATCH** → Gen2 重训可以不停反作弊 |
+| 2026-09-29 11:34 | **真机开机首跑首选路径 PASS**：`NewPath EXIT=0` + `PASS: Gen2 reached on the new path - ACE-BOOT was never stopped`；`GUARD=PASS SS0=0x88888888`、`GPU LNKSTA=0x1102 / ROOT=0xF102`；`ACE-BOOT` 全程 `SYSTEM_START/RUNNING`、托盘 PID 未变、`inpoutx64T` 用完即删（证据 `evidence/boot-20260929/`） |
+| 2026-09-29 11:2x | 装机实测抓到两个**假失败**：① `RunPostBind.cmd` 的自愈源重写判断在本机路径已是目标值时假报失败并让退出码变 1；② 驱动的 10 秒存活检查把 `inpoutx64.dll` 也拿到 `System32\drivers` 找（它本来就不该在那儿）→ 假报"被杀软隔离"。两处都已修，修完 `Check` 0 失败 / `Repair` 0 失败 / `Verify` 0 失败 0 提示 |
+| 2026-09-29 11:4x | `oneclick/ACE排查/` 采集器升级（第 5b 节判据 + ACE 驱动文件版本行），并在真机实跑一遍（报告 16,642 B）；判据正则做了正反两向样本验证 |
 

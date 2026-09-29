@@ -124,6 +124,18 @@ if ($aceBoot) {
   if ($aceSvcs.Count -gt 0) { Hit 'ACE-BOOT 这个引导驱动不存在（ACE 组件有其它项，但没有 ACE-BOOT）—— ACE 版本不同或被清掉了' }
 }
 
+
+# --- ACE 驱动文件本身的版本/大小（对比两台机器先比这个，别只比时间） ---
+if ($aceBoot -and $aceBoot.ImagePath) {
+  $bp = ([string]$aceBoot.ImagePath) -replace '^\\\?\?\\', ''
+  if ($bp -match '^\\SystemRoot') { $bp = $bp -replace '^\\SystemRoot', $env:SystemRoot }
+  if ($bp -notmatch '^[A-Za-z]:') { Say ('  ACE-BOOT.sys 路径无法解析: ' + $bp) }
+  elseif (Test-Path -LiteralPath $bp) {
+    $bfi = Get-Item -LiteralPath $bp
+    Say ('  ACE-BOOT.sys 文件: ' + [string]$bfi.Length + ' B   修改时间=' + $bfi.LastWriteTime + '   FileVersion=' + $bfi.VersionInfo.FileVersion)
+  } else { Say ('  ACE-BOOT.sys 文件读不到: ' + $bp) }
+}
+
 # ---------------- 4. ACE 进程 + 与"停止窗口"的时间比对 ----------------
 Head '4. ACE 进程（重点看托盘在哪个会话、什么时候启动的）'
 $aceProcs = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -match 'AntiCheatExpert' -or $_.Name -match '^(ACE-|SGuard)' })
@@ -196,6 +208,32 @@ if (Test-Path -LiteralPath $pbLog) {
   Say ('  --- ' + $pbLog + ' 尾部 30 行 ---')
   (@(Get-Content -LiteralPath $pbLog -Encoding Default -ErrorAction SilentlyContinue) | Select-Object -Last 30) | ForEach-Object { Say ('  | ' + $_) }
 } else { Say '  （无 postbind.log）' }
+# ---------------- 5b. 新路径（全程不停 ACE-BOOT）的证据 ----------------
+$npLog = Join-Path $env:ProgramData 'CMP40HXGen2\windows\logs\retrain-inpout.log'
+if (Test-Path -LiteralPath $npLog) {
+  Say ''
+  Say ('  --- ' + $npLog + ' 尾部 16 行（新路径：inpoutx64 直写寄存器，不停 ACE）---')
+  (@(Get-Content -LiteralPath $npLog -Encoding Default -ErrorAction SilentlyContinue) | Select-Object -Last 16) | ForEach-Object { Say ('  | ' + $_) }
+  $npAll = @(Get-Content -LiteralPath $npLog -Encoding Default -ErrorAction SilentlyContinue)
+  $npPass = @($npAll | Where-Object { $_ -match 'PASS: physical Gen2 x16 reached' })
+  $npBad  = @($npAll | Where-Object { $_ -match 'GUARD = FAIL|REFUSE|EXIT=[1-9]' })
+  Say ('  新路径成功次数 = ' + $npPass.Count + '   异常行 = ' + $npBad.Count)
+  if ($npPass.Count -eq 0) {
+    Hit '新路径工具从未成功过 —— 这台机器还在走老办法（停 ACE-BOOT → 重训 → 恢复 ACE-BOOT），所以每次开机后腾讯游戏都会要求“重新安装并重启”。根治：升级到新版包（含 40hx-retrain-inpout.ps1 + inpoutx64.sys），跑 -Mode Repair 后重启'
+  }
+} else { Say '  （无 retrain-inpout.log —— 这台机器没装新版包的新路径，仍在用停 ACE 的老办法）' }
+if (Test-Path -LiteralPath $pbLog) {
+  $pbAll = @(Get-Content -LiteralPath $pbLog -Encoding Default -ErrorAction SilentlyContinue)
+  $fb  = @($pbAll | Where-Object { $_ -match 'falling back to the legacy|NewPath EXIT=[1-9]' })
+  $npOk = @($pbAll | Where-Object { $_ -match 'PASS: Gen2 reached on the new path' })
+  Say ('  postbind.log：新路径成功 ' + $npOk.Count + ' 次，回落老路径 ' + $fb.Count + ' 次')
+  if ($fb.Count) {
+    Hit ('有 ' + $fb.Count + ' 次“新路径失败 → 回落老路径”：每次回落都会停一次 ACE-BOOT，那一轮开机里强制预启动模式的腾讯游戏就进不去（要求重启）。最近一条：' + $fb[-1].Trim())
+  } elseif ($npOk.Count -gt 0) {
+    Say '  最近几次开机都走的新路径（ACE-BOOT 全程没停）—— 若游戏仍报预启动模式，问题不在本包，按第 9 节通用项查'
+  }
+}
+
 $lastLog = Join-Path $env:ProgramData 'CMP40HXGen2\windows\logs\last.log'
 if (Test-Path -LiteralPath $lastLog) {
   Say '  --- last.log 关键行 ---'
@@ -245,6 +283,10 @@ foreach ($d in $aceDirs) {
   Get-ChildItem -LiteralPath $d -File -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object {
     Say ('  | ' + $_.Name.PadRight(34) + ' ' + ([string]$_.Length).PadLeft(10) + '  ' + $_.LastWriteTime)
   }
+  Get-ChildItem -LiteralPath $d -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -eq '.sys' } | ForEach-Object {
+    Say ('  ~ ' + $_.Name.PadRight(34) + ' FileVersion=' + $_.VersionInfo.FileVersion)
+  }
+
   Get-ChildItem -LiteralPath $d -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -gt (Get-Date).AddDays(-2) } | ForEach-Object {
     Say ('  ! 近 2 天被改动过: ' + $_.Name + '  ' + $_.LastWriteTime)
   }
@@ -261,6 +303,8 @@ if ($script:Verdicts.Count -eq 0) {
   Say '  处理顺序建议：'
   Say '   1) 先只想"让 ACE 立刻能用"：杀掉 ACE-Tray 再重新启动它（用户会话里启动），或直接重启电脑。'
   Say '   2) 若 ACE-BOOT 是 Disabled：改回 system 并启动，然后重启。'
+  Say '  如果第 5b 节显示【新路径从未成功 / 回落过老路径】：这就是腾讯游戏要求【重新安装并重启】的成因，用新版包（含 40hx-retrain-inpout.ps1 + inpoutx64.sys）跑一次 -Mode Repair 再重启即可根治。'
+
   Say '   3) 想"以后每次开机都不再犯"：用带自愈的新版 RunPostBind.cmd / ACE-Toggle.ps1（Hermes 已备好，覆盖后跑一次 Repair）。'
   Say '   4) 想同时确认算力 + Gen2 没有掉：跑本包里的 状态自检.bat（不用管理员，出"全绿"即正常）。'
 }

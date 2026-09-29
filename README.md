@@ -4,10 +4,14 @@
 > 最近一次端到端验证：**2026-09-20 00:09 冷启动 PASS** —— EFI 日志 `*** UNLOCKED (SS0=0x88888888 SS1=0x8) ***`，开机任务 `CMP40HX Gen2 PostBind` → `EXIT=0` + `PASS: physical Gen2 x16 reached.`，同一次运行里 `GUARD=PASS SS0=0x88888888`（算力与 Gen2 同时成立）。
 > 最近一次 ACE 相关验证：**2026-09-22 22:08 真·开机（BootTrigger）PASS** —— 腾讯 ACE 升级后 ACE-BOOT 会在映像加载阶段拦 `ThrottleStop.sys`（Gen2 驱动），
 > 已实测出「杀 `ACE-Tray.exe` → 停 ACE-BOOT → 重训 → 再恢复 ACE」的完整解法并写进开机任务，**反作弊正常运行与 Gen2 解锁可以并存**。详见 `docs/06-ace-boot.md`。
-> 最近一次 ACE 方案升级：**2026-09-29 09:06 PASS** —— 找到 **ACE 不拦**的物理内存驱动 `inpoutx64`（Red Fox UK 签名，能力等同 ThrottleStop 的 MMIO 读写），
-> 实测在 `ACE-BOOT` + `ACE-Tray` **全程运行**时成功读写 GPU BAR0 全部 9 个寄存器（9/9 MATCH）→ **Gen2 重训不再需要停反作弊**，
-> 也就没有「ACE 兼容提示 / 需要重启才能进游戏」的副作用。落地脚本 `oneclick/payload/windows/40hx-retrain-inpout.ps1`（开机任务首选，失败才回落旧路径）。
-> 本仓库自含所需二进制（解锁 EFI、Windows 侧 helper、两个签名驱动、脚本），重装后不依赖网上重新找。
+> 最近一次开机首跑（首选路径）：**2026-09-29 11:34 PASS**（真机，非排练）—— 开机任务先跑 `oneclick/payload/windows/40hx-retrain-inpout.ps1`：
+> `NewPath EXIT=0` + `PASS: Gen2 reached on the new path - ACE-BOOT was never stopped`；同次运行 `GUARD=PASS SS0=0x88888888`、
+> `GPU LNKSTA=0x1102 / ROOT LNKSTA=0xF102`（Gen2 x16）、`LINK_CONFIG_0=0x80085800`、`PRIV_MISC_1=0xE0B42D00`
+> → **算力与 Gen2 两全，而且全程没停反作弊**。证据目录 `evidence/boot-20260929/`。
+> 客户机实装反馈（2026-09-29）：用 `oneclick/` 打出的包装完 → 用户反馈 **解锁正常、腾讯 ACE 正常**（游戏进得去、不再被要求重启），属用户转述，见 `evidence/boot-20260929/05`。
+> 方案来源：**2026-09-29 09:06 PASS** —— 找到 **ACE 不拦**的物理内存驱动 `inpoutx64`（Red Fox UK 签名，能力等同 ThrottleStop 的 MMIO 读写），
+> 实测在 `ACE-BOOT` + `ACE-Tray` **全程运行**时成功读写 GPU BAR0 全部 9 个寄存器（9/9 MATCH）→ Gen2 重训不再需要停反作弊。
+> 本仓库自含所需二进制（解锁 EFI、Windows 侧 helper、三个签名驱动与配套 DLL、脚本），重装后不依赖网上重新找。
 
 ---
 
@@ -25,9 +29,22 @@ oneclick\
 ├─ 验证记录.md                  交付前的本机实测记录（每条日志文件名 + 读数）
 ├─ ACE排查\                     **装机后 ACE 报错先跑这个**：双击 排查ACE.cmd 出桌面报告；-Fix 顺手修
 ├─ hotfix-20260928\             只想补「ACE 弹初始化失败」这一个改动时的最小热修包
-└─ payload\                     EFI 解锁固件 + Windows helper + 两个驱动的 base64 + sha256 清单
+└─ payload\                     EFI 解锁固件 + Windows helper（含 40hx-retrain-inpout.ps1）+ 三个驱动的 base64 + sha256 清单
 ```
 
+> **2026-09-29 更新（本版重点：装完不用再管反作弊；已由客户机实装验证）**
+> ① **首选路径改成「全程不停 ACE-BOOT」**：开机任务先跑 `payload\windows\40hx-retrain-inpout.ps1`
+>    （MMIO 走 `inpoutx64.sys`、PCI 配置空间走 `WinRing0x64.sys`），退出码 `0` 就直接结束；**非 0 才回落到旧的
+>    「停 ACE-BOOT → 重训 → 恢复 ACE-BOOT」**（回落会临时停一次反作弊 → 那一轮开机里腾讯游戏会要求重启，日志里能看到
+>    `NewPath EXIT=<非0>` / `falling back to the legacy ...`）。所以本包**不再需要为了 Gen2 去停腾讯反作弊**，
+>    也就没有「预启动模式未在启动阶段加载 → 请重新安装并重启」这个副作用。
+>    真机证据：`evidence/boot-20260929/01`~`03`；机理与现场判据：`docs/06-ace-boot.md` 第 11 节。
+> ② **客户机实装反馈**：本版包在客户机器上装完 → **解锁正常、ACE 正常**（用户转述，见 `evidence/boot-20260929/05`）。
+> ③ `payload\drivers\` 增加 `inpoutx64.sys` / `inpoutx64.dll`（base64；不建常驻服务，开机脚本临时建了用完即删）；
+>    杀软信任项从 4 项变 5 项（`C:\Windows\System32\drivers\inpoutx64.sys`），见包内 `README-使用说明.md` 第 1.1 节。
+> ④ `ACE排查\` 采集器升级：新增第 5b 节（直接给「新路径成功 / 回落老路径」次数与结论）、`ACE-BOOT.sys` 的大小·时间·FileVersion、
+>    ACE 目录里各 `.sys` 的 FileVersion。
+>
 > **2026-09-28 深夜更新（两处「装了才暴露」的问题，都已修）**
 > ① **全新机器首次安装会中断**：PS 5.1 在 `$ErrorActionPreference='Stop'` 下，外部程序往 stderr 写字会产生
 >    `NativeCommandError` 并**终止脚本**（`schtasks /delete` 在开机任务还不存在时就会），连 `2>&1 | Out-Null` 都挡不住。
@@ -43,12 +60,12 @@ oneclick\
 2. OnlyEFI 固件 → `\EFI\40HX\40HXUNLK.EFI`（原文件先备份）+ `\EFI\Boot\bootx64.efi` 兜底；
 3. **自己构造**固件启动项 `40HX Unlock` 并写进 NVRAM（含现场 ESP 的设备路径节点），按需写 `BootOrder`；
 4. 注册开机任务 `CMP40HX Gen2 PostBind`（含 ACE 处理与多源自愈），禁用厂商残留任务/自启；
-   ACE 处理走 `payload\windows\ACE-Toggle.ps1`：**按安装路径定位** ACE-BOOT（换目录/改服务名都行），临时停掉让 Gen2 落地后，按记录的原始启动类型恢复；
+   ACE 处理：**首选全程不停反作弊**（`payload\windows\40hx-retrain-inpout.ps1`，退出码 0 即结束）；只有首选失败才由 `payload\windows\ACE-Toggle.ps1` **按安装路径定位** ACE-BOOT（换目录/改服务名都行）临时停掉、Gen2 落地后按记录的原始启动类型恢复，并在恢复之后自愈托盘；
 5. 全新命令 `-Mode Verify` 现场取证：一次给出「算力解锁 PASS/FAIL + PCIe Gen2 PASS/FAIL」结论。
 
 退出码：`0` 成功 / `1` 一般失败 / `2` 前提或权限 / `3` 载荷哈希 / `4` 固件变量 / `5` 驱动服务；失败时会自动打印「出错怎么办」（退出码含义＋日志绝对路径＋体检命令＋`排查指引.md`＋回滚命令）。
 
-交付前本机实测（2026-09-28）：Check / SelfTest / Install（幂等 4 次）/ Repair / Verify / MakeDefault / Uninstall（故意缺 `-Yes` 触发报错路径）全部符合预期，`Verify` 结论为「两全达成」；把整包拷到 `C:\Temp\` 另跑一遍 Check/Repair 也 EXIT=0 → **包内无本机路径硬编码**。细节见 `oneclick/验证记录.md`。
+交付前本机实测（2026-09-28）：Check / SelfTest / Install（幂等 4 次）/ Repair / Verify / MakeDefault / Uninstall（故意缺 `-Yes` 触发报错路径）全部符合预期，`Verify` 结论为「两全达成」；把整包拷到 `C:\Temp\` 另跑一遍 Check/Repair 也 EXIT=0 → **包内无本机路径硬编码**。细节见 `oneclick/验证记录.md`；**2026-09-29 首选路径的真机开机证据**见 `evidence/boot-20260929/`。
 
 ---
 

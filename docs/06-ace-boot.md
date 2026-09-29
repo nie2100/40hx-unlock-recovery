@@ -318,3 +318,40 @@ postbind/last/ace-state 日志、SCM 事件、杀软与其它反作弊、ACE 目
 ### 只想补这一个改动
 `oneclick/hotfix-20260928/`：双击 `应用热修.cmd`（或 `应用热修并立即验证.cmd`）即可覆盖两个文件，
 自动备份到 `C:\ProgramData\CMP40HXGen2\windows\logs\pre-hotfix-<时间>\`，不动 EFI / 引导项 / 分区。
+
+## 11. 2026-09-29：首选路径 = 全程不停 ACE-BOOT（`40hx-retrain-inpout.ps1`）
+
+**为什么要改**：第 1~10 节的旧办法要「停 ACE-BOOT → 重训 → 恢复 ACE-BOOT」。内核反作弊的启动阶段语义不可伪造 ——
+`sc stop` 再 `sc start` 之后服务确实是 RUNNING，但在反作弊自己的判定里这已经不是"在操作系统启动阶段加载"，
+于是强制预启动模式的腾讯游戏会弹「请重新安装并重启电脑」；若停窗撞上登录时由注册表 `Run` 拉起的托盘，还会弹「初始化失败」。
+
+**改法**：找一个 **ACE 不拦**的驱动来做物理内存读写，重训就完全不用碰反作弊。实测选 `inpoutx64.sys`
+（Red Fox UK 签名，MMIO 能力等同 ThrottleStop；PCI 配置空间仍走 `WinRing0x64.sys`），
+在 `ACE-BOOT` + `ACE-Tray` **全程运行**时读写 GPU BAR0 全部 9 个寄存器 **9/9 MATCH**（`evidence/inpout-20260929/01`）。
+
+**落地形态**（都在 `oneclick/payload/windows/`）：
+
+- `RunPostBind.cmd` 开头新增 **NewPath 段**：先跑 `40hx-retrain-inpout.ps1 -Apply`，
+  退出码 `0` → 记 `PASS: Gen2 reached on the new path - ACE-BOOT was never stopped` 并**直接结束**（完全不进 ACE 分支）；
+  非 `0` → 记 `NewPath EXIT=<码>` 并回落到旧路径（`ACE-Toggle.ps1`）。
+- `40hx-retrain-inpout.ps1`：只写厂商同款那两个策略寄存器（`LINK_CONFIG_0` / `PRIV_MISC_1`），基线不认识就**拒写**；
+  临时 `sc create/start inpoutx64T`，用完即 `stop/delete`（游戏启动那一刻盘上没有本方案的内核驱动在跑）；
+  带多源自愈（`%ProgramData%\CMP40HXGen2\drivers`、`%ProgramData%\40HXUnlock\drivers`、`...\cand2`）。
+- 退出码：`0` 成功 / `10` 缺少驱动或 DLL / `11` BAR0 校验失败 / `12` 引擎就绪失败 / `13` 拒绝写入（基线不认） / `3` 未提权。
+
+**真机验证**（2026-09-29 11:33:46 开机 → 11:34:06 任务触发）：
+
+| 项 | 读数 | 证据 |
+|---|---|---|
+| 任务结果 | `rc=0x0`，`NewPath EXIT=0` | `evidence/boot-20260929/01` |
+| 链路 | 起点 Gen1 x16（驱动开机打回）→ 写两个寄存器 → `GPU 0x1102 / ROOT 0xF102` = Gen2 x16 | `evidence/boot-20260929/02` |
+| 算力 | `GUARD=PASS`，`SS0=0x88888888` | 同上 |
+| 反作弊 | `ACE-BOOT` = `SYSTEM_START` + `RUNNING`，全程 0 行"已停止"；`ACE-Tray` session=1（登录时自行拉起，未被碰） | `evidence/boot-20260929/01`、`03`、`04` |
+| 残留 | `inpoutx64T` 用完即删（`sc query` = 1060 未安装） | `evidence/boot-20260929/03` |
+
+**现场判据**（一眼区分这次开机走的哪条路）：见 `evidence/boot-20260929/04-ACE-BOOT全程未停-证据与判据.md`。
+一句话：日志有 `PASS: Gen2 reached on the new path ...` 且该段无"已停止"行 = 走的新路径，游戏不会要求重启；
+出现 `NewPath EXIT=<非0>` 或 `falling back to the legacy` + 停/恢复两行 = 走的旧路径，**那一轮开机**游戏会要求重启。
+
+**排查工具同步升级**：`oneclick/ACE排查/ACE-Diag.ps1` 新增第 5b 节（自动数"新路径成功 / 回落老路径"次数并按结果给结论），
+外加 `ACE-BOOT.sys` 的版本/大小/时间与 ACE 目录各 `.sys` 的 `FileVersion`；采集器已在本机真跑验证，判据正反两向都验过。

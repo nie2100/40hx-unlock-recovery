@@ -1,0 +1,48 @@
+# 证据 01 — 一键包开机任务「新路径」首跑（真机，2026-09-29 开机）
+#
+# 来源：C:\ProgramData\CMP40HXGen2\windows\logs\postbind.log（这一次开机的那一段，原样摘录）
+# 看点：① NewPath EXIT=0（首选路径成功，全程不需要停反作弊）；
+#       ② 整段 0 行「ACE-BOOT 已停止」；
+#       ③ 结尾：PASS: Gen2 reached on the new path - ACE-BOOT was never stopped
+
+==== PostBind start 2026/09/29 周二 11:34:12.95 ====
+---- NewPath start: C:\ProgramData\CMP40HXGen2\windows\40hx-retrain-inpout.ps1 -Apply 2026/09/29 周二 11:34:13.18 ----
+==== 40HX Gen2 retrain (inpoutx64 MMIO + WinRing0 PCI, anti-cheat untouched)   2026-09-29 11:34:16   Apply=True ====
+  admin=True   sys_driver=True   dll=True
+  inpoutx64T create/start: [SC] CreateService 成功 ==> STATE              : 4  RUNNING
+  inpoutx64T RUNNING=True   WinRing0 RUNNING=True   ACE-BOOT=STATE              : 4  RUNNING
+  ACE-Tray PIDs    ThrottleStop=STATE              : 1  STOPPED
+  ready=True after 0 waits   nvlddmkm=STATE              : 4  RUNNING   gpu_id=0x1F0B10DE
+  PCIe cap: GPU@0x78  ROOT@0x40
+  BAR0 candidate 0x40000000 -> BOOT0 = 0x166000A1
+  BAR0 (validated) = 0x40000000
+  BOOT0         = 0x166000A1
+  LINK_CONFIG_0 = 0x800C5800   (0x800C5800 = clobbered by the driver, 0x80085800 = target)
+  PRIV_MISC_1   = 0xE0B40D00   (0xE0B40D00 = clobbered, 0xE0B42D00 = target)
+  SS0           = 0x88888888   (0x88888888 = compute unlocked)
+  GUARD = PASS
+  pre   : GPU LNKSTA=0x1101 Gen1 x16   ROOT LNKSTA=0x7101 Gen1 x16
+  LINK_CONFIG_0 0x800C5800 -> 0x80085800  writeOk=True  readback=0x80085800
+  PRIV_MISC_1   0xE0B40D00 -> 0xE0B42D00  writeOk=True  readback=0xE0B42D00
+  ROOT1 SET_ONLY old=0x0040 req=0x0060 writeOk=True rb=0x0040
+    poll 1 LT=0 ROOT_GEN=1 GPU_GEN=1 LNKSTA=0x7101
+    poll 2 LT=0 ROOT_GEN=1 GPU_GEN=1 LNKSTA=0x7101
+    poll 3 LT=0 ROOT_GEN=1 GPU_GEN=1 LNKSTA=0x7101
+  ROOT1 settled saw_LT=0
+    GPU  after ROOT1: Gen1 x16 LNKSTA=0x1101
+    ROOT after ROOT1: Gen1 x16 LNKSTA=0x7101
+  ROOT2 SET_ONLY old=0x0040 req=0x0060 writeOk=True rb=0x0040
+    poll 1 LT=0 ROOT_GEN=2 GPU_GEN=2 LNKSTA=0xF102
+  ROOT2 settled saw_LT=0
+    GPU  after ROOT2: Gen2 x16 LNKSTA=0x1102
+    ROOT after ROOT2: Gen2 x16 LNKSTA=0xF102
+  GPU final : Gen2 x16 LNKSTA=0x1102
+  ROOT final: Gen2 x16 LNKSTA=0xF102
+  after cleanup: inpoutx64T=| SERVICE_NAME: inpoutx64T  |         TYPE               : 1  KERNEL_DRIVER   |         STATE              : 3  STOP_PENDING  |                                 (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN) |         WIN32_EXIT_CODE    : 0  (0x0) |         SERVICE_EXIT_CODE  : 0  (0x0) |         CHECKPOINT         : 0x0 |         WAIT_HINT          : 0x0 |
+  ACE-BOOT=STATE              : 4  RUNNING   ACE-Tray PIDs 10740
+  GPU PnP=OK
+  >>> PASS: physical Gen2 x16 reached, the anti-cheat was never stopped
+==== end 11:34:32 ====
+---- NewPath EXIT=0 2026/09/29 周二 11:34:13.18 ----
+==== PostBind EXIT=0 2026/09/29 周二 11:34:13.18 ====
+PASS: Gen2 reached on the new path - ACE-BOOT was never stopped

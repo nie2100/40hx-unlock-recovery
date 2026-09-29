@@ -1,9 +1,9 @@
 6a5d9755c30594bb6e6ac5614db6ee56      3265  docs/01-hardware.md
 7836ab3277fb1ca39850a84f2e5ad007      4400  docs/02-how-it-works.md
-4ce360f8804d4c48d3ce0e353eaa9389     21846  docs/03-pitfalls.md
-ef666c925e6c24cb0191437c085d66ec      5979  docs/04-verify.md
+13490e5db188b8df14039ed81fb02018     23034  docs/03-pitfalls.md
+9539d7f36380d7cc607cfa602fbc0fcb      7338  docs/04-verify.md
 40f2e0fd4ec5199f5c2b8c867c90ef0f      7793  docs/05-inventory.md
-038a0a3253de62392a8167f0d4fe1737     21367  docs/06-ace-boot.md
+a5be49dbd2bcd693bc832d13d371e076     24684  docs/06-ace-boot.md
 253b5d1ddc930b883b1be28b516e1c69      3904  evidence/40HXCheck.log
 b90ffdbeac1cc1a035de05e0d58971c3      7960  evidence/40hx_log_efi.txt
 9557edcb8f2e4d99ebd495abe8d16c7f      4643  evidence/ace-20260922/01-diagnose.txt
@@ -22,6 +22,11 @@ d6f0f56a746726b1b737f39ca911b995      3215  evidence/ace-20260928/Install-EAP-St
 2c027bb6b1d80e292c152715992977cb      2835  evidence/ace-20260928/热修包-端到端输出.txt
 e4169ce97ccc496854f60d784e563d23      2144  evidence/bcd-firmware.txt
 3799a8268875b3a001fafa392f41e004      6459  evidence/bench-20260920.txt
+edddb92d4fe8eea1673e1692a212380c      3121  evidence/boot-20260929/01-开机任务首跑-postbind.txt
+296a22d31cee69d85bfdd483c4e29068      2801  evidence/boot-20260929/02-新路径寄存器读数-retrain-inpout.txt
+49b059f31e4ab141a92138f89e610147      3195  evidence/boot-20260929/03-现场只读复核-bootcheck.txt
+0547c22af2f526c41146a5a75a0eaaad      3198  evidence/boot-20260929/04-ACE-BOOT全程未停-证据与判据.md
+205f70e5021159b68e899c75eaa40776      1028  evidence/boot-20260929/05-客户机实装反馈-用户转述.md
 feafcd3312bb179ea155ae3ae8cf44fb      3660  evidence/coldboot-report.txt
 06c94bf72961163302bf2d155aa41439     19493  evidence/diag-v32.txt
 c347f3494ef394011f3466b2da6ca989      9672  evidence/esp-snapshot.txt
@@ -37,8 +42,8 @@ d2f8f43def04ae97bade7ce89955528e      1012  evidence/inpout-20260929/00-diag-fai
 97758a6ba934166306a890da0d80ca61      8706  evidence/verify_report.txt
 67c1e5c504865dcc4dc46540a8159a8e     10970  evidence/下一步.md
 014ac1e5bd011b010934c7782de365e7       320  .gitattributes
-487678921f6344135849bea7d888d9cf     21274  oneclick/ACE排查/ACE-Diag.ps1
-31e87644a1de1e5bbd4e46fd91bacee6      3502  oneclick/ACE排查/怎么用-先读我.txt
+d678a34f23be054867e98390fccb8086     24647  oneclick/ACE排查/ACE-Diag.ps1
+ab6c31bbc75192746fe0bbaaf1c6a9d9      3978  oneclick/ACE排查/怎么用-先读我.txt
 0a4b7b9215a38fa828790a238f69bc4e       961  oneclick/ACE排查/排查ACE.cmd
 66396b8918d75af0b42adcef24cab38d     20125  oneclick/ACE排查/状态自检.bat
 f7b2dfc5e107f3fcdc40a7f824637636      5484  oneclick/hotfix-20260928/apply-hotfix.ps1
@@ -55,7 +60,7 @@ bd4c1fe281fc9374017178f17821f7fb      2694  oneclick/hotfix-20260928/热修说�
 988ad312105384fd7997718b4157b556     19904  oneclick/payload/drivers/WinRing0x64.sys.b64
 aedc410f05ed43e5833543a0dc849242    590868  oneclick/payload/EFI/40HXUNLK.EFI
 bed586cffbb999bf4475b8a11a83634b       924  oneclick/payload/sha256.txt
-7d432207e8025ad2563f65fdf5c04d99     15027  oneclick/payload/windows/40hx-retrain-inpout.ps1
+08a72a6720bab78c39c62f77a44f825c     15075  oneclick/payload/windows/40hx-retrain-inpout.ps1
 177df8ba35c81d94ff65c069c76d153f     18676  oneclick/payload/windows/ACE-Toggle.ps1
 0021c1978b749ee7e55834e2aa7ef59a      1551  oneclick/payload/windows/AutoRetrain.cmd
 1490de9bd90105e6ebc73e50abecc5cf     23040  oneclick/payload/windows/CMP40HXGen2.exe
@@ -127,7 +132,7 @@ c7c28a0972d3bc2e024e4a766d16f516      3533  payload/windows-live/RunPostBind.cmd
 71458e1cbf9d86c288c1a1faa714e0bd      2776  payload/windows-live/RunPostBind.no-ace.cmd.bak
 6e3f7dbd75d2e59fd824c195b7278477       735  payload/windows-live/Status.cmd
 2a44b95ea3797a1dcffe4cf5fe4fb08f      1017  payload/windows-live/Uninstall_Auto.cmd
-b126b27eff8f89dc3019242fa47d1877     25005  README.md
+17b261b6dcd7ccb53bbf46dff7e7a4a7     27363  README.md
 66396b8918d75af0b42adcef24cab38d     20125  scripts/40HX解锁状态.bat
 a263240ac52b02cb91cf692e965be17c       996  scripts/clean-run-keys.ps1
 9070c6fe409e3005a14cc02aa9f97c67      4611  scripts/coldboot-report.ps1

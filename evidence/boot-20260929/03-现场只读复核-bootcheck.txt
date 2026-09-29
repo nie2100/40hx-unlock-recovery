@@ -1,0 +1,46 @@
+# 证据 03 — 开机后现场只读复核（Hermes 侧独立取证，不是日志自报）
+#
+# 做法：管理员跑一个复核脚本，调用 40hx-retrain-inpout.ps1（不带 -Apply，纯读、不写任何寄存器），
+#       同时取 ACE 服务/托盘/开机任务/nvidia-smi 现状。输出原样粘在下面。
+# 看点：LINK_CONFIG_0=0x80085800、PRIV_MISC_1=0xE0B42D00、SS0=0x88888888（算力满血）、
+#       pre: GPU LNKSTA=0x1102 Gen2 x16 / ROOT LNKSTA=0xF102；ACE-BOOT SYSTEM_START+RUNNING；
+#       ACE-Tray session=1（登录时自行拉起，未被本方案碰过）；开机任务 rc=0x0。
+# 注：nvidia-smi 此刻报 gen1 属空闲降速（已知会骗人），真实链路以寄存器读数为准。
+
+==== bootcheck4  2026-09-29 11:39:23 ====
+admin   : True
+lastboot: 2026-09-29 11:33:46
+DRY exit = 0
+  | [banner] started 2026-09-29 11:39:24 Apply=False ps=5.1.26100.9168
+  | ==== 40HX Gen2 retrain (inpoutx64 MMIO + WinRing0 PCI, anti-cheat untouched)   2026-09-29 11:39:24   Apply=False ====
+  |   admin=True   sys_driver=True   dll=True
+  |   inpoutx64T create/start: [SC] CreateService 成功 ==> STATE              : 4  RUNNING
+  |   inpoutx64T RUNNING=True   WinRing0 RUNNING=True   ACE-BOOT=STATE              : 4  RUNNING
+  |   ACE-Tray PIDs 10740   ThrottleStop=STATE              : 1  STOPPED
+  |   ready=True after 0 waits   nvlddmkm=STATE              : 4  RUNNING   gpu_id=0x1F0B10DE
+  |   PCIe cap: GPU@0x78  ROOT@0x40
+  |   BAR0 candidate 0x40000000 -> BOOT0 = 0x166000A1
+  |   BAR0 (validated) = 0x40000000
+  |   BOOT0         = 0x166000A1
+  |   LINK_CONFIG_0 = 0x80085800   (0x800C5800 = clobbered by the driver, 0x80085800 = target)
+  |   PRIV_MISC_1   = 0xE0B42D00   (0xE0B40D00 = clobbered, 0xE0B42D00 = target)
+  |   SS0           = 0x88888888   (0x88888888 = compute unlocked)
+  |   GUARD = PASS
+  |   pre   : GPU LNKSTA=0x1102 Gen2 x16   ROOT LNKSTA=0xF102 Gen2 x16
+  |   (dry run - no writes)
+
+--- env ---
+ACE-BOOT qc  :         START_TYPE         : 1   SYSTEM_START
+ACE-BOOT run :         STATE              : 4  RUNNING 
+ACE-Tray     : PID=10740 session=1 started=11:34:21
+inpoutx64T    : STATE              : 1  STOPPED   [[SC] QueryServiceConfig 成功 |  | SERVICE_NAME: inpoutx64T |         TYPE               : 1 ]
+WinRing0_1_2_0: STATE              : 1  STOPPED   [[SC] QueryServiceConfig 成功 |  | SERVICE_NAME: WinRing0_1_2_0 |         TYPE               ]
+ThrottleStop  : STATE              : 1  STOPPED   [[SC] QueryServiceConfig 成功 |  | SERVICE_NAME: ThrottleStop |         TYPE               : ]
+task PostBind : last=09-29 11:34:06 rc=0x0
+nvidia-smi   : 1, 2, 16, 616.92
+GSP          : Field "gsp.default_applications_version" is not a valid field to query. 
+
+services left: inpoutx64T -> [SC] EnumQueryServicesStatus:OpenService 失败 1060:  指定的服务未安装。
+winring0     : SERVICE_NAME: WinRing0_1_2_0          TYPE               : 1  KERNEL_DRIVER           STATE              : 1  STOPPED          WIN32_EXIT_CODE    : 0  (0x0)         SERVICE_EXIT_CODE  : 0  (0x0)         CHECKPOINT         : 0x0         WAIT_HINT          : 0x0
+==== end 11:39:33 ====
+

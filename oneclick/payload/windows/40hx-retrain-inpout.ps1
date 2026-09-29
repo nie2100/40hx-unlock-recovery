@@ -12,7 +12,7 @@ function U32([string]$hex){ return [Convert]::ToUInt32($hex,16) }
 # ---- deploy / heal the driver files (AV quarantines .sys after load) ----
 $SYS='C:\Windows\System32\drivers\inpoutx64.sys'
 $DLL='C:\ProgramData\CMP40HXGen2\drivers\inpoutx64.dll'
-$SRC=@('C:\ProgramData\CMP40HXGen2\drivers\inpoutx64.sys','C:\ProgramData\40HXUnlock\drivers\inpoutx64.sys')
+$SRC=@('C:\ProgramData\CMP40HXGen2\drivers\inpoutx64.sys','C:\ProgramData\40HXUnlock\drivers\inpoutx64.sys','C:\ProgramData\40HXUnlock\cand2\inpoutx64.sys')
 if(-not (Test-Path $SYS)){
   foreach($s in $SRC){ if(-not (Test-Path $SYS) -and (Test-Path $s)){ Copy-Item $s $SYS -Force -ErrorAction SilentlyContinue } }
 }
