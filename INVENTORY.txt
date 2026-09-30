@@ -70,6 +70,8 @@ aedc410f05ed43e5833543a0dc849242    590868  oneclick/payload/EFI/40HXUNLK.EFI
 2c24f80ba04077529c94fc366ab78126     19760  oneclick/README-使用说明.md
 c0a6b8b0e94858293d450f16e8de8c1a      1972  oneclick/一键安装.cmd
 1ebd4a6ca9044961fb620abe1e633787      1634  oneclick/下一步-重启后看这里.txt
+2d4de87d0c33cecb05879875230ad59e       418  oneclick/就地更新并跑一次.cmd
+56ba5437d011d1fe85462509eda34085      4117  oneclick/就地更新并跑一次.ps1
 3fb1c04650f071db5e1377806bcc8a4f     25891  oneclick/排查指引.md
 66396b8918d75af0b42adcef24cab38d     20125  oneclick/状态自检.bat
 92abc674f755b809840373f8f4cb9c38      2577  oneclick/给客户-操作指引-20260930c.txt
