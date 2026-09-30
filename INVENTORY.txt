@@ -1,6 +1,6 @@
 6a5d9755c30594bb6e6ac5614db6ee56      3265  docs/01-hardware.md
 7836ab3277fb1ca39850a84f2e5ad007      4400  docs/02-how-it-works.md
-13490e5db188b8df14039ed81fb02018     23034  docs/03-pitfalls.md
+ac6017cd40468c07fda33cef5a584c48     25397  docs/03-pitfalls.md
 9539d7f36380d7cc607cfa602fbc0fcb      7338  docs/04-verify.md
 40f2e0fd4ec5199f5c2b8c867c90ef0f      7793  docs/05-inventory.md
 a5be49dbd2bcd693bc832d13d371e076     24684  docs/06-ace-boot.md
@@ -138,7 +138,7 @@ c7c28a0972d3bc2e024e4a766d16f516      3533  payload/windows-live/RunPostBind.cmd
 71458e1cbf9d86c288c1a1faa714e0bd      2776  payload/windows-live/RunPostBind.no-ace.cmd.bak
 6e3f7dbd75d2e59fd824c195b7278477       735  payload/windows-live/Status.cmd
 2a44b95ea3797a1dcffe4cf5fe4fb08f      1017  payload/windows-live/Uninstall_Auto.cmd
-17b261b6dcd7ccb53bbf46dff7e7a4a7     27363  README.md
+ed34099904fbbd4eecdc501790caefcb     28663  README.md
 66396b8918d75af0b42adcef24cab38d     20125  scripts/40HX解锁状态.bat
 a263240ac52b02cb91cf692e965be17c       996  scripts/clean-run-keys.ps1
 9070c6fe409e3005a14cc02aa9f97c67      4611  scripts/coldboot-report.ps1

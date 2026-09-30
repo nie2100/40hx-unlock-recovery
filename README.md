@@ -19,6 +19,11 @@
 
 2026-09-28 新增。**不需要厂商安装器、不需要联网**，整个 `oneclick/` 目录拷到任意一台装了 CMP 40HX 的 Windows 上，双击 `一键安装.cmd` 即可把「算力解锁 + PCIe Gen2 两全」这套状态完整装出来；也可以在本机重装系统后直接用它恢复。
 
+> **2026-09-30 修正（客户机反馈：装完重启黑屏 1~2 分钟、设备管理器代码 43）**：主因是包内 GSP 判定与写入位置两处缺陷
+> → 解锁后 nvlddmkm 认不了卡。同一提交修掉：GSP 判定（`N/A` 不再算“已开启”）、开关写显示类子键（`Services\nvlddmkm\Parameters` 实测无效）、
+> 显卡/根端口自动探测（不再写死 `01:00.0`/`00:01.0`）、策略键无条件写 0、厂商自启全扫禁用、ESP 挂载点比对、交付文案改「完全关机」。
+> 详见 `oneclick/诊断包-20260930/装完黑屏43-原因与修复说明.md`。
+
 ```
 oneclick\
 ├─ 一键安装.cmd                 双击（先摘要+确认，再自己申请 UAC；提权后那份不再问第二次）
@@ -29,6 +34,7 @@ oneclick\
 ├─ 验证记录.md                  交付前的本机实测记录（每条日志文件名 + 读数）
 ├─ ACE排查\                     **装机后 ACE 报错先跑这个**：双击 排查ACE.cmd 出桌面报告；-Fix 顺手修
 ├─ hotfix-20260928\             只想补「ACE 弹初始化失败」这一个改动时的最小热修包
+├─ 诊断包-20260930\             **装完黑屏 / 设备管理器代码 43 先跑这个**：一键诊断.cmd 只读取证（GSP/显卡位置/日志/开机时间线）+ 修复-GSP.cmd 写开关
 └─ payload\                     EFI 解锁固件 + Windows helper（含 40hx-retrain-inpout.ps1）+ 三个驱动的 base64 + sha256 清单
 ```
 
@@ -124,8 +130,12 @@ oneclick\
 
 ### 步骤 1 — 显卡驱动 + GSP
 
-- 安装 NVIDIA 驱动（本机为 616.92；**GSP 必须开**，否则解锁后 nvlddmkm 不认卡 → Code 43 / 黑屏）
-  检查：注册表 `HKLM\SYSTEM\CurrentControlSet\Services\nvlddmkm\Parameters` 里 `EnableGpuFirmware = 1`
+- 安装 NVIDIA 驱动（本机为 616.92；**GSP 必须开**，否则解锁后 nvlddmkm 不认卡 → 开机黑屏 + 设备管理器代码 43）
+  判据：`nvidia-smi -q` 的 `GSP Firmware Version` 行 —— **显示版本号 = 已启用；显示 `N/A` = 没启用**（别把 `N/A` 当成已开启）
+  开关位置（**2026-09-30 更正**）：显示类子键
+  `HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\<000X>` 下的 `EnableGpuFirmware = 1`（DWORD），
+  `<000X>` 取 `MatchingDeviceId` 含 `ven_10de&dev_1f0b` 的那个子键。
+  ⚠ 旧文档写的 `Services\nvlddmkm\Parameters` 是**错的**（实测无效）；改完 **完全关机再开机**（不是重启）。
 - 设备管理器确认显卡 `Status=OK / Problem=0`（不是 Code 43）
 
 ### 步骤 2 — 把解锁 EFI 写回 ESP

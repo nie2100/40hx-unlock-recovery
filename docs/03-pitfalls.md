@@ -27,9 +27,28 @@
 - 处理：踩了就重拷驱动（或跑一次 `RunPostBind.cmd` 让自愈补回来）。要读 SS0 用 `CMP40HXGen2.exe` / 它的日志。
 
 ### A5. GSP 关闭 / Above 4G Decoding 关闭
-- 症状：解锁后 nvlddmkm 不认卡 → Code 43 / 黑屏；或卡起不来。
+- 症状：解锁后 nvlddmkm 不认卡 → **开机黑屏 1~2 分钟 + 设备管理器里 40HX 变代码 43**；或卡起不来。
 - 根因：解锁态要求 `EnableGpuFirmware=1`；Above 4G Decoding 是本平台头号失败原因。
-- 处理：`HKLM\SYSTEM\CurrentControlSet\Services\nvlddmkm\Parameters\EnableGpuFirmware = 1`；BIOS 里 Above 4G Decoding = Enabled。
+- 处理（**2026-09-30 更正：本文档此处原先写的注册表路径是错的**）：
+  - 开关要写在**显示类子键**：`HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\<000X>` 下的
+    `EnableGpuFirmware = 1`（DWORD）；`<000X>` 取 `MatchingDeviceId` 含 `ven_10de&dev_1f0b` 的那个子键（本机是 `\0001`）。
+    实测 `HKLM\SYSTEM\CurrentControlSet\Services\nvlddmkm\Parameters` 里**没有也无效**（写在那里驱动不读；整棵树搜 `EnableGpuFirmware` = 0 匹配）。
+  - **判据只认一条**：`nvidia-smi -q` 的 `GSP Firmware Version` 行 —— 显示**版本号 = 已启用**，显示 **`N/A` = 没启用**
+    （NVIDIA 官方文档原话：显示版本号代表已启用，`N/A` 代表未启用）。
+    ⚠ **别把 `N/A` 当成“已开启”**：`oneclick/` 2026-09-29 及以前的版本正是这么误判的（`(\S+)` 把 `N/A` 也匹配上），
+    于是从不写开关 → 客户机上装完必然「重启黑屏 + 代码 43」。2026-09-30 已修（见 A8）。
+  - 写完必须**完全关机再开机**（不是“重启”——重启清不掉显卡残留状态），再复跑 `-Mode Verify` 复核：
+    结论要有 `GSP 固件 : PASS (版本号)` + `40HX 设备 : OK（没有代码 43）`。
+  - BIOS 里 Above 4G Decoding = Enabled。
+
+### A8. 客户机「装完重启黑屏 1~2 分钟 + 设备管理器代码 43」（2026-09-30 定位并修复）
+- 主因就是 A5：GSP 从没被真正打开（判据把 `nvidia-smi` 的 `N/A` 当“已开启”，且开关写在了无效位置）。
+- `oneclick/` 的修复（同日提交）：GSP 判定改三态（`N/A`/空/非版本号 = 未启用）、开关写显示类子键、
+  显卡/根端口改为**自动探测**（`01:00.0`/`00:01.0` 只是兜底，逐个候选校验 `10DE:1F0B` 与根端口的 PCI-to-PCI 类码，探测不到拒写并 `exit 11`）、
+  策略键 `Gen2AutoHard/Gen2PnpFallback=0` **无条件写**、厂商自启按“名字或命令行含 40HX”全扫禁用、ESP 挂载点用 volume GUID 与系统盘 ESP 比对、
+  交付文案改「必须完全关机（不是重启）」。
+- 现场取证 + 一键修复：`oneclick/诊断包-20260930/`（`一键诊断.cmd` 只读收集 → 桌面报告；`修复-GSP.cmd` 写开关）。
+  只读报告开头直接给判据：GSP 状态 / 显卡实际 BDF 与父根端口 / 本次开机解锁固件是否执行 / 开机任务结果。
 
 ### A6. 腾讯 ACE（ACE-BOOT）拦 Gen2 驱动的映像加载
 > 2026-09-28 起，定位与停/恢复由 `oneclick/payload/windows/ACE-Toggle.ps1` 完成：按驱动 `ImagePath` 含 `AntiCheatExpert` 定位（换目录/改服务名都不受影响），
