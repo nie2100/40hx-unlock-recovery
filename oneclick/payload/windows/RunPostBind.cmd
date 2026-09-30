@@ -81,9 +81,28 @@ if not exist "%SYS%\ThrottleStop.sys" >>"%LOG%" echo heal WARN: ThrottleStop.sys
 if not exist "%SYS%\WinRing0x64.sys" >>"%LOG%" echo heal WARN: WinRing0x64.sys source not found
 rem ---- 3) services must exist: vendor AutoRetrain only starts them, never creates (1060 observed) ----
 sc query ThrottleStop >nul 2>&1
-if errorlevel 1 ( >>"%LOG%" echo heal: create service ThrottleStop & sc create ThrottleStop type= kernel start= demand binPath= "\SystemRoot\System32\drivers\ThrottleStop.sys" >>"%LOG%" 2>&1 )
+if errorlevel 1 (
+  >>"%LOG%" echo heal: create service ThrottleStop
+  sc create ThrottleStop type= kernel start= demand binPath= "\SystemRoot\System32\drivers\ThrottleStop.sys" >>"%LOG%" 2>&1
+) else (
+  rem 2026-09-30: service exists but its start type may have been changed to DISABLED by 360 / ACE / the vulnerable driver blocklist - put it back to demand
+  sc qc ThrottleStop 2>nul | findstr /I "DEMAND_START" >nul 2>&1
+  if errorlevel 1 (
+    >>"%LOG%" echo heal: fix start type ThrottleStop
+    sc config ThrottleStop start= demand >>"%LOG%" 2>&1
+  )
+)
 sc query WinRing0_1_2_0 >nul 2>&1
-if errorlevel 1 ( >>"%LOG%" echo heal: create service WinRing0_1_2_0 & sc create WinRing0_1_2_0 type= kernel start= demand binPath= "\SystemRoot\System32\drivers\WinRing0x64.sys" >>"%LOG%" 2>&1 )
+if errorlevel 1 (
+  >>"%LOG%" echo heal: create service WinRing0_1_2_0
+  sc create WinRing0_1_2_0 type= kernel start= demand binPath= "\SystemRoot\System32\drivers\WinRing0x64.sys" >>"%LOG%" 2>&1
+) else (
+  sc qc WinRing0_1_2_0 2>nul | findstr /I "DEMAND_START" >nul 2>&1
+  if errorlevel 1 (
+    >>"%LOG%" echo heal: fix start type WinRing0_1_2_0
+    sc config WinRing0_1_2_0 start= demand >>"%LOG%" 2>&1
+  )
+)
 exit /b 0
 
 :ace_toggle

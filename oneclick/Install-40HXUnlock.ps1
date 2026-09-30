@@ -632,6 +632,13 @@ function Get-CheckReport {
   $r.GspLine = $gspNow.Line
   $r.Gsp = $gspNow.Value
   $r.GspKeys = @(Get-DisplayClassSubKeys)
+  $r.Vbios = ''
+  if ($r.Smi) {
+    try { $vb = (Invoke-Native { & $r.Smi --query-gpu=vbios_version --format=csv,noheader 2>&1 } | Out-String).Trim(); if ($vb) { $r.Vbios = $vb } } catch { }
+  }
+  $r.Blocklist = ''
+  # 易受攻击驱动阻止列表：开着时可能把 ThrottleStop / WinRing0 的服务改成"禁用"（客户机实测 Start=4 → sc start 1058）
+  try { $r.Blocklist = [string](Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Config' -Name 'VulnerableDriverBlocklistEnable' -ErrorAction SilentlyContinue).VulnerableDriverBlocklistEnable } catch { }
   $r.Hiberboot = ''
   try { $r.Hiberboot = [string](Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' -Name 'HiberbootEnabled' -ErrorAction SilentlyContinue).HiberbootEnabled } catch { }
   # 2026-09-30：快速启动 = 1 时"关机"是混合关机（内核/驱动从 hiberfile 恢复）→ nvlddmkm 不重新初始化，
@@ -681,6 +688,11 @@ function Show-Check {
       Add-Action 'GSP 状态未知：先把 NVIDIA 驱动装好（nvidia-smi 能用），再重跑 Install，然后完全关机再开机'
     }
   } else { & $gspSev "nvidia-smi : 找不到 —— 先把 NVIDIA 驱动装好再解锁（没驱动就解锁 = 黑屏 + Code 43）"; Add-Action '机器上没有 nvidia-smi：先装 NVIDIA 驱动，再重跑 Install' }
+  if ($Report.Vbios) { Info ('显卡 VBIOS : ' + $Report.Vbios + '   （批次不同 → Gen2 基线不同；本包按位判定，不是写死常量）') }
+  if ($Report.Blocklist -eq '1') {
+    Warn '易受攻击驱动列表 : 开着（VulnerableDriverBlocklistEnable=1）—— 它/360/ACE 都可能把 ThrottleStop·WinRing0 的服务改成“禁用”，表现为老路径 sc start 失败 1058；本包每次开机都会把启动类型纠正回 demand'
+    Add-Action '易受攻击驱动列表开着：想彻底关掉（厂商安装器也关它）就用 reg add "HKLM\SYSTEM\CurrentControlSet\Control\CI\Config" /v VulnerableDriverBlocklistEnable /t REG_DWORD /d 0 /f 然后重启；不关也行，本包每次开机都会纠正服务启动类型'
+  } else { Ok ('易受攻击驱动列表 : ' + $(if ($Report.Blocklist -eq '') { '未设置（按关处理）' } else { '已关（0）' })) }
   if ($Report.HiberbootOn) {
     Warn '快速启动   : 开着（HiberbootEnabled=1）—— "关机"其实是混合关机：内核和显卡驱动从 hiberfile 恢复、不重新初始化，GSP 这类改动永远不生效（Install 会自动关掉它）'
     Add-Action '快速启动开着：Install 已把它关掉；重启/关机后请确认 HiberbootEnabled=0（关掉后"关机"才是真关机）'
@@ -1353,7 +1365,7 @@ function Invoke-Verify {
   }
   $smi = Get-NvidiaSmi
   if ($smi) {
-    $csv = (Invoke-Native { & $smi --query-gpu=name,pcie.link.gen.current,pcie.link.gen.max,pcie.link.width.current --format=csv,noheader 2>&1 } | Out-String).Trim()
+    $csv = (Invoke-Native { & $smi --query-gpu=name,vbios_version,pcie.link.gen.current,pcie.link.gen.max,pcie.link.width.current --format=csv,noheader 2>&1 } | Out-String).Trim()
     Info ('nvidia-smi: ' + $csv + '  (注意: link.gen.current 会动态降速，不代表没解锁)')
   }
   Head '结论'

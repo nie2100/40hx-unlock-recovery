@@ -220,6 +220,12 @@ Sec '0. 速判（自动判定，先看这里）' {
   if ($espLogTime -and ($espLogTime -eq '<空>')) { }
   Ln ''
   Ln '[判据 D] 开机任务（Gen2 落地）'
+  # retrain 工具的判定行（Gen2 为什么没落地，看这里最快）
+  $rtLog2 = "$env:ProgramData\CMP40HXGen2\windows\logs\retrain-inpout.log"
+  if (Test-Path $rtLog2) {
+    Ln '  --- retrain-inpout.log 最近的判定行 ---'
+    foreach ($l in (@(Get-Content -LiteralPath $rtLog2 -ErrorAction SilentlyContinue) | Select-Object -Last 120 | Where-Object { $_ -match 'vbios/driver|VulnerableDriver|detect:|GPU candidate|ROOT candidate|using GPU|pre-state|start type|BAR0 \(validated\)|BOOT0 |LINK_CONFIG_0 = |PRIV_MISC_1   = |GUARD|plan  :|final|FATAL|cleanup' } | Select-Object -Last 22)) { Ln ('    ' + $l.Trim()) }
+  }
   $task = Get-ScheduledTask -TaskName 'CMP40HX Gen2 PostBind' -ErrorAction SilentlyContinue
   if ($task) {
     $ti = Get-ScheduledTaskInfo -TaskName 'CMP40HX Gen2 PostBind' -ErrorAction SilentlyContinue
@@ -445,7 +451,17 @@ Sec '7. ESP 上的解锁固件 + 固件启动项' {
       try { Copy-Item -LiteralPath $lg -Destination $script:RawDir -Force -ErrorAction SilentlyContinue } catch { }
       foreach ($l in (@(Get-Content -LiteralPath $lg -ErrorAction SilentlyContinue) | Select-Object -Last 40)) { Ln ('    ' + $l) }
     } else { Ln '  [无] ESP 根目录 40hx_log.txt（解锁固件这次开机没跑，或不是本包装的）' }
-    if (Test-Path (Join-Path $esp 'EFI\40HX\drv')) { Ln '  ESP 兜底驱动源: ' + ((Get-ChildItem (Join-Path $esp 'EFI\40HX\drv') -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) -join ', ') }
+    $drvDir = Join-Path $esp 'EFI\40HX\drv'
+    if (Test-Path $drvDir) {
+      $df = @(Get-ChildItem $drvDir -File -ErrorAction SilentlyContinue)
+      if ($df.Count -gt 0) { Ln ('  ESP 兜底驱动源: ' + (($df | ForEach-Object { $_.Name }) -join ', ')) } else { Ln '  ESP 兜底驱动源: 目录存在但**是空的**（安装时应该写进 4 个驱动文件；空 = 没写成功或被清掉了，跑一次 -Mode Repair）' }
+    } else { Ln '  ESP 兜底驱动源: \EFI\40HX\drv 不存在（跑一次 -Mode Repair 补）' }
+    # EFI 自己有没有因为基线不认识而放弃 Gen2（换 VBIOS 批次时常见）
+    if (Test-Path $lg) {
+      $lgTxt = Get-Content -LiteralPath $lg -ErrorAction SilentlyContinue
+      if ($lgTxt -match 'abort: baseline mismatch') { Ln '  ★ EFI 侧：日志里有 "abort: baseline mismatch" → 解锁固件也认为这张卡的 Gen2 基线不认识，主动放弃了 Gen2 写入（VBIOS 批次不同）' }
+      elseif ($lgTxt -match 'Root TLS=Gen2') { Ln '  EFI 侧：已写入 Gen2 预埋（Root TLS=Gen2）' }
+    }
   } else { Ln '  （没挂到 ESP；非管理员或 mountvol 失败）' }
 
   # 固件变量（只读）

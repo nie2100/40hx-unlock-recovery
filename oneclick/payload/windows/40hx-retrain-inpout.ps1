@@ -97,6 +97,14 @@ function MmioWrite([uint64]$addr,[uint32]$val){
 
 $adm=(New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 W("==== 40HX Gen2 retrain (inpoutx64 MMIO + WinRing0 PCI, anti-cheat untouched)   $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')   Apply=$Apply ====")
+try {
+  $smi="$env:SystemRoot\System32\nvidia-smi.exe"
+  if(Test-Path $smi){ W("  vbios/driver: " + ((& $smi --query-gpu=vbios_version,driver_version --format=csv,noheader 2>&1 | Out-String).Trim())) }
+} catch { }
+try {
+  $bl = [string](Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Config' -Name 'VulnerableDriverBlocklistEnable' -ErrorAction SilentlyContinue).VulnerableDriverBlocklistEnable
+  W("  VulnerableDriverBlocklistEnable=" + $(if($bl -eq ''){'<未设置>'}else{$bl}))
+} catch { }
 W("  admin=$adm   sys_driver=" + (Test-Path $SYS) + "   dll=" + (Test-Path $DLL))
 if(-not $adm){ W(">>> not elevated"); exit 1 }
 
@@ -135,6 +143,15 @@ if(-not $wrWas){
     }
   }
   if(-not (Test-Path $WRF)){ W(">>> WinRing0x64.sys missing and no source"); exit 3 }
+  # 2026-09-30（客户机实测 Start=4 DISABLED）：360/ACE/易受攻击驱动列表都可能把启动类型改掉 → 启动前纠正
+  if((SvcState 'WinRing0_1_2_0') -ne 'MISSING'){
+    $stp=(sc.exe qc WinRing0_1_2_0 2>&1 | Out-String)
+    if($stp -notmatch 'DEMAND_START'){
+      W("  WinRing0 start type=" + $(([regex]::Match($stp,'START_TYPE\s*:\s*\d+\s+(\S+)').Groups[1].Value)) + " -> fixing to demand")
+      sc.exe config WinRing0_1_2_0 start= demand 2>&1 | Out-Null
+      W("  WinRing0 start type now=" + $([regex]::Match((sc.exe qc WinRing0_1_2_0 2>&1 | Out-String),'START_TYPE\s*:\s*\d+\s+(\S+)').Groups[1].Value))
+    }
+  }
   $wrPre=SvcState 'WinRing0_1_2_0'
   W("  WinRing0 pre-state=$wrPre   sysfile=" + (Test-Path $WRF))
   if($wrPre -eq 'STOP_PENDING'){
@@ -277,8 +294,22 @@ W("  PCIe cap: GPU@0x" + $(if($gcap -eq $null){'NOT FOUND'}else{$gcap.ToString('
 if($gcap -eq $null -or $rcap -eq $null){ Fatal 11 ">>> PCIe capability not found" }
 
 $GUARD_OFF=0x0;   $GUARD_EXP=U32 '166000A1'
-$LC0_OFF=0x8C040; $LC0_STATES=@((U32 '800C5800'),(U32 '80085800')); $LC0_TARGET=U32 '80085800'
-$PM1_OFF=0x8841C; $PM1_STATES=@((U32 'E0B40D00'),(U32 'E0B42D00')); $PM1_TARGET=U32 'E0B42D00'
+# 2026-09-30（客户机 VBIOS 90.06.67.00.06 驱动）：基线不能写死常量，要按**位**判定。
+# 实测两处 Gen2 位（同一张卡 .04 => .06 只差跳线位）：
+#   LINK_CONFIG_0 : Gen2 位 = bit18(0x00040000)，Gen2 态为 **0**   （0x800C5800 -> 0x80085800）
+#   PRIV_MISC_1   : Gen2 位 = bit13(0x00002000)，Gen2 态为 **1**   （0xE0B40D00 -> 0xE0B42D00）
+#   PRIV_MISC_1 的 bit11(0x800) 是 VBIOS 批次跳线位（.04=0xD00 / .06=0x500）—— 必须原样保留，只动 bit13。
+$LC0_OFF=0x8C040; $LC0_BASE_MASK=U32 'FFFBFFFF'; $LC0_BASE=U32 '80085800'
+$PM1_OFF=0x8841C; $PM1_BASE_MASK=U32 'FFFFD7FF'; $PM1_BASE=U32 'E0B40500'   # mask 清掉 bit13(Gen2 位) 与 bit11(VBIOS 批次跳线位) 后再比
+function DecideTargets([uint32]$l,[uint32]$p){
+  $r=@{ Ok=$false; Lc0=$l; Pm1=$p; Lc0Change=$false; Pm1Change=$false; Reason='' }
+  if((($l -band $LC0_BASE_MASK)) -ne $LC0_BASE){ $r.Reason = 'LINK_CONFIG_0 baseline not in known family: 0x' + $l.ToString('X8'); return $r }
+  if((($p -band $PM1_BASE_MASK)) -ne $PM1_BASE){ $r.Reason = 'PRIV_MISC_1 baseline not in known family: 0x' + $p.ToString('X8'); return $r }
+  $r.Lc0 = ($l -band $LC0_BASE_MASK)     # 清 bit18
+  $r.Pm1 = ($p -bor ([uint32]0x2000))    # 置 bit13（Gen2 位）
+  $r.Lc0Change = ($r.Lc0 -ne $l); $r.Pm1Change = ($r.Pm1 -ne $p); $r.Ok = $true
+  return $r
+}
 
 # BAR0 must be validated, never derived from config space
 $cands=New-Object System.Collections.ArrayList
@@ -304,24 +335,26 @@ W("  BOOT0         = " + $(if($boot0 -eq $null){'READ FAILED'}else{'0x'+$boot0.T
 W("  LINK_CONFIG_0 = " + $(if($lc0 -eq $null){'READ FAILED'}else{'0x'+$lc0.ToString('X8')}) + "   (0x800C5800 = clobbered by the driver, 0x80085800 = target)")
 W("  PRIV_MISC_1   = " + $(if($pm1 -eq $null){'READ FAILED'}else{'0x'+$pm1.ToString('X8')}) + "   (0xE0B40D00 = clobbered, 0xE0B42D00 = target)")
 W("  SS0           = " + $(if($ss0 -eq $null){'READ FAILED'}else{'0x'+$ss0.ToString('X8')}) + "   (0x88888888 = compute unlocked)")
-$guardOk=($boot0 -ne $null -and $boot0 -eq $GUARD_EXP -and $lc0 -ne $null -and ($LC0_STATES -contains $lc0) -and $pm1 -ne $null -and ($PM1_STATES -contains $pm1))
-W("  GUARD = " + $(if($guardOk){'PASS'}else{'FAIL'}))
+$dec = DecideTargets ([uint32]$(if($lc0 -eq $null){0}else{$lc0})) ([uint32]$(if($pm1 -eq $null){0}else{$pm1}))
+$guardOk=($boot0 -ne $null -and $boot0 -eq $GUARD_EXP -and $lc0 -ne $null -and $pm1 -ne $null -and $dec.Ok)
+W("  GUARD = " + $(if($guardOk){'PASS'}else{'FAIL ' + $dec.Reason}))
 if(-not $guardOk){ Fatal 11 ">>> baseline is not a known state - refusing to write" }
+W("  plan  : LINK_CONFIG_0 0x" + $lc0.ToString('X8') + " -> 0x" + $dec.Lc0.ToString('X8') + " (Gen2 bit18=0)   PRIV_MISC_1 0x" + $pm1.ToString('X8') + " -> 0x" + $dec.Pm1.ToString('X8') + " (Gen2 bit13=1)")
 
 $gs=LinkSta $gcap $GPU; $rs=LinkSta $rcap $ROOT
 W("  pre   : GPU LNKSTA=0x" + $gs.ToString('X4') + " Gen" + ($gs -band 0xF) + " x" + (($gs -shr 4) -band 0x3F) + "   ROOT LNKSTA=0x" + $rs.ToString('X4') + " Gen" + ($rs -band 0xF) + " x" + (($rs -shr 4) -band 0x3F))
 if(-not $Apply){ W("  (dry run - no writes)"); CleanupDrivers; exit 0 }
 
-if($lc0 -ne $LC0_TARGET){
-  $ok=MmioWrite ([uint64]($bar+$LC0_OFF)) $LC0_TARGET
+if($dec.Lc0Change){
+  $ok=MmioWrite ([uint64]($bar+$LC0_OFF)) $dec.Lc0
   $rb=MmioRead ([uint64]($bar+$LC0_OFF))
-  W("  LINK_CONFIG_0 0x" + $lc0.ToString('X8') + " -> 0x" + $LC0_TARGET.ToString('X8') + "  writeOk=$ok  readback=" + $(if($rb -eq $null){'FAILED'}else{'0x'+$rb.ToString('X8')}))
-} else { W("  LINK_CONFIG_0 already at target") }
-if($pm1 -ne $PM1_TARGET){
-  $ok=MmioWrite ([uint64]($bar+$PM1_OFF)) $PM1_TARGET
+  W("  LINK_CONFIG_0 0x" + $lc0.ToString('X8') + " -> 0x" + $dec.Lc0.ToString('X8') + "  writeOk=$ok  readback=" + $(if($rb -eq $null){'FAILED'}else{'0x'+$rb.ToString('X8')}))
+} else { W("  LINK_CONFIG_0 already at target (gen2 bit already 0)") }
+if($dec.Pm1Change){
+  $ok=MmioWrite ([uint64]($bar+$PM1_OFF)) $dec.Pm1
   $rb=MmioRead ([uint64]($bar+$PM1_OFF))
-  W("  PRIV_MISC_1   0x" + $pm1.ToString('X8') + " -> 0x" + $PM1_TARGET.ToString('X8') + "  writeOk=$ok  readback=" + $(if($rb -eq $null){'FAILED'}else{'0x'+$rb.ToString('X8')}))
-} else { W("  PRIV_MISC_1 already at target") }
+  W("  PRIV_MISC_1   0x" + $pm1.ToString('X8') + " -> 0x" + $dec.Pm1.ToString('X8') + "  writeOk=$ok  readback=" + $(if($rb -eq $null){'FAILED'}else{'0x'+$rb.ToString('X8')}))
+} else { W("  PRIV_MISC_1 already at target (gen2 bit already 1)") }
 
 $reach=$false
 for($att=1; $att -le 2 -and -not $reach; $att++){
@@ -345,6 +378,27 @@ for($att=1; $att -le 2 -and -not $reach; $att++){
   W("    GPU  after ROOT${att}: Gen" + ($g -band 0xF) + " x" + (($g -shr 4) -band 0x3F) + " LNKSTA=0x" + $g.ToString('X4'))
   W("    ROOT after ROOT${att}: Gen" + ($r -band 0xF) + " x" + (($r -shr 4) -band 0x3F) + " LNKSTA=0x" + $r.ToString('X4'))
   if(($g -band 0xF) -eq 2 -and ($r -band 0xF) -eq 2){ $reach=$true }
+}
+if(-not $reach){
+  # 2026-09-30 新增（客户机 VBIOS .06 场景）：只重训根端口没到 Gen2 时，再对 GPU 自身链路做 SET_ONLY（不写策略寄存器、不复位设备）
+  for($att=1; $att -le 2 -and -not $reach; $att++){
+    $ctl=PciRead $GPU ([uint32]($gcap+0x10)) 2
+    $old=[uint16]($ctl -band 0xFFFF)
+    $req=[uint16]($old -bor 0x0020)
+    $ok=PciWrite16 $GPU ([uint32]($gcap+0x10)) $req
+    W("  GPU${att} SET_ONLY old=0x" + $old.ToString('X4') + " req=0x" + $req.ToString('X4') + " writeOk=$ok")
+    for($i=1; $i -le 20; $i++){
+      Start-Sleep -Milliseconds 200
+      $g=LinkSta $gcap $GPU; $r=LinkSta $rcap $ROOT
+      if($i -le 3){ W("    poll $i ROOT_GEN=" + ($r -band 0xF) + " GPU_GEN=" + ($g -band 0xF) + " LNKSTA=0x" + $r.ToString('X4')) }
+      if(($r -band 0xF) -eq 2 -and ($g -band 0xF) -eq 2){ break }
+    }
+    $g=LinkSta $gcap $GPU; $r=LinkSta $rcap $ROOT
+    W("    GPU  after GPU${att}: Gen" + ($g -band 0xF) + " x" + (($g -shr 4) -band 0x3F) + " LNKSTA=0x" + $g.ToString('X4'))
+    W("    ROOT after GPU${att}: Gen" + ($r -band 0xF) + " x" + (($r -shr 4) -band 0x3F) + " LNKSTA=0x" + $r.ToString('X4'))
+    if(($g -band 0xF) -eq 2 -and ($r -band 0xF) -eq 2){ $reach=$true }
+  }
+  W("  (GPU-side retrain attempts done; reach=$reach)")
 }
 $gf=LinkSta $gcap $GPU; $rf=LinkSta $rcap $ROOT
 W("  GPU final : Gen" + ($gf -band 0xF) + " x" + (($gf -shr 4) -band 0x3F) + " LNKSTA=0x" + $gf.ToString('X4'))
