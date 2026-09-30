@@ -22,6 +22,15 @@
     6. 开机任务：CMP40HX Gen2 PostBind（SYSTEM/Highest，BootTrigger）→ RunPostBind.cmd
     7. 关掉厂商版自启任务/登录项、把 Gen2AutoHard/Gen2PnpFallback 置 0（永不复位显卡=不毁算力）
 
+  2026-09-30 修复（客户机"装完重启黑屏 1~2 分钟 + 设备管理器代码 43"）：
+    · GSP 判定把 nvidia-smi 的 "N/A" 误当"已开启"→ 从不写开关；且写在了驱动不读的
+      Services\nvlddmkm\Parameters。现在：N/A/缺行 = 未启用，开关写进**显示类子键**
+      Control\Class\{4d36e968-...}\<000X>（本机实测真正生效的位置）。
+    · 策略键 Gen2AutoHard/Gen2PnpFallback 改为**无条件**建键再写 0（旧版只在厂商键已存在时才写）。
+    · 厂商自启不再只认两个固定任务名：扫全部名字/命令行含 40HX 的任务逐个禁用。
+    · ESP 挂载点会与系统盘 ESP 分区比对（防止挂到别的磁盘的 ESP → 固件找不到文件）。
+    · 取消"必须重启"的说法：改成必须**完全关机（不是重启）**再开机，否则残留状态会变成 Code 43。
+
   模式（-Mode）：
     Check       只体检，不写任何东西（可非管理员运行，仅少 ESP/NVRAM 部分）
     SelfTest    自检：ESP 读写往返 + NVRAM 写入/回读/删除往返 + BootOrder 原样写回（不改动状态）
@@ -174,6 +183,61 @@ function Get-NvidiaSmi {
   return $null
 }
 
+# ---- GSP（GPU 固件）状态判定 ------------------------------------------------
+# 坑（2026-09-30 修）：GSP 关闭时 nvidia-smi -q 打印的是 "GSP Firmware Version : N/A"
+#   （NVIDIA 文档：显示的是版本号=已启用，N/A=未启用）→ 旧版正则 (\S+) 会把 N/A 当"已开启"，
+#   于是从不写 EnableGpuFirmware → 客户机解锁后 nvlddmkm 认不了卡 = 黑屏 + 代码 43。
+# 返回 State: 'on'（版本号）/ 'off'（N/A、空、其它非版本号）/ 'unknown'（没驱动、没这一行）
+function Get-GspState {
+  param([string]$RawOutput)   # 传字符串=离线判定（自检/单测用）；不传就去跑 nvidia-smi -q
+  $smi = ''
+  $q = ''
+  if ($RawOutput) { $q = $RawOutput }
+  else {
+    $smi = Get-NvidiaSmi
+    if (-not $smi) { return [pscustomobject]@{ State = 'unknown'; Value = ''; Line = '找不到 nvidia-smi.exe（没装 NVIDIA 驱动？）' } }
+    $q = (Invoke-Native { & $smi -q 2>&1 } | Out-String)
+  }
+  $m = [regex]::Match($q, '(?im)^\s*GSP Firmware Version\s*:\s*(.+?)\s*$')
+  if (-not $m.Success) { return [pscustomobject]@{ State = 'unknown'; Value = ''; Line = 'nvidia-smi -q 里没有 GSP 行' } }
+  $v = $m.Groups[1].Value.Trim()
+  if ($v -match '^\d+(\.\d+)+') { return [pscustomobject]@{ State = 'on'; Value = $v; Line = $m.Value.Trim() } }
+  return [pscustomobject]@{ State = 'off'; Value = $v; Line = $m.Value.Trim() }
+}
+
+# ---- 显示类注册表子键：GSP 开关真正生效的位置 --------------------------------
+# Windows 上开 GSP 写在 HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-...}\<000X>
+# （本机实测：Services\nvlddmkm\Parameters 里没有 EnableGpuFirmware，写了也不生效）
+function Get-DisplayClassSubKeys {
+  $cls = 'HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}'
+  $out = @()
+  foreach ($sub in (Get-ChildItem $cls -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match '^\d{4}$' })) {
+    $mid = [string](Get-ItemProperty -Path $sub.PSPath -Name 'MatchingDeviceId' -ErrorAction SilentlyContinue).MatchingDeviceId
+    $dd = [string](Get-ItemProperty -Path $sub.PSPath -Name 'DriverDesc' -ErrorAction SilentlyContinue).DriverDesc
+    if ($mid -match '(?i)ven_10de&dev_1f0b' -or $dd -match 'CMP 40HX') {
+      $out += [pscustomobject]@{
+        Path            = $sub.PSPath
+        Name            = $sub.PSChildName
+        DriverDesc      = $dd
+        MatchingDeviceId = $mid
+        Value           = (Get-ItemProperty -Path $sub.PSPath -Name 'EnableGpuFirmware' -ErrorAction SilentlyContinue).EnableGpuFirmware
+      }
+    }
+  }
+  return @($out)
+}
+
+# ---- ESP 挂载点身份（volume GUID，GPT 下等于分区 GUID）----------------------
+# 用来判断"已经挂着的那个盘符"是不是系统盘自己的 ESP —— 旧版只看哪个盘符有 \EFI\Boot，
+# 可能挂到别的磁盘/旧的挂载点上，于是 NVRAM 指向的 ESP 里没有固件 → 开机干等一段再进系统。
+function Get-EspVolumeGuid {
+  param([string]$Letter)
+  $o = (Invoke-Native { mountvol $Letter /L 2>&1 } | Out-String)
+  $m = [regex]::Match($o, '(?i)Volume\{([0-9a-f-]{36})\}')
+  if ($m.Success) { return $m.Groups[1].Value.ToLower() }
+  return ''
+}
+
 function New-BackupFolder {
   $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
   $dir = Join-Path $script:BackupRoot $stamp
@@ -221,8 +285,21 @@ $script:EspMountError = ''
 function Mount-Esp {
   if ($script:EspRoot -and (Test-Path ($script:EspRoot + '\EFI'))) { return $script:EspRoot }
   $letters = @('Y','X','W','V','U','T','S','R','Q','P','O','N','M','L','K')
+  $espWant = $null
+  try { $espWant = Get-EspPartitionInfo } catch { }
   foreach ($dl in $letters) {
     if ((Test-Path ($dl + ':\EFI\Boot')) -or (Test-Path ($dl + ':\EFI\Microsoft'))) {
+      # 2026-09-30 修：已挂着的盘符可能不是系统盘的 ESP（别的磁盘/上次运行残留）→ 用 volume GUID 比对，
+      # 不一致就忽略它（否则 NVRAM 里的启动项会指向一个没有固件的 ESP → 开机干等一段再进系统）
+      if ($espWant) {
+        $gotGuid = Get-EspVolumeGuid ($dl + ':')
+        $wantGuid = ([string]$espWant.GuidText).ToLower()
+        if ($gotGuid -and $wantGuid -and $gotGuid -ne $wantGuid) {
+          Warn ('盘符 ' + $dl + ': 上的 ESP 不是系统盘的（GUID ' + $gotGuid + ' ≠ ' + $wantGuid + '）→ 忽略，改挂系统盘的 ESP')
+          Add-Action '有别的磁盘的 ESP 被挂在 ' + $dl + ': 上：脚本已跳过它；若仍挂载失败，先 mountvol ' + $dl + ': /D 卸掉再跑'
+          continue
+        }
+      }
       $script:EspRoot = $dl + ':'
       return $script:EspRoot
     }
@@ -537,11 +614,13 @@ function Get-CheckReport {
   $r.Gpus = @(Get-PnpDevice -Class Display -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -match 'VEN_10DE' })
   $r.Target = @($r.Gpus | Where-Object { $_.InstanceId -match 'DEV_1F0B' })
   $r.Smi = Get-NvidiaSmi
-  $r.Gsp = ''
-  if ($r.Smi) {
-    $q = (Invoke-Native { & $r.Smi -q 2>&1 } | Out-String)
-    if ($q -match 'GSP Firmware Version\s*:\s*(\S+)') { $r.Gsp = $Matches[1] }
-  }
+  # 2026-09-30：GSP 判定必须把 "N/A" 当未启用（旧版当成已开启 → 从不写开关 → 客户机 Code 43）
+  $gspNow = Get-GspState
+  $r.GspState = $gspNow.State
+  $r.GspValue = $gspNow.Value
+  $r.GspLine = $gspNow.Line
+  $r.Gsp = $gspNow.Value
+  $r.GspKeys = @(Get-DisplayClassSubKeys)
   $r.Huorong = (Test-Path 'C:\ProgramData\Huorong') -or (Test-Path 'C:\Program Files (x86)\Huorong')
   $r.AceBoot = Test-Path 'C:\Program Files\AntiCheatExpert\ACE-BOOT.sys'
   $r.AceTray = Test-Path 'C:\Program Files\AntiCheatExpert\ACE-Tray.exe'
@@ -573,9 +652,17 @@ function Show-Check {
   if ($Report.Smi) {
     $csv = (Invoke-Native { & $Report.Smi --query-gpu=name,driver_version,pci.bus_id,pcie.link.gen.current,pcie.link.gen.max,pcie.link.width.current --format=csv,noheader 2>&1 } | Out-String).Trim()
     Info ("nvidia-smi : " + $csv)
-    if ($Report.Gsp) { Ok ("GSP 固件   : " + $Report.Gsp + "（必须开启，未开则解锁后会 Code 43）") }
-    else { Bad "GSP 固件   : 未检测到 —— 需要 EnableGpuFirmware=1（Install 会自动设置）" }
-  } else { Bad "nvidia-smi : 找不到" }
+    if ($Report.GspState -eq 'on') { Ok ("GSP 固件   : " + $Report.GspValue + "（已启用，正常）") }
+    elseif ($Report.GspState -eq 'off') {
+      Bad ("GSP 固件   : 未启用（" + $Report.GspLine + "）—— 解锁后 nvlddmkm 认不了卡 = 黑屏 + 设备管理器代码 43")
+      Info 'Install 会写 EnableGpuFirmware=1（显示类子键，真正生效的位置）；写完必须完全关机再开机才生效'
+      Add-Action 'GSP 未启用：跑完 Install 确认日志里有「GSP 开关已写」，然后【完全关机】（不是重启）再开机，再用 -Mode Verify 复核 GSP 行显示版本号'
+    }
+    else {
+      Bad ("GSP 固件   : " + $Report.GspLine + " —— 状态未知，解锁后可能 Code 43")
+      Add-Action 'GSP 状态未知：先把 NVIDIA 驱动装好（nvidia-smi 能用），再重跑 Install，然后完全关机再开机'
+    }
+  } else { Bad "nvidia-smi : 找不到 —— 先把 NVIDIA 驱动装好再解锁（没驱动就解锁 = 黑屏 + Code 43）"; Add-Action '机器上没有 nvidia-smi：先装 NVIDIA 驱动，再重跑 Install' }
   Info "BIOS 里必须确认: Above 4G Decoding = Enabled、CSM = Disabled、Fast Boot = Disabled（这三项 OS 侧读不到，是头号失败原因）"
 
   Head '杀软 / 反作弊'
@@ -981,10 +1068,20 @@ function Install-Task {
     Info ('  触发器: ' + (($t.Triggers | ForEach-Object { $_.CimClass.CimClassName }) -join ', ') + ' ; 身份: ' + $t.Principal.UserId + '/' + $t.Principal.RunLevel)
   } else { Bad '任务未注册成功' }
   # 厂商自启（会在本机把算力清掉/覆盖 EFI）一律停掉
-  foreach ($vt in @('40HX PCIe Gen2 Bring-up', '40HX-Gen2-Retrain')) {
-    $q = Get-ScheduledTask -TaskName $vt -ErrorAction SilentlyContinue
-    if ($q) { Disable-ScheduledTask -TaskName $vt -ErrorAction SilentlyContinue | Out-Null; Ok ('已禁用厂商任务: ' + $vt) }
+  # 2026-09-30 修：不再只认两个固定任务名（厂商换名就漏），改成按"名字或动作命令行里含 40HX"全扫
+  $dis = 0
+  foreach ($t in @(Get-ScheduledTask -ErrorAction SilentlyContinue)) {
+    if ([string]$t.TaskName -eq $script:TaskName) { continue }
+    $acts = ((@($t.Actions) | ForEach-Object { ([string]$_.Execute + ' ' + [string]$_.Arguments) }) -join ' ')
+    if (([string]$t.TaskName -match '40HX|CMP40HX') -or ($acts -match '40HX|CMP40HX')) {
+      if ($t.State -ne 'Disabled') {
+        Disable-ScheduledTask -TaskName $t.TaskName -ErrorAction SilentlyContinue | Out-Null
+        Ok ('已禁用其它 40HX 自启任务: ' + $t.TaskName)
+        $dis++
+      }
+    }
   }
+  if ($dis -eq 0) { Info '没有发现其它需要禁用的 40HX 任务' }
   $runKey = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
   $v = (Get-ItemProperty -Path $runKey -Name '40HXGen2' -ErrorAction SilentlyContinue).'40HXGen2'
   if ($v) {
@@ -992,12 +1089,14 @@ function Install-Task {
     Remove-ItemProperty -Path $runKey -Name '40HXGen2' -ErrorAction SilentlyContinue
     Ok '已摘掉 HKCU Run 的厂商登录自启 40HXGen2（存为 40HXGen2_parked）'
   }
-  if (Test-Path 'HKLM:\SOFTWARE\40HXUnlock') {
-    foreach ($kv in @(@('Gen2AutoHard', 0), @('Gen2PnpFallback', 0))) {
-      New-ItemProperty -Path 'HKLM:\SOFTWARE\40HXUnlock' -Name $kv[0] -PropertyType DWord -Value $kv[1] -Force | Out-Null
-    }
-    Ok '策略键 Gen2AutoHard=0 / Gen2PnpFallback=0（绝不复位显卡 = 不毁算力）'
+  # 2026-09-30 修：旧版只在厂商键已存在时才写 → 干净机器上（该键是厂商安装器建的）这两个
+  # "永不复位显卡"的策略根本没写；而厂商 Gen2AutoHard 默认 1 = Stage2（Link Disable + PnP 复位显卡）
+  # = 清算力 + 可能留 Code 43（厂商文档也说 40HX 是唯一显示卡时登录后会黑屏几秒）。
+  if (-not (Test-Path 'HKLM:\SOFTWARE\40HXUnlock')) { New-Item -Path 'HKLM:\SOFTWARE\40HXUnlock' -Force | Out-Null }
+  foreach ($kv in @(@('Gen2AutoHard', 0), @('Gen2PnpFallback', 0))) {
+    New-ItemProperty -Path 'HKLM:\SOFTWARE\40HXUnlock' -Name $kv[0] -PropertyType DWord -Value $kv[1] -Force | Out-Null
   }
+  Ok '策略键 Gen2AutoHard=0 / Gen2PnpFallback=0（绝不复位显卡 = 不毁算力；键不存在也会建）'
   # 杀软排除（Defender；火绒要在 UI 里加，Check 已列出 4 个路径）
   try {
     Add-MpPreference -ExclusionPath $script:ProgDataRoot -ErrorAction Stop
@@ -1007,15 +1106,34 @@ function Install-Task {
 }
 
 function Install-Gsp {
-  $smi = Get-NvidiaSmi
-  if (-not $smi) { Warn '找不到 nvidia-smi，跳过 GSP 检查'; return }
-  $q = (Invoke-Native { & $smi -q 2>&1 } | Out-String)
-  if ($q -match 'GSP Firmware Version\s*:\s*(\S+)') { Ok ('GSP 已开启 (' + $Matches[1] + ')'); return }
-  $key = 'HKLM:\SYSTEM\CurrentControlSet\Services\nvlddmkm\Parameters'
-  if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }
-  New-ItemProperty -Path $key -Name 'EnableGpuFirmware' -PropertyType DWord -Value 1 -Force | Out-Null
-  Warn 'GSP 未开启 → 已写 EnableGpuFirmware=1（需重启生效；不开启则解锁后 nvlddmkm 不认卡 = Code 43）'
-  Add-Action '本次刚把 GSP 打开：必须重启一次才生效（否则解锁后可能 Code 43）'
+  # 2026-09-30 修：①不再把 nvidia-smi 的 "N/A" 当"已开启" ②开关写进显示类子键（真正生效的位置）
+  $g = Get-GspState
+  if ($g.State -eq 'on') { Ok ('GSP 已开启 (' + $g.Value + ')'); return }
+  if ($g.State -eq 'unknown') {
+    Warn ('GSP 状态未知（' + $g.Line + '）—— 没驱动就解锁 = 黑屏 + 代码 43')
+    Add-Action '机器上还没有可用的 NVIDIA 驱动/nvidia-smi：先装驱动，再重跑 -Mode Repair，然后【完全关机】再开机'
+    return
+  }
+  # State = 'off'：写显示类子键
+  $keys = @(Get-DisplayClassSubKeys)
+  if ($keys.Count -eq 0) {
+    Warn '没找到 CMP 40HX 的显示类子键（驱动没装全？）→ 退化只写 Services\nvlddmkm\Parameters（实测该处不生效）'
+    Add-Action '没找到 40HX 的显示类子键：装好驱动后重跑 -Mode Repair，让 GSP 开关写到正确位置'
+  }
+  foreach ($k in $keys) {
+    $before = $k.Value
+    New-ItemProperty -Path $k.Path -Name 'EnableGpuFirmware' -PropertyType DWord -Value 1 -Force | Out-Null
+    $after = (Get-ItemProperty -Path $k.Path -Name 'EnableGpuFirmware' -ErrorAction SilentlyContinue).EnableGpuFirmware
+    if ($after -eq 1) { Ok ('GSP 开关已写: 显示类子键 ' + $k.Name + ' [' + $k.DriverDesc + '] EnableGpuFirmware ' + $(if ($null -eq $before) { '<无>' } else { [string]$before }) + ' -> 1') }
+    else { Bad ('写显示类子键 ' + $k.Name + ' 的 EnableGpuFirmware 失败（回读=' + [string]$after + '）') }
+  }
+  # 兼容冗余：老位置也写一份（无害，万一某版驱动读那里）
+  $legacyKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\nvlddmkm\Parameters'
+  if (-not (Test-Path $legacyKey)) { New-Item -Path $legacyKey -Force | Out-Null }
+  New-ItemProperty -Path $legacyKey -Name 'EnableGpuFirmware' -PropertyType DWord -Value 1 -Force | Out-Null
+  Warn 'GSP 原为未启用 → 已写入 EnableGpuFirmware=1（显示类子键 + 兼容位置）'
+  Warn '必须【完全关机再开机】才生效 —— 不是"重启"！重启可能留下状态 = 黑屏 + 代码 43'
+  Add-Action '本次刚打开 GSP：必须【完全关机】（开始菜单→关机，最好拔电 10 秒）再开机；开机后跑 -Mode Verify 复核 GSP 行显示版本号'
 }
 
 # ================================================================ 自检（NVRAM/ESP 往返）
@@ -1167,7 +1285,20 @@ function Invoke-Verify {
   Head '结论'
   if ($compute -eq 'PASS') { Say '  算力解锁 : PASS (SS0=0x88888888 SS1=0x8)' 'Green' } else { Say '  算力解锁 : FAIL' 'Red' }
   if ($gen2 -eq 'PASS') { Say '  PCIe Gen2: PASS (physical Gen2 x16)' 'Green' } else { Say '  PCIe Gen2: FAIL' 'Red' }
-  if ($compute -eq 'PASS' -and $gen2 -eq 'PASS') { Say '  结论: 两全达成（算力满血 + Gen2 x16）' 'Green' }
+  # 2026-09-30：GSP 必须一起复核 —— 没开的话客户的卡就是"代码 43"，前面两项再好也没用
+  $gspV = Get-GspState
+  if ($gspV.State -eq 'on') { Say ('  GSP 固件 : PASS (' + $gspV.Value + ')') 'Green' }
+  elseif ($gspV.State -eq 'off') { Say ('  GSP 固件 : FAIL —— 未启用（' + $gspV.Line + '）→ 设备管理器里 40HX 会是代码 43；跑 -Mode Repair 写开关，然后【完全关机】再开机') 'Red' }
+  else { Say ('  GSP 固件 : 未知（' + $gspV.Line + '）') 'Yellow' }
+  $gpuErr = @(Get-PnpDevice -Class Display -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -match 'DEV_1F0B' -and $_.Status -ne 'OK' })
+  if ($gpuErr.Count -gt 0) {
+    $pr = ''
+    try { $pr = [string](Get-PnpDeviceProperty -InstanceId $gpuErr[0].InstanceId -KeyName 'DEVPKEY_Device_ProblemCode' -ErrorAction SilentlyContinue).Data } catch { }
+    Say ('  40HX 设备 : 异常 [' + $gpuErr[0].Status + '] Problem=' + $pr + $(if ($pr -eq '43') { '   ← 这就是客户说的"设备管理器 43"' } else { '' })) 'Red'
+    if ($pr -eq '43') { Say '    处理顺序：① 确认 GSP 已启用 ② 完全关机（不是重启）再开机 ③ 仍 43 跑 -Mode Repair 后重复 ①②' 'Yellow' }
+  } else { Say '  40HX 设备 : OK（没有代码 43）' 'Green' }
+  if ($compute -eq 'PASS' -and $gen2 -eq 'PASS' -and $gspV.State -eq 'on') { Say '  结论: 两全达成（算力满血 + Gen2 x16 + GSP 正常）' 'Green' }
+  elseif ($compute -eq 'PASS' -and $gen2 -eq 'PASS') { Say '  结论: 算力+Gen2 已达成，但 GSP 这项要处理（否则设备管理器会显示代码 43）' 'Yellow' }
 }
 
 # ================================================================ 卸载
@@ -1355,13 +1486,15 @@ if ($script:FailCount -eq 0) { Say ('安装步骤全部成功（' + $script:Warn
 else { Say ('安装结束：' + $script:FailCount + ' 项失败、' + $script:WarnCount + ' 条提示，请往上翻看。') 'Red' }
 Say ''
 Say '  ============================================================' 'Yellow'
-Say '   ★  现 在 请 重 启 电 脑 （必须）' 'Yellow'
+Say '   ★  现 在 请 完 全 关 机 再 开 机 （必须，不是"重启"）' 'Yellow'
 Say '  ============================================================' 'Yellow'
-Say '   为什么必须重启：算力解锁是"每次开机由 ESP 上的解锁固件写 GPU 寄存器"实现的，不重启不会生效。' 'Yellow'
-Say '   （本次已经跑过一遍开机任务，所以 Gen2 可能已经生效；但算力一定得等重启。）' 'Yellow'
-Say '   重启后第一次开机可能比平时慢几秒：先跑解锁固件，再 chainload 回 Windows，属正常。' 'Yellow'
+Say '   为什么必须关机再开：算力解锁是"每次开机由 ESP 上的解锁固件写 GPU 寄存器"实现的。' 'Yellow'
+Say '   ★ 必须是【完全关机】（开始菜单→关机，最好拔电 10 秒再开）——"重启"清不掉显卡残留状态，' 'Yellow'
+Say '     而残留+GSP/链路状态不对就会表现成"开机黑屏一段时间 + 设备管理器代码 43"。' 'Yellow'
+Say '   （本次已经跑过一遍开机任务，所以 Gen2 可能已经生效；但算力一定得等关机再开。）' 'Yellow'
+Say '   开机后第一次进系统可能比平时慢几秒：先跑解锁固件，再 chainload 回 Windows，属正常。' 'Yellow'
 Say ''
-Say '   重启后怎么确认（三选一）：' 'Yellow'
+Say '   开机后怎么确认（三选一，另外务必看一眼设备管理器里 40HX 有没有代码 43）：' 'Yellow'
 Say '     a) 双击本包目录里的 状态自检.bat          → 看到"全绿 -- WDDM + PCIe Gen2 + 算力满血"即成功' 'Yellow'
 Say ('     b) powershell -ExecutionPolicy Bypass -File "' + (Join-Path $script:PkgRoot 'Install-40HXUnlock.ps1') + '" -Mode Verify') 'Yellow'
 Say '     c) 看 ESP 里的 40hx_log.txt 时间戳是不是本次开机（有 *** UNLOCKED *** 行）' 'Yellow'
@@ -1373,7 +1506,7 @@ if ($script:ActionItems.Count -gt 0) {
   Say '   没有需要你额外处理的事项（杀软、GSP、驱动、任务都正常）。' 'Green'
 }
 Say ''
-Say '   若重启后没效果：别乱试，打开 排查指引.md，按日志原话搜（第 5 节就是"装完重启没效果"的判据）。' 'Yellow'
+Say '   若开机后没效果：别乱试，打开 排查指引.md 按日志原话搜；黑屏/代码 43 见第 5 节与第 5.1 节（GSP）。' 'Yellow'
 Say '   若开机没进 "40HX Unlock"（看 40hx_log.txt 时间不是本次开机）：进 BIOS 启动项手动选它一次；' 'Yellow'
 Say '   脚本已把解锁固件写到 \EFI\Boot\bootx64.efi 兜底，多数主板不看 NVRAM 也能生效。' 'Yellow'
 Say ''
@@ -1384,11 +1517,13 @@ try {
   $nl = New-Object System.Collections.ArrayList
   [void]$nl.Add('CMP 40HX 安装完成 —— 下一步（' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '，模式 ' + $Mode + '）')
   [void]$nl.Add('')
-  [void]$nl.Add('★ 必须重启电脑：算力解锁是每次开机由 ESP 上的解锁固件写 GPU 寄存器实现的，不重启不生效。')
+  [void]$nl.Add('★ 必须【完全关机】再开机（不是"重启"）：算力解锁靠每次开机的解锁固件生效；')
+  [void]$nl.Add('  "重启"清不掉显卡残留状态，残留状态不对 = 开机黑屏一段时间 + 设备管理器代码 43。')
+  [void]$nl.Add('  做法：开始菜单→关机，最好拔电 10 秒再开机。')
   [void]$nl.Add('')
-  [void]$nl.Add('重启后确认（三选一）：')
+  [void]$nl.Add('开机后确认（三选一，另看一眼设备管理器 40HX 有没有代码 43）：')
   [void]$nl.Add('  a) 双击本目录的 状态自检.bat   → 看到"全绿 -- WDDM + PCIe Gen2 + 算力满血"即成功')
-  [void]$nl.Add('  b) powershell -ExecutionPolicy Bypass -File "' + (Join-Path $script:PkgRoot 'Install-40HXUnlock.ps1') + '" -Mode Verify')
+  [void]$nl.Add('  b) powershell -ExecutionPolicy Bypass -File "' + (Join-Path $script:PkgRoot 'Install-40HXUnlock.ps1') + '" -Mode Verify   （会一并复核 GSP / 代码 43）')
   [void]$nl.Add('  c) 看 ESP 里 40hx_log.txt 的时间戳是不是本次开机（应有 *** UNLOCKED (SS0=0x88888888 SS1=0x8) ***）')
   [void]$nl.Add('')
   if ($script:ActionItems.Count -gt 0) {

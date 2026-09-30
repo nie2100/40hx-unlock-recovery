@@ -1,7 +1,7 @@
 # CMP 40HX 算力解锁 + PCIe Gen2 一键脚本（迁移版）
 
 自含脚本：**只用本目录里的东西**，不需要联网、不需要厂商安装器。
-把整个 `40hx-oneclick` 目录拷到任意一台装有 CMP 40HX 的电脑上，双击 `一键安装.cmd`，重启，完事。
+把整个 `40hx-oneclick` 目录拷到任意一台装有 CMP 40HX 的电脑上，双击 `一键安装.cmd`，然后**完全关机再开机**（不是“重启”），完事。
 
 ```
 40hx-oneclick\
@@ -66,12 +66,15 @@ C:\ProgramData\CMP40HXGen2            （目录）
 ## 2. 三步用法
 
 1. 双击 `一键安装.cmd` → 回车 → 等它跑完（首次约 1 分钟，含 10 秒杀软观察期）
-2. **重启**（解锁是每次开机由 EFI 写 GPU 寄存器实现的，不重启不生效）
-3. 重启后双击 `状态自检.bat`，看到 `全绿 -- WDDM + PCIe Gen2 + 算力满血` 即成功
+2. **完全关机再开机**（解锁是每次开机由 EFI 写 GPU 寄存器实现的）。
+   ⚠ **不要用“重启”**：重启清不掉显卡残留状态，残留状态不对就会表现成「开机黑屏一段时间 + 设备管理器代码 43」。
+   做法：开始菜单 → 关机，最好拔电等 10 秒再开机（笔记本电脑拔电 + 长按电源键 5 秒）。
+3. 开机后双击 `状态自检.bat`，看到 `全绿 -- WDDM + PCIe Gen2 + 算力满血` 即成功；
+   同时看一眼设备管理器里 40HX 有没有黄色感叹号（**代码 43**）—— `-Mode Verify` 会自动复核 GSP 与代码 43
 
 换机器时把整个目录拷过去即可（U 盘、网盘都行）；装完不必留着，但留着方便修复/回滚。
 
-跑完脚本会让你「重启」，并把这次要你做的事（杀软信任区之类）在结尾再列一遍，同时写出 `下一步-重启后看这里.txt`（控制台关了也能看）。
+跑完脚本会让你「完全关机再开机」，并把这次要你做的事（杀软信任区之类）在结尾再列一遍，同时写出 `下一步-重启后看这里.txt`（控制台关了也能看）。
 觉得提示不清就看那份 txt。
 
 > `状态自检.bat` 是用 Python(`C:\Windows\py.exe`) 实测 PCIe 链路带宽与算力的，目标机没装 Python 时它会提示无法实测。
@@ -132,7 +135,7 @@ powershell -ExecutionPolicy Bypass -File Install-40HXUnlock.ps1 -Mode Check
 | 重启后 `40hx_log.txt` 没有新的 `UNLOCKED` 行 | BIOS 的 **Above 4G Decoding 没开**，或 Secure Boot 没关，或启动项没走解锁固件 → 进 BIOS 把第一启动项设为 "40HX Unlock"（或硬盘本身，走 `\EFI\Boot\bootx64.efi` 兜底） |
 | 算力 OK 但 Gen2 没落地 | 先看 `%ProgramData%\CMP40HXGen2\windows\logs\postbind.log` 末尾：有 `PASS: Gen2 reached on the new path` = 好；有 `falling back to the legacy ACE path` 说明新路径失败，同段的 `NewPath EXIT=n` 就是原因（11 基线不认识 / 12 GPU 未就绪 / 13 inpoutx64 没起来 / 10 链路没到 Gen2 / 3 WinRing0 不可用），逐条读数在 `logs\retrain-inpout.log`。老路径的 `logs\last.log` 里 `EXIT=30` = 驱动没起来（杀软/ACE 拦截）；`exit 14` = 守卫基线不成立（ESP 固件被覆盖成厂商版了，重跑 Install 即可写回） |
 | 驱动文件装完 10 秒消失 | 火绒隔离 → 信任区加第 1.1 节那几项，然后 `-Mode Repair` |
-| 卡在 Code 43 / 黑屏 | 显卡被复位过 → **完全关机冷启动**（热重启无效）；并确认 GSP 已开启 |
+| 卡在 Code 43 / 黑屏 | **先查 GSP**：GSP 没开时，解锁后 `nvlddmkm` 认不了这张卡，表现就是「开机黑屏 1~2 分钟 + 设备管理器代码 43」→ 见 `排查指引.md` **第 5.1 节**（判据 + 一键修复）。确认 GSP 正常后才考虑“显卡被复位过” → 两种情况都**必须完全关机冷启动**（热重启无效） |
 | 开机任务上次 rc=0x1F（31） | ACE-BOOT 拦了老路径要用的驱动。首选新路径不用那个驱动，正常不会出现；真反复出现就看 `postbind.log` 里有没有 `falling back to the legacy ACE path`（新路径失败才会走它），并检查 `C:\Program Files\AntiCheatExpert\ACE-Tray.exe` 是否被别的策略拦住 |
 | 想彻底回滚 | `-Mode Uninstall -Yes`（还原 `bootx64.efi`、删启动项/任务/服务/驱动），重启后就是原生状态 |
 
@@ -158,3 +161,19 @@ f8965fdce668692c3785afa3559159f9a18287bc0d53abb21902895a8ecf221b  inpoutx64.sys 
 ## 8. 这份包在本机的验证记录
 
 见 `验证记录.md`（含每一步的日志文件名与实测读数）。
+
+## 9. 修复记录（2026-09-30：客户机「装完黑屏 1~2 分钟 + 代码 43」）
+
+客户反馈：装完提示全部成功 → 重启后黑屏一两分钟才进系统 → 设备管理器里 40HX 变成**代码 43**。审计后确认主因是本包两个缺陷导致 **GSP 从没被真正打开**：
+
+| 缺陷 | 旧行为 | 现在 |
+|---|---|---|
+| GSP 识别 | `nvidia-smi -q` 里 GSP 关闭时打印的是 `GSP Firmware Version : N/A`，旧正则把 `N/A` 当成“已开启” → **从不写开关**；`-Mode Check` 还会打绿色 `[OK] GSP 固件 : N/A` | `N/A`/空/非版本号 一律判为**未启用**；Check/Verify 把“未启用”当失败并给出处理步骤 |
+| GSP 写入位置 | 写 `HKLM\SYSTEM\CurrentControlSet\Services\nvlddmkm\Parameters`（本机实测：驱动不读这里，整棵树 0 匹配） | 写**显示类子键** `Control\Class\{4d36e968-…}\<000X>`（`MatchingDeviceId` 含 `ven_10de&dev_1f0b` 的那个），真正生效的位置；兼容位置仍写一份 |
+| 显卡/根端口位置 | `40hx-retrain-inpout.ps1` 写死 `01:00.0` / `00:01.0` → 显卡不在主槽或 AGESA 高总线主板上每次开机白等 120 秒后 exit 12 | **自动探测**（PnP `LocationInfo` → `nvidia-smi` → 传统位置兜底），逐个候选校验 `10DE:1F0B` 与根端口的 PCI-to-PCI 类码，探测不到**拒写**（exit 11） |
+| 策略键 | 只在 `HKLM\SOFTWARE\40HXUnlock` 已存在时才写 `Gen2AutoHard/PnpFallback=0` → 干净机器上没写，厂商默认 1 会 Stage2 复位显卡 | **无条件建键再写 0** |
+| 厂商自启 | 只禁两个固定任务名 | 按“任务名或动作命令行含 40HX”**全扫**并禁用 |
+| ESP 挂载点 | 只看哪个盘符有 `\EFI\Boot`，可能挂到别的磁盘的 ESP → 固件找不到文件、开机干等 | 用 volume GUID 与系统盘 ESP 分区比对，不一致就忽略并改挂正确的 |
+| 交付话术 | “必须重启” | “必须**完全关机再开机**（不是重启）” |
+
+现场取证工具：`诊断包-20260930/`（只读收集 + `修复-GSP` 一键写开关）。

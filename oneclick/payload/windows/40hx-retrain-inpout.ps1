@@ -1,7 +1,11 @@
-﻿param([switch]$Apply)
+﻿param([switch]$Apply, [string]$GpuBdf = '', [string]$RootBdf = '')
 # 40HX Gen2 retrain via inpoutx64 (MMIO) + WinRing0 (PCI config).  The anti-cheat is NEVER touched.
 # exit codes: 0 = PASS (physical Gen2 x16), 10 = link not Gen2, 11 = baseline/guard failed,
 #             12 = GPU/driver not ready in time, 13 = inpoutx64 driver not running, 3 = WinRing0 unusable
+# 2026-09-30: GPU/root-port BDF are AUTO-DETECTED (PnP LocationInfo -> nvidia-smi -> legacy 01:00.0).
+#             The old build hardcoded 01:00.0 / 00:01.0, so on any machine where the card sits elsewhere
+#             (2nd slot, behind a switch, AGESA/high-bus boards - vendor README reports bus 0x10)
+#             it waited the full 120s and exited 12 on every boot. -GpuBdf/-RootBdf override (hex like 0x0200).
 $ErrorActionPreference='Continue'
 $LOGAPP='C:\ProgramData\CMP40HXGen2\windows\logs\retrain-inpout.log'
 $out='C:\Temp\40hx-retrain-tool.txt'
@@ -145,14 +149,84 @@ if(-not $ioNow){ Fatal 13 ">>> inpoutx64T did not reach RUNNING" }
 $hw=[P]::CreateFileA("\\.\WinRing0_1_2_0",[uint32]3221225472,0,[IntPtr]::Zero,3,0,[IntPtr]::Zero)
 if([int64]$hw -eq -1){ Fatal 3 ">>> cannot open WinRing0" }
 
-# ---- wait (bounded) for the GPU to appear and the display driver to bind (post-bind window) ----
-$GPU=[uint32]0x0100
-$ROOT=[uint32]0x0008
+# ---- device location: auto-detect GPU / root-port BDF (2026-09-30) ----
+function Parse-Bdf([string]$t){
+  if(-not $t){ return $null }
+  $t=$t.Trim()
+  $m=[regex]::Match($t,'([0-9a-fA-F]{1,2}):([0-9a-fA-F]{2})\.([0-7])$')            # 00000000:01:00.0 / 01:00.0
+  if($m.Success){ return [uint32](([Convert]::ToUInt32($m.Groups[1].Value,16) -shl 8) -bor ([Convert]::ToUInt32($m.Groups[2].Value,16) -shl 3) -bor [Convert]::ToUInt32($m.Groups[3].Value,16)) }
+  if($t -match '^0x[0-9a-fA-F]+$'){ return [uint32]$t }
+  return $null
+}
+function Get-LocBdf([string]$loc){
+  # LocationInfo is localized ("PCI bus 1, device 0, function 0" / "PCI 总线 1、设备 0、功能 0")
+  # -> take the first three numbers, language independent
+  $m=[regex]::Matches([string]$loc,'\d+')
+  if($m.Count -lt 3){ return $null }
+  return [uint32]((([int]$m[0].Value) -shl 8) -bor (([int]$m[1].Value) -shl 3) -bor ([int]$m[2].Value))
+}
+function Detect-GpuRoot {
+  $r=@{ Gpu=$null; Root=$null; Src='none' }
+  try {
+    $d=@(Get-PnpDevice -Class Display -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -match 'DEV_1F0B' }) | Select-Object -First 1
+    if($d){
+      $b=Get-LocBdf ([string](Get-PnpDeviceProperty -InstanceId $d.InstanceId -KeyName 'DEVPKEY_Device_LocationInfo' -ErrorAction SilentlyContinue).Data)
+      if($b){ $r.Gpu=$b; $r.Src='PnP' }
+      $p=[string](Get-PnpDeviceProperty -InstanceId $d.InstanceId -KeyName 'DEVPKEY_Device_Parent' -ErrorAction SilentlyContinue).Data
+      if($p){
+        $rb=Get-LocBdf ([string](Get-PnpDeviceProperty -InstanceId $p -KeyName 'DEVPKEY_Device_LocationInfo' -ErrorAction SilentlyContinue).Data)
+        if($rb){ $r.Root=$rb; if($r.Src -eq 'none'){ $r.Src='PnP' } }
+      }
+    }
+  } catch { }
+  if(-not $r.Gpu){                                          # fallback: nvidia-smi
+    $smi="$env:SystemRoot\System32\nvidia-smi.exe"
+    if(Test-Path $smi){
+      $out=(& $smi --query-gpu=pci.bus_id --format=csv,noheader 2>&1 | Out-String)
+      foreach($ln in ($out -split "`r?`n")){ $b=Parse-Bdf $ln; if($b){ $r.Gpu=$b; $r.Src='nvidia-smi'; break } }
+    }
+  }
+  return $r
+}
+$det=Detect-GpuRoot
+if($GpuBdf){  $det.Gpu  = Parse-Bdf $GpuBdf;  $det.Src='override' }
+if($RootBdf){ $det.Root = Parse-Bdf $RootBdf }
+W("  detect: gpu=" + $(if($det.Gpu){'0x'+([uint32]$det.Gpu).ToString('X4')}else{'?'}) + "  root=" + $(if($det.Root){'0x'+([uint32]$det.Root).ToString('X4')}else{'?'}) + "  src=" + $det.Src)
+
+# (1) which BDF answers with 10DE:1F0B ?  Never guess, never write blind.
+$cand=@()
+if($det.Gpu){ $cand += [uint32]$det.Gpu }
+if($cand -notcontains [uint32]0x0100){ $cand += [uint32]0x0100 }      # legacy position as last resort
+$gpuFound=$null; $id=$null
+foreach($c in $cand){
+  $v=PciRead $c 0x0 4
+  W("  GPU candidate 0x" + $c.ToString('X4') + " -> id=" + $(if($v -eq $null){'READ FAILED'}else{'0x'+$v.ToString('X8')}))
+  if($v -ne $null -and ($v -band 0xFFFF) -eq 0x10DE -and (($v -shr 16) -eq 0x1F0B)){ $gpuFound=$c; $id=$v; break }
+}
+if($gpuFound -eq $null){ Fatal 11 ">>> CMP 40HX (10DE:1F0B) not found at any candidate BDF - refusing to write" }
+$GPU=[uint32]$gpuFound
+
+# (2) root port: PnP parent first, else the 01:00.0 -> 00:01.0 convention; must be a PCI-to-PCI bridge
+$rcand=@()
+if($det.Root){ $rcand += [uint32]$det.Root }
+if($GPU -eq [uint32]0x0100 -and $rcand -notcontains [uint32]0x0008){ $rcand += [uint32]0x0008 }
+$rootFound=$null
+foreach($c in $rcand){
+  $rh=PciRead $c 0x0 4
+  $rc=PciRead $c 0x8 4
+  $cls=$(if($rc -eq $null){'?'}else{'0x'+(($rc -shr 8) -band 0xFFFFFF).ToString('X6')})
+  W("  ROOT candidate 0x" + $c.ToString('X4') + " -> id=" + $(if($rh -eq $null){'READ FAILED'}else{'0x'+$rh.ToString('X8')}) + "  class=" + $cls)
+  if($rh -ne $null -and $rc -ne $null -and (($rc -shr 8) -band 0xFFFFFF) -eq 0x060400){ $rootFound=$c; break }
+}
+if($rootFound -eq $null){ Fatal 11 ">>> no PCI-to-PCI root port found at candidates (gpu=0x$($GPU.ToString('X4'))) - refusing to write" }
+$ROOT=[uint32]$rootFound
+W("  using GPU=0x" + $GPU.ToString('X4') + "  ROOT=0x" + $ROOT.ToString('X4'))
+
+# (3) wait (bounded) for the driver to bind
 $ready=$false
 for($w=1; $w -le 24; $w++){
   $nv=(sc.exe query nvlddmkm 2>&1 | Out-String)
-  $id=PciRead $GPU 0x0 4
-  if(($nv -match 'RUNNING') -and $id -ne $null -and ($id -band 0xFFFF) -eq 0x10DE -and (($id -shr 16) -eq 0x1F0B)){ $ready=$true; break }
+  if($nv -match 'RUNNING'){ $ready=$true; break }
   Start-Sleep -Seconds 5
 }
 W("  ready=$ready after $($w-1) waits   nvlddmkm=" + (((sc.exe query nvlddmkm 2>&1 | Out-String) -split "`n" | Select-String 'STATE' | Out-String).Trim()) + "   gpu_id=" + $(if($id -eq $null){'NULL'}else{'0x'+$id.ToString('X8')}))
