@@ -60,6 +60,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$script:PendingDriverRetry = $false   # 驱动文件被占用而跳过写入时置位（不致命，重启后由开机任务补齐）
 
 # 原生命令（schtasks / sc / mountvol …）在 'Stop' 下的致命坑：
 #   PS 5.1 里外部程序往 stderr 写字会产生 NativeCommandError，**即使写成 `... 2>&1 | Out-Null` 也会终止脚本**。
@@ -267,6 +268,42 @@ function Copy-WithVerify {
     return @{ Ok = $false; Hash = $hash }
   }
   return @{ Ok = $true; Hash = $hash }
+}
+
+# 2026-09-30（客户机实测）：驱动文件“正由另一进程使用”时 [IO.File]::WriteAllBytes 抛异常，
+# 而全局 $ErrorActionPreference='Stop' 会把整个安装/修复**直接打断**（客户机 21:48 那次就是死在这里）。
+# 策略：① 目标文件哈希已相同 → 直接跳过写入（最常见：内容本来就一样）② 写失败先 sc stop 再重试一次
+#       ③ 仍失败 → 记一条提示 + 标记待补齐，**不致命**；完全关机再开机后由开机任务从 ESP 兜底源补齐。
+function Save-PayloadFile {
+  param([string]$Path, [byte[]]$Bytes, [string]$Sha256, [string]$Name, [string]$Service)
+  $existing = ''
+  if (Test-Path -LiteralPath $Path) { try { $existing = Get-FileSha256 $Path } catch { $existing = '' } }
+  if ($existing -eq $Sha256) { Ok ($Name + ' → ' + $Path + ' (已是同一份，跳过写入)'); return $true }
+  $reason = ''
+  for ($try = 1; $try -le 2; $try++) {
+    try { [IO.File]::WriteAllBytes($Path, $Bytes) } catch { $reason = $_.Exception.Message }
+    $h = ''
+    if (Test-Path -LiteralPath $Path) { try { $h = Get-FileSha256 $Path } catch { $h = '' } }
+    if ($h -eq $Sha256) {
+      if ($try -gt 1) { Info ($Name + ' → ' + $Path + ' (重试后写入成功)') }
+      Ok ($Name + ' → ' + $Path + ' (sha256 校验通过)')
+      return $true
+    }
+    if ($try -eq 1) {
+      # 被占用：驱动还在跑或停在 STOP_PENDING。先试着把服务停掉再写一次
+      if ($Service) {
+        Info ($Name + ' 被占用（' + $reason + '）→ 尝试 sc stop ' + $Service + ' 后重写')
+        Invoke-Native { sc.exe stop $Service 2>&1 | Out-Null }
+        Start-Sleep -Seconds 3
+        Invoke-Native { sc.exe stop $Service 2>&1 | Out-Null }
+        Start-Sleep -Seconds 3
+      } else { Start-Sleep -Milliseconds 800 }
+    }
+  }
+  Warn ($Name + ' → ' + $Path + ' 写不进去：' + $reason + ' （驱动正被占用/停在 STOP_PENDING 时常见）')
+  Info ('  本次先跳过这个文件；完全关机再开机后，开机任务会自动从 ESP 兜底源补齐（也可以先手动 sc stop ' + $(if ($Service) { $Service } else { '<服务名>' }) + ' 再跑一次 Repair）')
+  $script:PendingDriverRetry = $true
+  return $false
 }
 
 function Get-FileSha256 { param([string]$Path) return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLower() }
@@ -823,9 +860,7 @@ function Install-DriverFiles {
     foreach ($t in $targets) {
       $parent = Split-Path -Parent $t
       if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
-      [IO.File]::WriteAllBytes($t, $bin)
-      $h = Get-FileSha256 $t
-      if ($h -eq $d.Sha256) { Ok ($d.Name + " → " + $t + " (sha256 校验通过)") } else { Bad ($d.Name + " → " + $t + " 哈希不符 " + $h) }
+      [void](Save-PayloadFile -Path $t -Bytes $bin -Sha256 $d.Sha256 -Name $d.Name -Service $d.Service)
     }
     # 服务：厂商脚本只 start 不 create，这里必须建（缺了会 1060）
     $q = (Invoke-Native { sc.exe query $d.Service 2>&1 } | Out-String)
@@ -920,9 +955,7 @@ function Install-InpoutFiles {
     foreach ($t in ($targets | Select-Object -Unique)) {
       $parent = Split-Path -Parent $t
       if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
-      [IO.File]::WriteAllBytes($t, $bin)
-      $h = Get-FileSha256 $t
-      if ($h -eq $f.Sha256) { Ok ($f.Name + " → " + $t + " (sha256 校验通过)") } else { Bad ($f.Name + " → " + $t + " 哈希不符 " + $h) }
+      [void](Save-PayloadFile -Path $t -Bytes $bin -Sha256 $f.Sha256 -Name $f.Name -Service $f.Service)
     }
   }
   Start-Sleep -Seconds 10
@@ -1589,6 +1622,10 @@ Say '   开机后怎么确认（三选一，另外务必看一眼设备管理器
 Say '     a) 双击本包目录里的 状态自检.bat          → 看到"全绿 -- WDDM + PCIe Gen2 + 算力满血"即成功' 'Yellow'
 Say ('     b) powershell -ExecutionPolicy Bypass -File "' + (Join-Path $script:PkgRoot 'Install-40HXUnlock.ps1') + '" -Mode Verify') 'Yellow'
 Say '     c) 看 ESP 里的 40hx_log.txt 时间戳是不是本次开机（有 *** UNLOCKED *** 行）' 'Yellow'
+if ($script:PendingDriverRetry) {
+  Warn '有驱动文件因为“正被占用”被跳过写入（驱动还在跑 / 停在 STOP_PENDING 时必然如此）——不致命'
+  Add-Action '驱动文件被占用跳过了：完全关机再开机一次（开机任务会自动从 ESP 兜底源补齐），然后再跑一次 -Mode Verify 确认'
+}
 Say ''
 if ($script:ActionItems.Count -gt 0) {
   Say '   重启前请先处理这几项（本次跑出来的待办）：' 'Red'

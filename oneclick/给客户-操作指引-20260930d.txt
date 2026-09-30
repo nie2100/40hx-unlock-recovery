@@ -1,0 +1,44 @@
+﻿给客户的操作指引（20260930d 版包）—— 直接照着做
+=========================================================
+【这一版修的是什么】上一版（c）在你这台机器上跑到一半中断了，报：
+    WinRing0x64.sys 正由另一进程使用，因此该进程无法访问此文件
+这是**我们包的 BUG**：WinRing0 驱动还挂在内核里（服务状态停在 STOP_PENDING），文件被锁；
+旧代码遇到“写不进去”会直接把整个修复流程中断（后面的步骤一个没跑）。
+新版改成：文件内容已经一样就**跳过写入**（你这台正是这种）；真被锁就先停服务再重试；还写不进去也只提示不中断，
+完全关机再开机后由开机任务自动补齐。已在本机真加载驱动锁住文件复现并验证修复。
+
+【当前进度】黑屏 + 设备管理器代码 43 已经解决（GSP 已启用、快速启动已关、设备运转正常）。
+            只剩 PCIe Gen2 没落地：原因是这张卡 VBIOS 是 90.06.67.00.06，旧版按 90.06.67.00.04 的寄存器基线写死判断，
+            两边（解锁固件 + Windows 工具）都因为“基线不认识”主动放弃了写入。新版已改成按位判定 + GPU 侧重训兜底。
+
+第 1 步：先清掉那个锁住驱动的状态 —— **完全关机再开机**（开始菜单→关机，最好拔电 10 秒）
+  这次开机后，开机任务会用**机器上现有的旧工具**再跑一次（它会因为基线不认识而放弃 Gen2，属预期，不影响算力）。
+
+第 2 步：用 d 版包跑一次修复（会拷新工具 + 立刻执行一遍开机任务，把 .06 的目标值写进去）
+  把 40hx-oneclick-20260930d 整个文件夹放桌面，管理员 PowerShell：
+    powershell -ExecutionPolicy Bypass -File "C:\Users\Administrator\Desktop\40hx-oneclick-20260930d\Install-40HXUnlock.ps1" -Mode Repair -RunNow
+  期望结尾：任务结果 rc=0x0，并且看到"开机任务本次走的是新路径并且 PASS"。
+
+第 3 步：核对 Gen2 有没有落地
+  1) powershell -ExecutionPolicy Bypass -File "…\40hx-oneclick-20260930d\Install-40HXUnlock.ps1" -Mode Verify
+     期望：算力解锁 PASS、PCIe Gen2: PASS、GSP PASS、40HX 设备 OK
+  2) 看 %ProgramData%\CMP40HXGen2\windows\logs\retrain-inpout.log 末尾：
+     要看到 vbios/driver: 90.06.67.00.06、plan  : … -> 0xE0B42500 (Gen2 bit13=1)、
+     以及 GPU final : Gen2 x16 LNKSTA=0x1102 / ROOT final: Gen2 x16 LNKSTA=0xF102
+  3) 双击 状态自检.bat，看到"全绿 -- WDDM + PCIe Gen2 + 算力满血"
+
+第 4 步：如果第 3 步还是 Gen2 FAIL
+  把这两个日志发回来（整份更好）：
+    %ProgramData%\CMP40HXGen2\windows\logs\retrain-inpout.log
+    %ProgramData%\CMP40HXGen2\windows\logs\postbind.log
+  新版日志里已经带上 VBIOS、基线判定、目标值、GPU 侧兜底这些关键行，一看就知道卡在哪。
+
+【不想等下载？先用 c 包里的新工具也能测】（可选，两条命令）
+  1) 覆盖新工具：
+     copy "C:\Users\Administrator\Desktop\40hx-oneclick-20260930c\payload\windows\40hx-retrain-inpout.ps1" "C:\ProgramData\CMP40HXGen2\windows\40hx-retrain-inpout.ps1" /y
+  2) 直接跑一次（会写 Gen2 目标值 + 重训）：
+     powershell -ExecutionPolicy Bypass -File "C:\ProgramData\CMP40HXGen2\windows\40hx-retrain-inpout.ps1" -Apply
+  然后把这个日志发回来：%ProgramData%\CMP40HXGen2\windows\logs\retrain-inpout.log
+
+附：回滚
+  powershell -ExecutionPolicy Bypass -File "<包目录>\Install-40HXUnlock.ps1" -Mode Uninstall -Yes

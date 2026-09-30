@@ -177,6 +177,7 @@ f8965fdce668692c3785afa3559159f9a18287bc0d53abb21902895a8ecf221b  inpoutx64.sys 
 | 交付话术 | “必须重启” | “必须**完全关机再开机**（不是重启）” |
 | **快速启动** | 没管 | Install 会自动写 `HiberbootEnabled=0`（快速启动开着时"关机"=混合关机，内核/显卡驱动从 hiberfile 恢复、不重新初始化 → **GSP 永远不生效、43 一直好不了**；厂商安装器的"电源三项"里也关它） |
 | `WinRing0_1_2_0` 卡在 `STOP_PENDING` | 老路径 `sc start` 直接失败 → `EXIT=31/30`，Gen2 落不了地 | 工具先用 45 秒等它落定再启动 + 启动重试 3 次；收尾时**先关自己的设备句柄再 stop**（句柄不关驱动卸不下去，STOP_PENDING 就是它造成的） |
+| 驱动文件被占用 → **安装/修复整个中断** | `[IO.File]::WriteAllBytes` 抛“文件…正由另一进程使用”，而全局 `$ErrorActionPreference='Stop'` → 后面的步骤（helper、任务、`-RunNow`）全没跑到（客户机 21:48 实测：WinRing0 停在 STOP_PENDING，驱动镜像还挂着） | 新增 `Save-PayloadFile`：① 目标文件哈希已相同 → **跳过写入**（最常见，客户机就是这种，根本没碰锁）② 写失败先 `sc stop <服务>` 再重试一次（实测可自愈）③ 仍失败 → 记提示 + 标记待补齐，**不致命**，完全关机再开机后开机任务自动从 ESP 兜底源补齐 |
 | Gen2 基线（VBIOS 批次） | 写死常量 `LINK_CONFIG_0=0x800C5800 / PRIV_MISC_1=0xE0B40D00` → **换 VBIOS 批次（如 .06）就 `GUARD = FAIL` 拒写**，Gen2 永不落地（客户机实测 `0xE0B40500`） | 改成**按位判定**：`LINK_CONFIG_0` 清 bit18、`PRIV_MISC_1` 置 bit13，bit11（批次跳线位）原样保留；`.04` 算出来仍是旧的 `0x80085800/0xE0B42D00`（无回归），`.06` 得 `0x80085800/0xE0B42500`；不在已知族内仍然拒写 |
 | 只重训根端口到不了 Gen2 | 直接回落旧路径 | 再加 **GPU 侧 SET_ONLY** 兜底（厂商 helper 也是 root/GPU 交替重训），不写策略寄存器、不复位设备 |
 | 服务被改成“禁用” | 老路径 `sc start` 失败 1058 → `EXIT=31` | `RunPostBind.cmd` 自愈段 + 新路径工具都会**把启动类型纠正回 demand**（360/ACE/易受攻击驱动列表都可能改它），并在日志里记 `fix start type …`；Check 里新增“易受攻击驱动列表 / 显卡 VBIOS”两行 |
