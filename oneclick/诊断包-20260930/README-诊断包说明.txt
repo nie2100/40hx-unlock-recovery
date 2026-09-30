@@ -11,6 +11,8 @@ CMP 40HX —— "装完重启黑屏 / 设备管理器代码 43" 诊断采集包（2026-09-30）
 它做什么（全程只读，放心跑）
   · 读显卡/显示设备状态、代码 43、驱动版本、PCIe 位置
   · 读 GSP 固件状态 + EnableGpuFirmware 注册表（解锁后驱动认不认卡的关键）
+    —— 含"设备权威子键"（Enum\<实例>\Driver 指向的那一个）、快速启动(HiberbootEnabled)、
+       驱动库里有没有 gsp_tu10x.bin、WinRing0 是不是卡在 STOP_PENDING
   · 读 nvidia-smi 原文（含报错段）
   · 读一键包自己的日志：postbind.log / retrain-inpout.log / last.log / ace-state.json
   · 读 ESP 上的 40hx_log.txt（解锁固件日志）与两个 EFI 的哈希

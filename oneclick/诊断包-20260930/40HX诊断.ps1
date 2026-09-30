@@ -39,6 +39,12 @@ function Get-BdfFromLoc {
   return [pscustomobject]@{ Bus = $b; Dev = $dv; Fn = $fn; Hex = ('0x' + ('{0:X4}' -f (($b -shl 8) -bor ($dv -shl 3) -bor $fn))) }
 }
 
+function SvcStateHint {
+  param([string]$n)
+  try { $q = (sc.exe query $n 2>&1 | Out-String); if ($q -match 'STATE\s*:\s*\d+\s+(\S+)') { return $Matches[1] } } catch { }
+  return ''
+}
+
 # 挂载 ESP（只读用途；分两步：先找已挂载的，没有再自己挂一个）
 $script:EspRoot = $null
 $script:EspMountedByMe = $null
@@ -110,13 +116,36 @@ Sec '0. 速判（自动判定，先看这里）' {
   KV 'nvidia-smi' $(if ($smiPath) { $smiPath } else { '找不到（没装驱动？）' })
   KV 'GSP 行' $(if ($gspLine) { $gspLine } else { '<nvidia-smi -q 里没有这一行 / 没跑成>' })
   KV '显示类子键(40HX)' $(if ($cfNvidia) { $cfNvidia } else { '没找到 40HX 的显示类子键' })
+  # 2026-09-30：真正说了算的是 Enum\<设备实例>\Driver 指到的那个子键，光看 DriverDesc 可能挑错
+  $authIdx = ''
+  try {
+    $d40 = @(Get-PnpDevice -Class Display -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -match 'DEV_1F0B' }) | Select-Object -First 1
+    if ($d40) {
+      $dk = [string](Get-ItemProperty -Path ('HKLM:\SYSTEM\CurrentControlSet\Enum\' + $d40.InstanceId) -Name 'Driver' -ErrorAction SilentlyContinue).Driver
+      if ($dk -match '\\([0-9]{4})$') { $authIdx = $Matches[1] }
+    }
+  } catch { }
+  KV '权威显示类子键' $(if ($authIdx) { $authIdx + '（Enum\<实例>\Driver）' } else { '读不到' })
   KV 'nvlddmkm\Parameters' $(if ($null -eq $pEF) { '无 EnableGpuFirmware' } else { 'EnableGpuFirmware=' + $pEF })
+  $hbNow = ''
+  try { $hbNow = [string](Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' -Name 'HiberbootEnabled' -ErrorAction SilentlyContinue).HiberbootEnabled } catch { }
+  KV '快速启动' $(if ($hbNow -eq '1') { '开着（HiberbootEnabled=1）← 混合关机，驱动不重载' } elseif ($hbNow -eq '') { '注册表未设置（按关处理）' } else { '已关闭（HiberbootEnabled=' + $hbNow + '）' })
+  $gspFw = @(Get-ChildItem 'C:\Windows\System32\DriverStore\FileRepository' -Recurse -Include 'gsp_tu10x.bin','gsp_ga10x.bin' -ErrorAction SilentlyContinue)
+  KV 'GSP 固件文件' $(if ($gspFw.Count -gt 0) { ($gspFw | ForEach-Object { $_.Name + ' ' + [math]::Round($_.Length / 1MB, 1) + 'MB' }) -join ', ' } else { '驱动库里没找到 gsp_*.bin（驱动包装不全 → GSP 永远起不来）' })
   if ($gspOn) { Ln '   → 判定：GSP 已启用（正常，不是 43 的原因）' }
+  elseif ($cfNvidia -match 'EnableGpuFirmware=1') {
+    Ln '   → 判定：**开关已经是 1，但 GSP 仍是 N/A** —— 说明驱动从来没在开机时重新初始化过。'
+    Ln '     最常见原因：① 快速启动开着（"关机"是混合关机，内核/驱动从 hiberfile 恢复，nvlddmkm 不重载）'
+    Ln '                 ② 装完驱动后一直没真正冷启动过  ③ 驱动包里缺 GSP 固件（看上面"GSP 固件文件"行）'
+    Ln '     处理：把快速启动关掉（控制面板→电源选项→选择电源按钮的功能→更改当前不可用的设置→取消"启用快速启动"）'
+    Ln '           或用一键包 -Mode Repair（会自动写 HiberbootEnabled=0）→ 然后**完全关机**再开机 → 重跑本诊断复核'
+  }
   else {
     Ln '   → 判定：GSP 未启用！解锁固件一旦生效，nvlddmkm 会认不了这张卡 = 黑屏 + 设备管理器代码 43。'
     Ln '     一键包旧版有两个缺陷会走到这里：①识别 GSP 时把 "N/A" 当成"已开启"；②把 EnableGpuFirmware'
     Ln '     写到了 HKLM\SYSTEM\CurrentControlSet\Services\nvlddmkm\Parameters（驱动不读这里），'
-    Ln '     正确位置是 显示类子键 ...\Control\Class\{4d36e968-...}\<000X>（本机正常机器上就在那里）。'
+    Ln '     正确位置是 显示类子键 ...\Control\Class\{4d36e968-...}\<000X>（就是上面"权威显示类子键"那个）。'
+    Ln '     一键包 2026-09-30 起已修：写对位置 + 关快速启动；跑 -Mode Repair 后**完全关机**再开机。'
   }
   # 判据 B：显卡拓扑
   $inst40 = ''
@@ -214,6 +243,11 @@ Sec '1. 机器 / 固件 / 系统' {
   try { KV '系统盘分区' ([string](Get-Disk -Number (Get-Partition -DriveLetter ($env:SystemDrive.TrimEnd(':'))).DiskNumber).PartitionStyle) } catch { }
   try { KV 'BitLocker' ([string](Get-BitLockerVolume -MountPoint $env:SystemDrive -ErrorAction Stop).ProtectionStatus) } catch { KV 'BitLocker' '未知/无' }
   try { KV '启动模式记录' ((bcdedit /enum '{current}' 2>&1 | Select-String 'path|device' | ForEach-Object { $_.Line.Trim() }) -join ' | ') } catch { }
+  try {
+    $hb = [string](Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' -Name 'HiberbootEnabled' -ErrorAction SilentlyContinue).HiberbootEnabled
+    KV '快速启动' $(if ($hb -eq '1') { '开启（HiberbootEnabled=1）→ "关机"其实是混合关机，显卡驱动不会重新初始化（GSP 这类改动永远不生效）' } elseif ($hb -eq '') { '注册表未设置（按已关处理）' } else { '已关闭（HiberbootEnabled=' + $hb + '）' })
+  } catch { }
+  try { KV 'powercfg /a' (((powercfg /a 2>&1) | Where-Object { $_ -match '休眠|快速启动|Hibernate|Hybrid|待机' } | ForEach-Object { $_.Trim() }) -join ' ; ') } catch { }
   KV '火绒' ([string]((Test-Path 'C:\ProgramData\Huorong') -or (Test-Path 'C:\Program Files (x86)\Huorong')))
   try { KV 'Defender 实时' ([string]((Get-MpPreference -ErrorAction Stop).DisableRealtimeMonitoring)) } catch { KV 'Defender 实时' '读不到/无' }
 }
@@ -288,6 +322,19 @@ Sec '4. GSP 注册表 + 相关服务' {
     $ef = (Get-ItemProperty $sub.PSPath -Name EnableGpuFirmware -ErrorAction SilentlyContinue).EnableGpuFirmware
     Ln ('  ' + $sub.PSChildName + '  DriverDesc="' + $dd + '"  MatchingDeviceId="' + $mid + '"  EnableGpuFirmware=' + $(if ($null -eq $ef) { '<无>' } else { $ef }))
   }
+  Ln '--- 权威子键（Enum\<设备实例>\Driver，驱动真正读的就是这个）---'
+  try {
+    foreach ($d in @(Get-PnpDevice -Class Display -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -match 'VEN_10DE' })) {
+      $dk = [string](Get-ItemProperty -Path ('HKLM:\SYSTEM\CurrentControlSet\Enum\' + $d.InstanceId) -Name 'Driver' -ErrorAction SilentlyContinue).Driver
+      Ln ('  ' + $d.InstanceId + '  →  Driver = ' + $dk)
+    }
+  } catch { }
+  Ln '--- 驱动库里的 GSP 固件文件（缺了 GSP 永远起不来）---'
+  $fw = @(Get-ChildItem 'C:\Windows\System32\DriverStore\FileRepository' -Recurse -Include 'gsp_*.bin' -ErrorAction SilentlyContinue)
+  if ($fw.Count -gt 0) { foreach ($f in $fw) { Ln ('  ' + $f.FullName.Replace('C:\Windows\System32\DriverStore\FileRepository\','') + '  ' + $f.Length + ' B') } }
+  else { Ln '  没找到 gsp_*.bin（驱动包被裁剪过 / 不是官方驱动包 → GSP 起不来）' }
+  Ln '--- 显示驱动包（nv_dispi/nvac 等）---'
+  Get-ChildItem 'C:\Windows\System32\DriverStore\FileRepository' -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^nv' } | ForEach-Object { Ln ('  ' + $_.Name) }
   Ln '--- Services\nvlddmkm\Parameters（本包旧版写错的位置）---'
   $k = 'HKLM:\SYSTEM\CurrentControlSet\Services\nvlddmkm\Parameters'
   $v = (Get-ItemProperty $k -Name EnableGpuFirmware -ErrorAction SilentlyContinue).EnableGpuFirmware
@@ -302,6 +349,10 @@ Sec '4. GSP 注册表 + 相关服务' {
     $start = ''; if ($q -match 'START_TYPE\s*:\s*(\d+)\s+(\S+)') { $start = $Matches[1] + ' ' + $Matches[2] }
     $st2 = ''; if ($state -match 'STATE\s*:\s*\d+\s+(\S+)') { $st2 = $Matches[1] }
     Ln ('  ' + $s.PadRight(16) + ' 存在=' + [string]($q -notmatch '1060') + '  Start=' + $start + '  当前=' + $(if ($st2) { $st2 } else { '非运行/不存在' }))
+  }
+  if ((SvcStateHint 'WinRing0_1_2_0') -eq 'STOP_PENDING') {
+    Ln '  ★ WinRing0_1_2_0 = STOP_PENDING：上次 stop 没收尾（进程被强杀/文件被删）→ 新路径开机时会 start 失败、' 
+    Ln '    回落到旧路径（EXIT=31/30）。2026-09-30 起的一键包会先等它落定再重试；通常重启一次就好了。'
   }
   try {
     $tray = @(Get-Process 'ACE-Tray' -ErrorAction SilentlyContinue)

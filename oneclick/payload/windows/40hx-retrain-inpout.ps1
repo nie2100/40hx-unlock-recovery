@@ -100,6 +100,21 @@ W("==== 40HX Gen2 retrain (inpoutx64 MMIO + WinRing0 PCI, anti-cheat untouched) 
 W("  admin=$adm   sys_driver=" + (Test-Path $SYS) + "   dll=" + (Test-Path $DLL))
 if(-not $adm){ W(">>> not elevated"); exit 1 }
 
+# ---- service state helpers (2026-09-30: 客户机见过 WinRing0 卡在 STOP_PENDING → start 直接失败) ----
+function SvcState([string]$n){
+  $q=(sc.exe query $n 2>&1 | Out-String)
+  if($q -match '1060'){ return 'MISSING' }
+  if($q -match 'STATE\s*:\s*\d+\s+(\S+)'){ return $Matches[1] }
+  return 'UNKNOWN'
+}
+function WaitSvcState([string]$n,[string[]]$want,[int]$sec){
+  for($i=0; $i -lt $sec; $i++){
+    if($want -contains (SvcState $n)){ return $true }
+    Start-Sleep -Seconds 1
+  }
+  return $false
+}
+
 # ---- drivers ----
 $ioWas=[bool]((sc.exe query inpoutx64T 2>&1 | Out-String) -match 'RUNNING')
 if(-not $ioWas){
@@ -111,7 +126,7 @@ if(-not $ioWas){
   Start-Sleep -Milliseconds 1000
   W("  inpoutx64T create/start: " + ($c -replace "`r?`n"," | ") + " ==> " + (($s -split "`n" | Select-String 'STATE' | Out-String).Trim()))
 }
-$wrWas=[bool]((sc.exe query WinRing0_1_2_0 2>&1 | Out-String) -match 'RUNNING')
+$wrWas=(SvcState 'WinRing0_1_2_0') -eq 'RUNNING'
 if(-not $wrWas){
   $WRF='C:\Windows\System32\drivers\WinRing0x64.sys'
   if(-not (Test-Path $WRF)){
@@ -120,10 +135,26 @@ if(-not $wrWas){
     }
   }
   if(-not (Test-Path $WRF)){ W(">>> WinRing0x64.sys missing and no source"); exit 3 }
-  if((sc.exe query WinRing0_1_2_0 2>&1 | Out-String) -match '1060'){
-    sc.exe create WinRing0_1_2_0 type= kernel start= demand binPath= '\SystemRoot\System32\drivers\WinRing0x64.sys' 2>&1 | Out-Null
+  $wrPre=SvcState 'WinRing0_1_2_0'
+  W("  WinRing0 pre-state=$wrPre   sysfile=" + (Test-Path $WRF))
+  if($wrPre -eq 'STOP_PENDING'){
+    # 上次 stop 没收尾（进程被强杀/文件被删）→ 这时 start 必然失败；先等它落定
+    [void](WaitSvcState 'WinRing0_1_2_0' @('STOPPED','MISSING','RUNNING') 45)
+    W("  WinRing0 after wait=" + (SvcState 'WinRing0_1_2_0'))
   }
-  sc.exe start WinRing0_1_2_0 | Out-Null; Start-Sleep -Milliseconds 900
+  if((SvcState 'WinRing0_1_2_0') -eq 'MISSING'){
+    sc.exe create WinRing0_1_2_0 type= kernel start= demand binPath= '\SystemRoot\System32\drivers\WinRing0x64.sys' 2>&1 | Out-Null
+    W("  WinRing0 create -> " + (SvcState 'WinRing0_1_2_0'))
+  }
+  for($k=1; $k -le 3; $k++){
+    $o=(sc.exe start WinRing0_1_2_0 2>&1 | Out-String).Trim()
+    Start-Sleep -Milliseconds 1200
+    $now=SvcState 'WinRing0_1_2_0'
+    W("  WinRing0 start try ${k} -> $now  [" + ($o -replace "`r?`n",' | ') + "]")
+    if($now -eq 'RUNNING'){ break }
+    if($now -eq 'STOP_PENDING'){ [void](WaitSvcState 'WinRing0_1_2_0' @('STOPPED','MISSING','RUNNING') 20) }
+    Start-Sleep -Seconds 2
+  }
 }
 function CleanupDrivers(){
   if(-not $ioWas){
@@ -131,7 +162,13 @@ function CleanupDrivers(){
     for($k=1; $k -le 12; $k++){ $q=(sc.exe query inpoutx64T 2>&1 | Out-String); if(($q -match '1060') -or ($q -match 'STOPPED')){ break }; Start-Sleep -Milliseconds 500 }
     sc.exe delete inpoutx64T 2>&1 | Out-Null
   }
-  if(-not $wrWas){ sc.exe stop WinRing0_1_2_0 2>&1 | Out-Null }
+  if(-not $wrWas){
+    # 先关掉自己开着的 WinRing0 句柄：句柄不关，驱动卸不下去 → 服务会停在 STOP_PENDING（客户机见过这个状态）
+    if($hw -ne $null -and [int64]$hw -ne -1){ try { [void][P]::CloseHandle($hw); $hw=[IntPtr]::Zero; W("  cleanup: closed WinRing0 handle") } catch { } }
+    sc.exe stop WinRing0_1_2_0 2>&1 | Out-Null
+    [void](WaitSvcState 'WinRing0_1_2_0' @('STOPPED','MISSING') 20)
+    W("  cleanup: WinRing0=" + (SvcState 'WinRing0_1_2_0'))
+  }
 }
 function Fatal($code,$msg){
   W($msg)
@@ -147,7 +184,10 @@ W("  ACE-Tray PIDs " + ((@(Get-Process ACE-Tray -ErrorAction SilentlyContinue)|F
 if(-not $ioNow){ Fatal 13 ">>> inpoutx64T did not reach RUNNING" }
 
 $hw=[P]::CreateFileA("\\.\WinRing0_1_2_0",[uint32]3221225472,0,[IntPtr]::Zero,3,0,[IntPtr]::Zero)
-if([int64]$hw -eq -1){ Fatal 3 ">>> cannot open WinRing0" }
+if([int64]$hw -eq -1){
+  W("  WinRing0 SCM state=" + (SvcState 'WinRing0_1_2_0'))
+  Fatal 3 ">>> cannot open WinRing0 (service state above; STOP_PENDING = 上次没停干净，需重启或等它落定)"
+}
 
 # ---- device location: auto-detect GPU / root-port BDF (2026-09-30) ----
 function Parse-Bdf([string]$t){

@@ -205,6 +205,17 @@ function Get-GspState {
   return [pscustomobject]@{ State = 'off'; Value = $v; Line = $m.Value.Trim() }
 }
 
+# ---- 该设备真正使用的显示类子键（权威）：Enum\<实例>\Driver = {4d36e968-...}\<000X> ----
+function Get-AuthoritativeDisplayKeyIndex {
+  param([string]$InstanceId)
+  try {
+    $k = 'HKLM:\SYSTEM\CurrentControlSet\Enum\' + $InstanceId
+    $d = [string](Get-ItemProperty -Path $k -Name 'Driver' -ErrorAction SilentlyContinue).Driver
+    if ($d -match '\\([0-9]{4})$') { return $Matches[1] }
+  } catch { }
+  return ''
+}
+
 # ---- 显示类注册表子键：GSP 开关真正生效的位置 --------------------------------
 # Windows 上开 GSP 写在 HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-...}\<000X>
 # （本机实测：Services\nvlddmkm\Parameters 里没有 EnableGpuFirmware，写了也不生效）
@@ -621,6 +632,11 @@ function Get-CheckReport {
   $r.GspLine = $gspNow.Line
   $r.Gsp = $gspNow.Value
   $r.GspKeys = @(Get-DisplayClassSubKeys)
+  $r.Hiberboot = ''
+  try { $r.Hiberboot = [string](Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' -Name 'HiberbootEnabled' -ErrorAction SilentlyContinue).HiberbootEnabled } catch { }
+  # 2026-09-30：快速启动 = 1 时"关机"是混合关机（内核/驱动从 hiberfile 恢复）→ nvlddmkm 不重新初始化，
+  # GSP 这类驱动级设置永远不生效 → 客户机会一直 43/黑屏。厂商安装器也关它（其"电源三项"之一）。
+  if ($r.Hiberboot -eq '1') { $r.HiberbootOn = $true } else { $r.HiberbootOn = $false }
   $r.Huorong = (Test-Path 'C:\ProgramData\Huorong') -or (Test-Path 'C:\Program Files (x86)\Huorong')
   $r.AceBoot = Test-Path 'C:\Program Files\AntiCheatExpert\ACE-BOOT.sys'
   $r.AceTray = Test-Path 'C:\Program Files\AntiCheatExpert\ACE-Tray.exe'
@@ -630,7 +646,7 @@ function Get-CheckReport {
 }
 
 function Show-Check {
-  param($Report)
+  param($Report, [switch]$FromInstall)   # Install/Repair 阶段：GSP 由本脚本自动补 → 只报提示，不把退出码变成 1
   Head '前提体检'
   Info ("管理员权限 : " + $Report.Admin)
   $fwOk = ($Report.Firmware -eq 'Uefi')
@@ -652,17 +668,23 @@ function Show-Check {
   if ($Report.Smi) {
     $csv = (Invoke-Native { & $Report.Smi --query-gpu=name,driver_version,pci.bus_id,pcie.link.gen.current,pcie.link.gen.max,pcie.link.width.current --format=csv,noheader 2>&1 } | Out-String).Trim()
     Info ("nvidia-smi : " + $csv)
+    # 2026-09-30：Install 阶段这里是「本脚本会自己补」的事项 → 记提示 + 待办；只有 -Mode Check（纯体检）才记失败
+    $gspSev = 'Bad'; if ($FromInstall) { $gspSev = 'Warn' }
     if ($Report.GspState -eq 'on') { Ok ("GSP 固件   : " + $Report.GspValue + "（已启用，正常）") }
     elseif ($Report.GspState -eq 'off') {
-      Bad ("GSP 固件   : 未启用（" + $Report.GspLine + "）—— 解锁后 nvlddmkm 认不了卡 = 黑屏 + 设备管理器代码 43")
-      Info 'Install 会写 EnableGpuFirmware=1（显示类子键，真正生效的位置）；写完必须完全关机再开机才生效'
-      Add-Action 'GSP 未启用：跑完 Install 确认日志里有「GSP 开关已写」，然后【完全关机】（不是重启）再开机，再用 -Mode Verify 复核 GSP 行显示版本号'
+      & $gspSev ("GSP 固件   : 未启用（" + $Report.GspLine + "）—— 解锁后 nvlddmkm 认不了卡 = 黑屏 + 设备管理器代码 43")
+      Info 'Install 会写 EnableGpuFirmware=1（显示类子键，设备真正读的那一个）；写完必须完全关机再开机才生效'
+      Add-Action 'GSP 未启用：确认日志里有「GSP 开关已写」，然后【完全关机】（不是重启）再开机，再用 -Mode Verify 复核 GSP 行显示版本号'
     }
     else {
-      Bad ("GSP 固件   : " + $Report.GspLine + " —— 状态未知，解锁后可能 Code 43")
+      & $gspSev ("GSP 固件   : " + $Report.GspLine + " —— 状态未知，解锁后可能 Code 43")
       Add-Action 'GSP 状态未知：先把 NVIDIA 驱动装好（nvidia-smi 能用），再重跑 Install，然后完全关机再开机'
     }
-  } else { Bad "nvidia-smi : 找不到 —— 先把 NVIDIA 驱动装好再解锁（没驱动就解锁 = 黑屏 + Code 43）"; Add-Action '机器上没有 nvidia-smi：先装 NVIDIA 驱动，再重跑 Install' }
+  } else { & $gspSev "nvidia-smi : 找不到 —— 先把 NVIDIA 驱动装好再解锁（没驱动就解锁 = 黑屏 + Code 43）"; Add-Action '机器上没有 nvidia-smi：先装 NVIDIA 驱动，再重跑 Install' }
+  if ($Report.HiberbootOn) {
+    Warn '快速启动   : 开着（HiberbootEnabled=1）—— "关机"其实是混合关机：内核和显卡驱动从 hiberfile 恢复、不重新初始化，GSP 这类改动永远不生效（Install 会自动关掉它）'
+    Add-Action '快速启动开着：Install 已把它关掉；重启/关机后请确认 HiberbootEnabled=0（关掉后"关机"才是真关机）'
+  } else { Ok ('快速启动   : 已关闭（HiberbootEnabled=' + $(if ($Report.Hiberboot -eq '') { '未设置，按关处理' } else { $Report.Hiberboot }) + '）') }
   Info "BIOS 里必须确认: Above 4G Decoding = Enabled、CSM = Disabled、Fast Boot = Disabled（这三项 OS 侧读不到，是头号失败原因）"
 
   Head '杀软 / 反作弊'
@@ -1106,9 +1128,16 @@ function Install-Task {
 }
 
 function Install-Gsp {
-  # 2026-09-30 修：①不再把 nvidia-smi 的 "N/A" 当"已开启" ②开关写进显示类子键（真正生效的位置）
+  # 2026-09-30 修：①不再把 nvidia-smi 的 "N/A" 当"已开启" ②开关写进显示类子键（设备真正读的那一个）
   $g = Get-GspState
   if ($g.State -eq 'on') { Ok ('GSP 已开启 (' + $g.Value + ')'); return }
+  # 设备权威子键（Enum\<实例>\Driver）
+  $authIdx = ''
+  try {
+    $d40 = @(Get-PnpDevice -Class Display -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -match 'DEV_1F0B' }) | Select-Object -First 1
+    if ($d40) { $authIdx = Get-AuthoritativeDisplayKeyIndex $d40.InstanceId }
+  } catch { }
+  if ($authIdx) { Info ('该显卡设备真正使用的显示类子键: ' + $authIdx + '（Enum\<实例>\Driver）') }
   if ($g.State -eq 'unknown') {
     Warn ('GSP 状态未知（' + $g.Line + '）—— 没驱动就解锁 = 黑屏 + 代码 43')
     Add-Action '机器上还没有可用的 NVIDIA 驱动/nvidia-smi：先装驱动，再重跑 -Mode Repair，然后【完全关机】再开机'
@@ -1120,12 +1149,32 @@ function Install-Gsp {
     Warn '没找到 CMP 40HX 的显示类子键（驱动没装全？）→ 退化只写 Services\nvlddmkm\Parameters（实测该处不生效）'
     Add-Action '没找到 40HX 的显示类子键：装好驱动后重跑 -Mode Repair，让 GSP 开关写到正确位置'
   }
+  $alreadyWasOne = $true
   foreach ($k in $keys) {
     $before = $k.Value
+    if ($null -eq $before -or [int]$before -ne 1) { $alreadyWasOne = $false }
     New-ItemProperty -Path $k.Path -Name 'EnableGpuFirmware' -PropertyType DWord -Value 1 -Force | Out-Null
     $after = (Get-ItemProperty -Path $k.Path -Name 'EnableGpuFirmware' -ErrorAction SilentlyContinue).EnableGpuFirmware
-    if ($after -eq 1) { Ok ('GSP 开关已写: 显示类子键 ' + $k.Name + ' [' + $k.DriverDesc + '] EnableGpuFirmware ' + $(if ($null -eq $before) { '<无>' } else { [string]$before }) + ' -> 1') }
+    $mark = ''
+    if ($authIdx -and $k.Name -eq $authIdx) { $mark = ' (设备权威子键)' }
+    if ($after -eq 1) { Ok ('GSP 开关已写: 显示类子键 ' + $k.Name + $mark + ' [' + $k.DriverDesc + '] EnableGpuFirmware ' + $(if ($null -eq $before) { '<无>' } else { [string]$before }) + ' -> 1') }
     else { Bad ('写显示类子键 ' + $k.Name + ' 的 EnableGpuFirmware 失败（回读=' + [string]$after + '）') }
+  }
+  # 权威子键没被 MatchingDeviceId 匹配到（少见）→ 按 Enum 给出的索引直接写一份，避免写错地方
+  if ($authIdx -and (@($keys | Where-Object { $_.Name -eq $authIdx }).Count -eq 0)) {
+    $ap = 'HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\' + $authIdx
+    if (Test-Path $ap) {
+      New-ItemProperty -Path $ap -Name 'EnableGpuFirmware' -PropertyType DWord -Value 1 -Force | Out-Null
+      $av = (Get-ItemProperty -Path $ap -Name 'EnableGpuFirmware' -ErrorAction SilentlyContinue).EnableGpuFirmware
+      Ok ('GSP 开关已写: 设备权威子键 ' + $authIdx + '（MatchingDeviceId 没匹配到它）EnableGpuFirmware -> ' + [string]$av)
+    } else { Warn ('Enum 指向的权威子键 ' + $authIdx + ' 不存在（设备刚重装驱动？）') }
+  }
+  if ($alreadyWasOne) {
+    # 值本来就是 1、GSP 却是 N/A → 几乎都是"驱动没真正重新加载过"（快速启动/混合关机）或驱动包装不全
+    Warn '注意：GSP 开关本来就是 1，但 nvidia-smi 显示 N/A —— 说明驱动从来没在开机时重新初始化过'
+    Info '常见原因：① 快速启动开着（"关机"=混合关机，驱动不重载）② 装完驱动后没真正冷启动过'
+    Info '本脚本已把快速启动关掉（见上面的"快速启动"行）；请【完全关机】再开机后复核；若仍是 N/A，请跑 诊断包-20260930\一键诊断.cmd 把报告发回来'
+    Add-Action 'GSP 开关本来就是 1 但状态仍是 N/A：完全关机（不是重启）再开机 → 跑 -Mode Verify 复核；仍 N/A 就跑 诊断包-20260930\一键诊断.cmd 把报告发回来'
   }
   # 兼容冗余：老位置也写一份（无害，万一某版驱动读那里）
   $legacyKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\nvlddmkm\Parameters'
@@ -1134,6 +1183,31 @@ function Install-Gsp {
   Warn 'GSP 原为未启用 → 已写入 EnableGpuFirmware=1（显示类子键 + 兼容位置）'
   Warn '必须【完全关机再开机】才生效 —— 不是"重启"！重启可能留下状态 = 黑屏 + 代码 43'
   Add-Action '本次刚打开 GSP：必须【完全关机】（开始菜单→关机，最好拔电 10 秒）再开机；开机后跑 -Mode Verify 复核 GSP 行显示版本号'
+}
+
+function Install-Power {
+  # 2026-09-30 新增：关快速启动（HiberbootEnabled=0）。
+  # 为什么必须：快速启动 = 1 时"关机"是混合关机，内核与 nvlddmkm 状态从 hiberfile 恢复、不重新初始化
+  # → GSP / 驱动类设置永远不生效，"开机黑屏 + 代码 43"就一直是这个样子。厂商安装器的"电源三项"里也关它。
+  Head '电源：快速启动'
+  $k = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power'
+  try {
+    $v = (Get-ItemProperty -Path $k -Name 'HiberbootEnabled' -ErrorAction SilentlyContinue).HiberbootEnabled
+    if ($v -eq 1) {
+      New-ItemProperty -Path $k -Name 'HiberbootEnabled' -PropertyType DWord -Value 0 -Force | Out-Null
+      $after = (Get-ItemProperty -Path $k -Name 'HiberbootEnabled' -ErrorAction SilentlyContinue).HiberbootEnabled
+      if ($after -eq 0) { Ok '快速启动已关闭（HiberbootEnabled 1 -> 0）：这样"关机"才是真关机，显卡驱动会重新初始化' }
+      else { Bad ('关快速启动失败，回读 HiberbootEnabled=' + [string]$after) }
+    }
+    elseif ($null -eq $v) {
+      New-ItemProperty -Path $k -Name 'HiberbootEnabled' -PropertyType DWord -Value 0 -Force | Out-Null
+      Ok '快速启动：注册表里原本没有该项 → 已写 HiberbootEnabled=0（保险起见）'
+    }
+    else { Ok ('快速启动本来就是关的（HiberbootEnabled=' + [string]$v + '）') }
+  } catch {
+    Warn ('关快速启动失败: ' + $_.Exception.Message)
+    Add-Action '关快速启动失败：手动到 控制面板→电源选项→选择电源按钮的功能→更改当前不可用的设置→取消勾选"启用快速启动"'
+  }
 }
 
 # ================================================================ 自检（NVRAM/ESP 往返）
@@ -1290,6 +1364,10 @@ function Invoke-Verify {
   if ($gspV.State -eq 'on') { Say ('  GSP 固件 : PASS (' + $gspV.Value + ')') 'Green' }
   elseif ($gspV.State -eq 'off') { Say ('  GSP 固件 : FAIL —— 未启用（' + $gspV.Line + '）→ 设备管理器里 40HX 会是代码 43；跑 -Mode Repair 写开关，然后【完全关机】再开机') 'Red' }
   else { Say ('  GSP 固件 : 未知（' + $gspV.Line + '）') 'Yellow' }
+  try {
+    $hb = [string](Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' -Name 'HiberbootEnabled' -ErrorAction SilentlyContinue).HiberbootEnabled
+    if ($hb -eq '1') { Say '  快速启动 : 开着（HiberbootEnabled=1）—— "关机"是混合关机、驱动不重载 → 跑 -Mode Repair 关掉' 'Red' } else { Say ('  快速启动 : 已关闭（HiberbootEnabled=' + $(if ($hb -eq '') { '未设置' } else { $hb }) + '）') 'Green' }
+  } catch { }
   $gpuErr = @(Get-PnpDevice -Class Display -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -match 'DEV_1F0B' -and $_.Status -ne 'OK' })
   if ($gpuErr.Count -gt 0) {
     $pr = ''
@@ -1421,10 +1499,10 @@ if ($Mode -eq 'MakeDefault') {
 
 # ---- Install / Repair -------------------------------------------------
 $rep = Get-CheckReport
-Show-Check $rep
+Show-Check $rep -FromInstall
 
 Head '计划'
-if ($Mode -eq 'Install') { Info '安装/修复：驱动+服务 → helper(含新路径工具) → 新路径驱动(inpoutx64) → ESP 固件 → 固件启动项 → 开机任务 → 厂商自启收尾' } else { Info 'Repair：只补驱动/服务/helper/新路径驱动/任务，不动 ESP 与固件启动项' }
+if ($Mode -eq 'Install') { Info '安装/修复：驱动+服务 → helper(含新路径工具) → 新路径驱动(inpoutx64) → GSP 开关 → 关快速启动 → ESP 固件 → 固件启动项 → 开机任务 → 厂商自启收尾' } else { Info 'Repair：只补驱动/服务/helper/新路径驱动/任务，不动 ESP 与固件启动项' }
 
 $blockers = 0
 if ($rep.Firmware -ne 'Uefi') { Bad '固件不是 UEFI 模式'; $blockers++ }
@@ -1442,6 +1520,7 @@ Install-DriverFiles -BackupDir $bk
 Install-WindowsFiles
 Install-InpoutFiles -BackupDir $bk
 Install-Gsp
+Install-Power
 if ($Mode -eq 'Install') {
   Install-Efi -BackupDir $bk
   Install-BootEntry -BackupDir $bk -BootMode $BootMode
@@ -1531,7 +1610,9 @@ try {
     foreach ($item in $script:ActionItems) { [void]$nl.Add('  - ' + $item) }
   } else { [void]$nl.Add('没有需要额外处理的事项。') }
   [void]$nl.Add('')
-  $res = if ($script:FailCount -eq 0) { '步骤全部成功' } else { ($script:FailCount + ' 项失败') }
+  # 2026-09-30 修 BUG：int + '字符串' 在 PS 里会尝试把右边转成 int → 抛「无法将值"项失败"转换为类型"System.Int32"」，
+  # 结果只有"安装有失败项"时才会踩到（本机一直 0 失败所以从没暴露）→ 必须先 [string] 转换
+  $res = if ($script:FailCount -eq 0) { '步骤全部成功' } else { ([string]$script:FailCount + ' 项失败') }
   [void]$nl.Add('本次结果：' + $res + '；' + $script:WarnCount + ' 条提示')
   [void]$nl.Add('本次日志：' + $script:LogPath)
   [void]$nl.Add('出问题看：' + (Join-Path $script:PkgRoot '排查指引.md'))
