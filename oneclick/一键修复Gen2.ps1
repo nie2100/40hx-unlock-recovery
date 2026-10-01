@@ -16,18 +16,20 @@ if (-not $__adm) {
   $__self = if ($PSCommandPath) { $PSCommandPath } else { $MyInvocation.MyCommand.Path }
   Write-Host '需要管理员权限，正在自动提权（如果弹出“用户帐户控制”，请点“是”）...' -ForegroundColor Yellow
   try {
-    Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File', ('"' + $__self + '"')) -Verb RunAs | Out-Null
+    # 2026-10-01b（第三方审查 H4）：等待提权进程结束并把退出码原样传出去；UAC 被取消要报错
+    $p = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File', ('"' + $__self + '"')) -Verb RunAs -Wait -PassThru -ErrorAction Stop
+    exit $p.ExitCode
   } catch {
-    Write-Host ('自动提权失败：' + $_.Exception.Message) -ForegroundColor Red
+    Write-Host ('自动提权失败/被取消：' + $_.Exception.Message) -ForegroundColor Red
     Write-Host '请右键本文件 → 使用 PowerShell 运行（或右键 一键修复Gen2.cmd → 以管理员身份运行）。按回车退出。'
     Read-Host | Out-Null
+    exit 1
   }
-  exit
 }
 $src  = Join-Path $here 'payload\windows\40hx-retrain-inpout.ps1'
 $dst  = "$env:ProgramData\CMP40HXGen2\windows\40hx-retrain-inpout.ps1"
 $rlog = "$env:ProgramData\CMP40HXGen2\windows\logs\retrain-inpout.log"
-$wantVer = '20261001a-igame'   # 必须与 payload 里工具的 TOOL_VER 一致
+$wantVer = '20261001c-audit'  # 必须与 payload 里工具的 TOOL_VER 一致（2026-10-01：修 MCFG 表 ID + WinRing0 不可用时自动回落 ECAM）
 $desk = [Environment]::GetFolderPath('Desktop')
 if (-not $desk) { $desk = 'C:\Users\Public\Desktop' }
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -102,7 +104,9 @@ if (Test-Path $rlog) {
 }
 $show = @($keys | Where-Object { $_ -match 'ver=|vbios/driver|guard 全量体检|XVE_OVR|CYA_0|PL_LINK_RATE|VSEC_DEVICE|SS1 |GPU LNKCAP|TLS\(LNKCTL2\)|体检缺口|自动补写|已补|-> 0x|GUARD|plan  :|pre   :|already at target|writeOk|ROOT[12] SET_ONLY|GPU[12] SET_ONLY|post  :|重训后|final|cleanup|PASS|FAIL|EXIT' })
 foreach ($l in $show) { Write-Host ('   ' + $l.Trim()); [void]$out.Add('   ' + $l.Trim()) }
-$gen2ok = ($keys -join "`n") -match 'PASS: physical Gen2 x16'
+# 2026-10-01b（审查 H3）：工具的幂等输出是 "PASS: already physical Gen2 x16; no writes needed."，
+#   只认旧文案会把"已经到位"误报成失败。
+$gen2ok = ($keys -join "`n") -match 'PASS:\s*(already\s+)?physical Gen2 x16'
 $gapLine = @($keys | Where-Object { $_ -match '体检缺口' }) | Select-Object -First 1
 if ($gapLine) { T ('  ' + $gapLine.Trim()) }
 
@@ -120,7 +124,8 @@ if ($gen2ok) {
 } else {
   T '  [!!] 这次没能升到 Gen2（详见下面的日志关键行）' 'Yellow'
   if ($rc -eq 3) {
-    T '  原因：WinRing0 驱动起不来（服务卡在 STOP_PENDING）—— 多半是厂商自启的 40HXGen2.exe / ThrottleStop / 杀软占着驱动句柄。' 'Yellow'
+    T '  原因：WinRing0 用不了（驱动文件被杀软/“易受攻击驱动”策略清理，或服务卡在 STOP_PENDING）' 'Yellow'
+    T '        本版工具会自动回落到 ECAM（不需要 WinRing0）；两条路都不可用时日志里会有一行 backend: ...' 'Yellow'
   }
   T '  下一步（按顺序，不用输命令）：' 'Yellow'
   T '   a) 完全关机再开机一次（开始菜单→关机，不是重启！这一步就是为了清掉 WinRing0 停在 STOP_PENDING 的残留），再双击本文件跑一次；' 'Yellow'

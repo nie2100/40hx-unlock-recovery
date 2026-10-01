@@ -67,6 +67,9 @@ $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $desk  = [Environment]::GetFolderPath('Desktop')
 if (-not $desk) { $desk = Join-Path $env:USERPROFILE 'Desktop' }
+# 2026-10-01b（第三方审查 H18）：以 SYSTEM（计划任务）跑时"桌面"会解析到 systemprofile，
+#   客户根本看不到报告 → 落到 C:\Users\Public\Desktop（所有用户可见）。
+if ($desk -match 'systemprofile|Windows\\System32\\config') { $desk = 'C:\Users\Public\Desktop' }
 $reportPath = Join-Path $desk ('40HX诊断报告-' + $env:COMPUTERNAME + '-' + $stamp + '.txt')
 $script:RawDir = Join-Path $desk ('40HX诊断-' + $stamp)
 if (-not (Test-Path $script:RawDir)) { New-Item -ItemType Directory -Force -Path $script:RawDir | Out-Null }
@@ -615,7 +618,12 @@ try {
     if (Test-Path $zip) { Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue }
     Compress-Archive -Path (Join-Path $script:RawDir '*') -DestinationPath $zip -Force -ErrorAction Stop
   } catch { Write-Host ('  （打包 zip 失败，直接发文件夹即可: ' + $_.Exception.Message + '）') -ForegroundColor Yellow }
-} catch { Write-Host ('写报告失败: ' + $_.Exception.Message) -ForegroundColor Red }
+} catch {
+  # 2026-10-01b（第三方审查 H7）：写报告失败必须带退出码，否则调用方 .cmd 会显示"退出码 = 0 / 报告已生成"
+  Write-Host ('写报告失败: ' + $_.Exception.Message) -ForegroundColor Red
+  Write-Host '  → 报告没写成（磁盘满/权限/杀软拦）。把窗口里最后几行拍回去。' -ForegroundColor Red
+  exit 1
+}
 
 Write-Host ''
 Write-Host '=========================================================' -ForegroundColor Green

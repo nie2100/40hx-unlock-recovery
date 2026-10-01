@@ -50,13 +50,27 @@ W ''
 W '==== 3) 清掉工具留下的临时服务（不影响解锁）===='
 foreach($svc in @('inpoutx64T','WinRing0_1_2_1')){
   $q=(sc.exe query $svc 2>&1 | Out-String)
-  if($q -match 'SERVICE_NAME'){ sc.exe stop $svc 2>&1 | Out-Null; Start-Sleep -Milliseconds 500; sc.exe delete $svc 2>&1 | Out-Null; W ('  [OK] 已删除服务 ' + $svc) }
+  if($q -match 'SERVICE_NAME'){
+    sc.exe stop $svc 2>&1 | Out-Null; Start-Sleep -Milliseconds 800; sc.exe delete $svc 2>&1 | Out-Null
+    # 2026-10-01b（审查）：删没删掉要看回读，不能无条件打 [OK]
+    $q2=(sc.exe query $svc 2>&1 | Out-String)
+    if($q2 -match '1060'){ W ('  [OK] 已删除服务 ' + $svc) } else { W ('  [!!] ' + $svc + ' 还在（可能被占用，重启后再试）') }
+  }
   else { W ('  - 服务不存在（跳过）: ' + $svc) }
 }
 $wr=(sc.exe query WinRing0_1_2_0 2>&1 | Out-String)
 if($wr -match 'SERVICE_NAME'){
-  sc.exe config WinRing0_1_2_0 start= demand 2>&1 | Out-Null
-  W '  - WinRing0_1_2_0 保留（启动类型设为 demand，不会开机自动加载）'
+  # 2026-10-01b（审查 H8）：这个名字常被别的软件（如七彩虹 iGame Center）占用 → 只动"指向本包驱动"的那一个
+  $qc=(sc.exe qc WinRing0_1_2_0 2>&1 | Out-String)
+  # 2026-10-01b（第三方审查）：原来写 'System32\drivers\WinRing0x64\.sys' —— PowerShell 里 '\d' 是
+  #   **数字类**，要求 System32<数字>rivers…，对真实 binPath 恒不匹配（H8 在这个脚本里等于没生效）。
+  #   这里只认文件名，最稳。
+  if($qc -match 'WinRing0x64\.sys'){
+    sc.exe config WinRing0_1_2_0 start= demand 2>&1 | Out-Null
+    W '  - WinRing0_1_2_0 保留（指向本包驱动，启动类型设为 demand，不会开机自动加载）'
+  } else {
+    W '  - WinRing0_1_2_0 属于别的软件（binPath 不是本包驱动）→ 一个字都不改'
+  }
 }
 W ''
 W '==== 4) 解锁状态检查（跟本问题无关，仅确认没被影响）===='

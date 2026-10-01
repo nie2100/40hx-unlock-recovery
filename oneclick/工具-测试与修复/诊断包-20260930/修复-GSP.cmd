@@ -7,12 +7,15 @@ echo %* | findstr /i "elevated" >nul && goto run
 net session >nul 2>&1
 if errorlevel 1 goto ask
 :run
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0\修复-GSP.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0修复-GSP.ps1"
 echo.
-echo 退出码 = %ERRORLEVEL%
+set "RC=%ERRORLEVEL%"
+echo 退出码 = %RC%
+if not "%RC%"=="0" echo [X] 有项目没写成功 —— 见上面的红字（把这一段拍给经销商）
 echo.
 pause
-goto :eof
+rem 2026-10-01b（审查）：把真实退出码传给调用方（原来 goto :eof 恒返回 0）
+exit /b %RC%
 :ask
 echo ==============================================================
 echo   CMP 40HX GSP 修复：给 40HX 写 EnableGpuFirmware=1

@@ -39,7 +39,10 @@ function Get-SvcByPath {
       if('' + $ip -match $Pattern){ $pr=Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction SilentlyContinue
         $out += [pscustomobject]@{ Name=$k.PSChildName; ImagePath=$ip; Start=$pr.Start } } } catch {}
   }
-  ,@($out)
+  # 2026-10-01b（实测回归，同 ACE修复 的 Get-AceComponents）：**不要**用 `,@($out)` 包 ——
+  #   调用方写的是 `@(Get-SvcByPath ...)`，外层 @() 会把"单元素数组"当成一个元素收下，
+  #   于是 $x.Count 恒为 1、过滤与逐项打印全部退化成"一行挤出所有名字"。逐元素输出即可。
+  @($out) | ForEach-Object { $_ }
 }
 
 WB '============================================================'
@@ -138,6 +141,14 @@ if($Fix){
   }
   # 4.1 Winlogon Shell
   if($sh.Shell -and $sh.Shell -notmatch 'explorer\.exe'){
+    # 2026-10-01b（第三方审查 H15）：改之前把原值落档案，并打印还原命令（原来只写在报告里，没有"一键还原"）
+    $bakFile = 'C:\ProgramData\CMP40HXGen2\logs\winlogon-shell-backup.txt'
+    try {
+      $dir = Split-Path -Parent $bakFile
+      if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+      ('原 Winlogon\Shell = ' + $sh.Shell + "`r`n改回命令: Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -Name Shell -Value '" + $sh.Shell + "'") | Out-File -LiteralPath $bakFile -Encoding utf8
+      WB ('  原值已存档: ' + $bakFile)
+    } catch { WB ('  [!!] 原值存档失败（仍会继续修）: ' + $_.Exception.Message) }
     try { Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -Name Shell -Value 'explorer.exe' -ErrorAction Stop; WB '  [OK] 已把 Winlogon Shell 改回 explorer.exe' } catch { WB ('  [X] Shell 修正失败: ' + $_.Exception.Message) }
   } else { WB '  Winlogon Shell 正常，无需修改' }
   # 4.2 拉起 explorer
@@ -147,7 +158,14 @@ if($Fix){
   # 4.3 ACE 组件若没在跑，拉起来（ACE-BOOT 状态错位时 shell 可能被拖住）
   foreach($n in @('ACE-BOOT')){
     $q=(sc.exe query $n 2>&1 | Out-String)
-    if($q -match 'STOPPED'){ & sc.exe start $n 2>&1 | ForEach-Object { WB ('  ' + $_) } }
+    if($q -match 'STOPPED'){
+      $qc=(sc.exe qc $n 2>&1 | Out-String)
+      if($qc -match 'DISABLED'){
+        WB '  ACE-BOOT 是 DISABLED（被刻意关掉）→ 不强行启动（避免卡启动/黑屏）'
+      } else {
+        & sc.exe start $n 2>&1 | ForEach-Object { WB ('  ' + $_) }
+      }
+    }
   }
   WB '  建议：重启一次（第二次重启通常能让 ACE 预启动模式与用户态对齐）'
   WB '  若重启后仍无桌面：先跑 桌面恢复.cmd /disableace 拿回桌面，再在游戏客户端里修复 ACE'

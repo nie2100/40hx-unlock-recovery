@@ -1,4 +1,4 @@
-﻿param([switch]$Apply, [string]$GpuBdf = '', [string]$RootBdf = '', [switch]$NoAutoPrime, [string]$PciBackend = 'auto')
+﻿param([switch]$Apply, [string]$GpuBdf = '', [string]$RootBdf = '', [switch]$NoAutoPrime, [switch]$AllowPrime, [string]$PciBackend = 'auto')
 # 40HX Gen2 retrain via inpoutx64 (MMIO) + WinRing0 (PCI config).  The anti-cheat is NEVER touched.
 # exit codes: 0 = PASS (physical Gen2 x16), 10 = link not Gen2, 11 = baseline/guard failed,
 #             12 = GPU/driver not ready in time, 13 = inpoutx64 driver not running, 3 = WinRing0 unusable
@@ -7,6 +7,8 @@
 #             (2nd slot, behind a switch, AGESA/high-bus boards - vendor README reports bus 0x10)
 #             it waited the full 120s and exited 12 on every boot. -GpuBdf/-RootBdf override (hex like 0x0200).
 $ErrorActionPreference='Continue'
+# 工具版本号：必须在使用点之前定义（2026-10-01 修正：原先定义在文件后半段，banner 里的 ver= 一直是空的）
+$TOOL_VER = '20261001c-audit'
 $LOGAPP='C:\ProgramData\CMP40HXGen2\windows\logs\retrain-inpout.log'
 $out='C:\Temp\40hx-retrain-tool.txt'
 Remove-Item $out -ErrorAction SilentlyContinue
@@ -21,6 +23,14 @@ if(-not (Test-Path $SYS)){
   foreach($s in $SRC){ if(-not (Test-Path $SYS) -and (Test-Path $s)){ Copy-Item $s $SYS -Force -ErrorAction SilentlyContinue } }
 }
 foreach($s in $SRC){ if(-not (Test-Path $DLL) -and (Test-Path ($s -replace '\.sys$','.dll'))){ Copy-Item ($s -replace '\.sys$','.dll') $DLL -Force -ErrorAction SilentlyContinue } }
+# 2026-10-01b: 源目录现在只放 base64 文本（*.b64，避开杀软隔离，也不留"能被 SCM 直接加载"的驱动副本）
+#   → 缺文件时让自带 helper 解码落地（它只写缺的那几个，逐字节校验 sha256，绝不删东西）
+if(-not (Test-Path $SYS) -or -not (Test-Path $DLL)){
+  $unpack='C:\ProgramData\CMP40HXGen2\windows\Unpack-Drivers.ps1'
+  if(Test-Path $unpack){
+    try { & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $unpack -All -Quiet | Out-Null } catch { }
+  }
+}
 
 $dllCs = $DLL.Replace('\','\\')
 $cs = @"
@@ -40,6 +50,22 @@ try { Add-Type -TypeDefinition $cs -ErrorAction Stop } catch { Add-Content $out 
 
 $RD_PCI=U32 '9C406144'
 $WR_PCI=U32 '9C40A148'
+
+# ---- 提前退出路径的清理 ----
+# 2026-10-01 实测踩到：WinRing0x64.sys 缺失 / WinRing0 起不来时脚本直接 exit 3，
+#   而那时它已经 create+start 了临时服务 inpoutx64T（一个能读写任意物理内存的驱动）→ 就常驻在系统里了；
+#   更糟的是下一次运行看到 inpoutx64T 已在跑（$ioWas=true）会走"不是我起的就不动"，永远清不掉。
+# 规则：本工具自己创建的 inpoutx64T 必须在任何退出路径上停掉+删掉。
+function Cleanup-EarlyExit {
+  try {
+    $q=(sc.exe query inpoutx64T 2>&1 | Out-String)
+    if($q -match '1060'){ return }
+    sc.exe stop inpoutx64T 2>&1 | Out-Null
+    for($k=1; $k -le 12; $k++){ $qq=(sc.exe query inpoutx64T 2>&1 | Out-String); if(($qq -match '1060') -or ($qq -match 'STOPPED')){ break }; Start-Sleep -Milliseconds 500 }
+    sc.exe delete inpoutx64T 2>&1 | Out-Null
+    W("  cleanup(early-exit): inpoutx64T=" + (((sc.exe query inpoutx64T 2>&1) | Out-String).Trim()))
+  } catch { }
+}
 
 # ================= PCI 配置空间访问后端 =================
 # 后端 A（2026-09-30 起首选）：ECAM —— 用 inpoutx64 直接读写物理 MMIO 的“配置空间窗口”，**完全不依赖 WinRing0**。
@@ -115,14 +141,29 @@ function GetMcfgBase {
 using System; using System.Runtime.InteropServices;
 public static class FwT {
   [DllImport("kernel32.dll", SetLastError=true)] public static extern uint GetSystemFirmwareTable(uint provider, uint table, byte[] buf, uint size);
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern uint EnumSystemFirmwareTables(uint provider, byte[] buf, uint size);
 }
 '@ -ErrorAction Stop
     }
-    # provider 'ACPI' = 0x41435049、表 'MCFG' = 0x4D434647（MSB 优先打包；写成小端 0x49504341 会返回 0 取不到）
-    $sz=[FwT]::GetSystemFirmwareTable(0x41435049, 0x4D434647, $null, 0)
-    if($sz -le 44){ W("  MCFG: 大小为 $sz，取不到"); return $null }
+    # provider 'ACPI' = 0x41435049（多字符常量写法，实测唯一可用）；表 ID 必须是"签名按内存顺序"的 DWORD：'MCFG' -> 0x4746434D。
+    # 2026-10-01 实测（管理员，本机 B560M）：写 MSB-first 的 0x4D434647 时本 API 返回 0（GetLastError=1168 ERROR_NOT_FOUND），
+    #   于是 ECAM 永远拿不到基址 → 客户机上 WinRing0 一被"易受攻击驱动"策略/杀软封杀，Gen2 就只能 exit 3（怎么跑都修不上）。
+    # 现在不写死：先用 EnumSystemFirmwareTables 枚举系统真正认识的 ACPI 表，取名为 MCFG 的那一项的 ID。
+    $tid = 0x4746434D
+    try {
+      $n=[FwT]::EnumSystemFirmwareTables(0x41435049, $null, 0)
+      if($n -gt 0){
+        $eb=New-Object byte[] $n
+        [void][FwT]::EnumSystemFirmwareTables(0x41435049, $eb, $n)
+        for($i=0; ($i + 4) -le $n; $i += 4){
+          if([System.Text.Encoding]::ASCII.GetString($eb,$i,4) -eq 'MCFG'){ $tid=[BitConverter]::ToUInt32($eb,$i) }
+        }
+      }
+    } catch { }
+    $sz=[FwT]::GetSystemFirmwareTable(0x41435049, $tid, $null, 0)
+    if($sz -le 44){ W("  MCFG: 大小为 $sz，取不到（table id=0x" + $tid.ToString('X8') + "）"); return $null }
     $buf=New-Object byte[] $sz
-    $got=[FwT]::GetSystemFirmwareTable(0x41435049, 0x4D434647, $buf, $sz)
+    $got=[FwT]::GetSystemFirmwareTable(0x41435049, $tid, $buf, $sz)
     if($got -le 0){ W("  MCFG: 读取失败"); return $null }
     # ACPI 表头 36 字节 + MCFG 保留 8 字节 → 第一个 allocation entry 在 44
     $base=[BitConverter]::ToUInt64($buf,44)
@@ -144,7 +185,9 @@ function TryEcam {
           foreach($mm in @(Get-CimAssociatedInstance -InputObject $r -ResultClassName Win32_DeviceMemoryAddress -ErrorAction SilentlyContinue)){
             if($mm.StartingAddress -ne $null){
               $st=[uint64]$mm.StartingAddress
-              if($st -ge 0x80000000 -and $st -lt 0x100000000 -and ($st % 0x1000000) -eq 0){ [void]$cands.Add($st) }
+              # 2026-10-01b（第三方审查）：PS 5.1 把 0x80000000 当**负 Int32**，$st -ge 0x80000000 条件恒真/恒假都可能出问题；
+              #   写成 [uint64]'0x80000000' 才是"无符号比较"。
+              if($st -ge [uint64]'0x80000000' -and $st -lt [uint64]'0x100000000' -and ($st % 0x1000000) -eq 0){ [void]$cands.Add($st) }
             }
           }
         }
@@ -321,6 +364,7 @@ $script:EcamGpuBdf = $null
 # ============================================================================
 $script:WRSvcName = 'WinRing0_40HX'
 $script:wrForeign = $false
+$script:wrNoFile  = $false
 $wrWas=(SvcState 'WinRing0_1_2_0') -eq 'RUNNING'
 if($PciBackend -eq 'ecam'){ W("  已指定 -PciBackend ecam → 跳过 WinRing0，直接用 ECAM") }
 if($PciBackend -ne 'ecam' -and $script:ecam -eq $null -and -not $wrWas){
@@ -330,7 +374,14 @@ if($PciBackend -ne 'ecam' -and $script:ecam -eq $null -and -not $wrWas){
       if(-not (Test-Path $WRF) -and (Test-Path $s)){ Copy-Item $s $WRF -Force -ErrorAction SilentlyContinue }
     }
   }
-  if(-not (Test-Path $WRF)){ W(">>> WinRing0x64.sys missing and no source"); exit 3 }
+  if(-not (Test-Path $WRF)){
+    # 2026-10-01：以前这里直接 exit 3 —— 客户机上杀软/"易受攻击驱动"策略把 .sys 清掉后，Gen2 就永远修不上，
+    #   哪怕 ECAM 后端完全可用（WinRing0 只是首选，不是必须）。
+    #   现在只标记"本机没有 WinRing0 驱动文件"，由后面的统一回落逻辑决定：auto → ECAM；显式 winring0 → 明确报错退出（并清理）。
+    $script:wrNoFile = $true
+    W(">>> WinRing0x64.sys missing and no source -> WinRing0 is skipped this run")
+  }
+  if(-not $script:wrNoFile){
   $q0=(sc.exe qc WinRing0_1_2_0 2>&1 | Out-String)
   if($q0 -match 'SERVICE_NAME'){
     $bp=''
@@ -380,6 +431,7 @@ if($PciBackend -ne 'ecam' -and $script:ecam -eq $null -and -not $wrWas){
     W("  ★ $svc 起不来的最可能原因：iGame Center 那份 WinRing0 还挂在内核里（设备名 \\.\WinRing0_1_2_0 被它占着）")
     W("    请在跑本工具前：托盘右键**退出 iGame Center**（必要时重启一次，重启后先别开它），然后重跑")
   }
+  }  # end if(-not $script:wrNoFile)
 }
 # 情况③：公用名 WinRing0_1_2_0 正在跑（= iGameCenter 已把它那份驱动加载起来，设备名已被创建）
 #   → 我们不必自己加载，直接打开同一个设备即可（WinRing0 的设备接口一样）。2026-10-01 补：先前会误判成"起不来"。
@@ -387,19 +439,21 @@ if($wrWas -and (SvcState 'WinRing0_1_2_0') -eq 'RUNNING'){ $script:WRSvcName='Wi
 if($script:WRSvcName -eq $null){ $script:WRSvcName='WinRing0_40HX' }
 $wrRunning = ((SvcState $script:WRSvcName) -eq 'RUNNING')
 if(-not $wrRunning){
-  # 2026-09-30 蓝屏事故后收紧策略：**默认不再自动尝试 ECAM**。
-  #   ECAM 只有显式 -PciBackend ecam 时才试，而且基址只可能来自 ACPI MCFG / 系统已分配资源（绝不盲扫物理地址）。
-  #   理由：盲扫物理地址在客户机上触发平台致命错误(蓝屏, WHEA_UNCORRECTABLE_ERROR)；宁可这一项不修，也不能再冒险。
-  if($PciBackend -eq 'ecam'){
-    W("  --- WinRing0 不可用 → 按显式要求试 ECAM（基址只取自 ACPI MCFG / 系统已分配资源，绝不盲扫物理地址）---")
+  # 2026-09-30 蓝屏事故后收紧策略：**绝不盲扫物理地址**（当时实现是"默认不再自动尝试 ECAM"，
+  #   2026-10-01 改为"auto 也可回落 ECAM"：回落路径已经只读 ACPI MCFG / 系统已声明资源，不再碰任何未声明地址）。
+  #   理由：盲扫物理地址在客户机上触发平台致命错误(蓝屏, WHEA_UNCORRECTABLE_ERROR)。
+  # 2026-10-01：WinRing0 被"易受攻击驱动"策略/杀软封杀、或服务名/设备名被厂商工具(七彩虹 iGame Center)占用，
+  #   在客户机上是常态；ECAM 只需要 ACPI MCFG / 系统已声明资源（绝不盲扫地址）→ 显式 ecam 与 auto 都回落 ECAM
+  #   （auto 仍然优先用 WinRing0，只是不再"一失败就放弃"）。
+  if($PciBackend -eq 'ecam' -or $PciBackend -eq 'auto'){
+    W("  --- WinRing0 不可用 → 回落 ECAM（基址只取自 ACPI MCFG / 系统已声明资源，绝不盲扫物理地址）---")
     $ec = TryEcam
     if($ec -ne $null){
       $script:ecam = [uint64]$ec.Base; $script:EcamGpuBdf = $ec.Gpu
       W("  [OK] ECAM 可用: 基址 0x" + $script:ecam.ToString('X') + "   40HX 在 0x" + ([uint32]$ec.Gpu).ToString('X4'))
     }
   } else {
-    W("  WinRing0 用不了（被策略封杀/服务异常）。默认不再自动改用 ECAM：不读任何未声明地址，避免再次触发平台致命错误")
-    W("  如需试 ECAM，请显式加 -PciBackend ecam（只读系统声明过的窗口；本机验证过读数与 WinRing0 一致）")
+    W("  WinRing0 用不了（策略封杀/服务异常），且 -PciBackend=$PciBackend 不带 ECAM 回落 → 本次不修 Gen2")
   }
   $wrRunning = ($script:ecam -ne $null)
 }
@@ -409,13 +463,16 @@ if(-not $wrRunning){
   W(">>> 处理：完全关机再开机（开始菜单 → 关机，不是重启），开机后重新双击 一键修复Gen2.cmd 即可")
   W(">>> （本工具已试过：重置服务 + 删服务重建 + 换服务名；都失败才报这里）")
   W(">>> 本机 Gen2 这一项本次就不修了 —— 算力解锁/驱动/GSP 都不受影响，正常用即可")
+  W(">>> (backend: WinRing0 unusable=$true  fileMissing=$script:wrNoFile  requested=$PciBackend)")
+  Cleanup-EarlyExit
   exit 3
 }
 function CleanupDrivers(){
   if(-not $ioWas){
     sc.exe stop inpoutx64T 2>&1 | Out-Null
-    for($k=1; $k -le 12; $k++){ $q=(sc.exe query inpoutx64T 2>&1 | Out-String); if(($q -match '1060') -or ($q -match 'STOPPED')){ break }; Start-Sleep -Milliseconds 500 }
-    sc.exe delete inpoutx64T 2>&1 | Out-Null
+    # 2026-10-01：原来只等 6 秒，实测驱动卸载要 10~20 秒（日志里常见停在 STOP_PENDING 且服务删不掉、残留到下次开机）
+    for($k=1; $k -le 40; $k++){ $q=(sc.exe query inpoutx64T 2>&1 | Out-String); if(($q -match '1060') -or ($q -match 'STOPPED')){ break }; Start-Sleep -Milliseconds 500 }
+    if((sc.exe query inpoutx64T 2>&1 | Out-String) -match 'STOPPED'){ sc.exe delete inpoutx64T 2>&1 | Out-Null }
   }
   if($script:ecam -eq $null -and -not $wrWas){
     # 先关掉自己开着的 WinRing0 句柄：句柄不关，驱动卸不下去 → 服务会停在 STOP_PENDING（客户机见过这个状态）
@@ -542,7 +599,7 @@ $gcap=FindPcieCap $GPU; $rcap=FindPcieCap $ROOT
 W("  PCIe cap: GPU@0x" + $(if($gcap -eq $null){'NOT FOUND'}else{$gcap.ToString('X2')}) + "  ROOT@0x" + $(if($rcap -eq $null){'NOT FOUND'}else{$rcap.ToString('X2')}))
 if($gcap -eq $null -or $rcap -eq $null){ Fatal 11 ">>> PCIe capability not found" }
 
-$TOOL_VER = '20261001a-igame'   # 改动这个标记要同步 就地更新并跑一次.ps1 里的 $wantVer
+$TOOL_VER = '20261001c-audit'  # 与本文件顶部的定义保持一致；改动这个标记要同步 一键修复Gen2.ps1 里的 $wantVer
 $GUARD_OFF=0x0;   $GUARD_EXP=U32 '166000A1'
 # 2026-09-30（客户机 VBIOS 90.06.67.00.06 驱动）：基线不能写死常量，要按**位**判定。
 # 实测两处 Gen2 位（同一张卡 .04 => .06 只差跳线位）：
@@ -642,15 +699,49 @@ W("  plan  : LINK_CONFIG_0 0x" + $lc0.ToString('X8') + " -> 0x" + $dec.Lc0.ToStr
 # 依据：OnlyEFI 官方 helper 源码 source/windows/CMP40HXGen2_prod.c 的 EXPECT_* 常量（EFI 阶段写入的目标值）。
 if($script:GuardDumpGaps.Count -gt 0){
   if(($gt -ne 2) -or ($rt -ne 2)){
-    if($NoAutoPrime){
-      W("  >>> 预埋缺失（缺口: " + ($script:GuardDumpGaps -join ', ') + "）但 -NoAutoPrime 已指定 → 不补写")
+    if((-not $AllowPrime) -or $NoAutoPrime){
+      # 2026-10-01b（第三方审查 D1）：默认**不写** GPU 内部寄存器。
+      #   这些偏移（XVE_OVR/CYA_0/PL_LINK_RATE + LNKCTL2）是按本机那张卡的 VBIOS 批次定的；
+      #   批次不同含义可能不同，写错会花屏/不亮，而且原值不落盘、没有回滚手段。
+      #   正确做法是重新跑 -Mode Install 让解锁固件重跑 EFI 预埋（它本来就会写这几个寄存器）。
+      W("  >>> 解锁固件没预埋 Gen2 前提值（缺口: " + ($script:GuardDumpGaps -join ', ') + "）")
+      W("      本工具默认 **不** 自动补写 GPU 内部寄存器（写错可能花屏/不亮且无回滚）。")
+      W("      正确做法：重跑 -Mode Install（让解锁固件重跑 EFI 预埋）→ 重启；确认要强写再加 -AllowPrime。")
     } else {
-      W("  --- 解锁固件 Gen2 预埋缺失（缺口: " + ($script:GuardDumpGaps -join ', ') + "）→ 自动补写官方 EFI 目标值 ---")
+      W("  --- 解锁固件 Gen2 预埋缺失（缺口: " + ($script:GuardDumpGaps -join ', ') + "）→ 按 -AllowPrime 显式要求补写官方 EFI 目标值 ---")
       $primeList = @(
         @{ N = 'XVE_OVR';      Off = [uint64]0x8872C; Val = [uint32]0x00000006 },
         @{ N = 'CYA_0';        Off = [uint64]0x8C2C0; Val = [uint32]0x068731B3 },
         @{ N = 'PL_LINK_RATE'; Off = [uint64]0x8C1C0; Val = [uint32]0x00220036 }
       )
+      # 2026-10-01b（审查 D1）：写之前先把原值落盘，便于人工回写
+      $backupPath = 'C:\Temp\40hx-prime-backup.txt'
+      $backupOk = $false
+      try {
+        $pb = @('40hx prime backup  ' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), 'GPU BDF=0x' + ([uint32]$GPU).ToString('X4') + '  VBIOS/驱动: ' + $(try { ((& "$env:SystemRoot\System32\nvidia-smi.exe" --query-gpu=vbios_version,driver_version --format=csv,noheader 2>&1 | Out-String).Trim()) } catch { '?' }))
+        foreach ($pi in $primeList) { $curv = MmioRead ([uint64]($bar + $pi.Off)); $pb += ($pi.N + ' offset=0x' + $pi.Off.ToString('X') + ' original=' + $(if ($curv -eq $null) { 'READ_FAILED' } else { '0x' + (Hex32 $curv) })) }
+        foreach ($ti in @(@{ N = 'GPU TLS'; Bdf = $GPU; Cap = $gcap }, @{ N = 'ROOT TLS'; Bdf = $ROOT; Cap = $rcap })) {
+          $v = PciRead $ti.Bdf ([uint32]($ti.Cap + 0x30)) 4
+          $pb += ($ti.N + ' LNKCTL2 original=' + $(if ($v -eq $null) { 'READ_FAILED' } else { '0x' + ([uint32]$v).ToString('X8') }))
+        }
+        $pb += '回写办法：用同样的 MmioWrite/PciWrite16 把上面的 original 值写回（或重跑 -Mode Install 让 EFI 预埋覆盖）'
+        # 2026-10-01b（审查 D1）：C:\Temp 可能根本不存在（Out-File 不会建父目录）→ 先建目录，失败也算备份失败
+        $pbDir = Split-Path -Parent $backupPath
+        if (-not (Test-Path -LiteralPath $pbDir)) { New-Item -ItemType Directory -Force -Path $pbDir | Out-Null }
+        $pb | Out-File -FilePath $backupPath -Encoding utf8
+        $backupOk = $true   # 2026-10-01b（审查 N2）：以"本次真的写成功"为准
+        W('  原值已落盘: ' + $backupPath)
+      } catch { W('  [warn] 原值落盘失败: ' + $_.Exception.Message) }
+      # 2026-10-01b（审查 D1，中/高）：**备份失败就不许写**。原来 catch 只警告，紧接着照样写寄存器 ——
+      #   一旦磁盘满/杀软拦/C:\Temp 不可写，就变成"没有回滚依据还动了 GPU 内部寄存器"。
+      #   判据是**本次写入成功的标志**（$backupOk 在 try 里置位），
+      #   不能用 Test-Path —— 上一轮遗留的旧备份文件会让失败的本次被当成成功（依据还是过期值）。
+      if (-not $backupOk) {
+        W('  >>> 原值没落盘 → 拒绝写 GPU 内部寄存器（没有回滚依据不能动这几个偏移）')
+        W('      先把 ' + $backupPath + ' 的落盘问题解决（C:\Temp 可写 / 杀软没拦 / 磁盘没满），再重跑 -AllowPrime；')
+        W('      或者更稳：重跑 -Mode Install 让解锁固件在 EFI 阶段重新预埋（它本来就负责写这几个寄存器）。')
+      } else {
+        W('  备份就绪: ' + $backupPath)
       foreach($pi in $primeList){
         $cur = MmioRead ([uint64]($bar+$pi.Off))
         $wantHex = $pi.Val.ToString('X8')
@@ -676,14 +767,16 @@ if($script:GuardDumpGaps.Count -gt 0){
           W("  " + $ti.N.PadRight(13) + " " + $curTls + " -> 2  writeOk=$ok  readback=" + $(if($rb16 -eq $null){'FAILED'}else{[string]([uint32]($rb16 -band 0xF))}))
         }
       }
-      if($Apply){
-        W("  --- 补写后复读 ---")
-        Chk32 'XVE_OVR' (RD32 0x8872C) '00000006'
-        Chk32 'CYA_0' (RD32 0x8C2C0) '068731B3'
-        Chk32 'PL_LINK_RATE' (RD32 0x8C1C0) '00220036'
-        $gt2 = PciRead $GPU ([uint32]($gcap+0x30)) 4; $rt2 = PciRead $ROOT ([uint32]($rcap+0x30)) 4
-        W(("  {0,-13} = GPU {1} / ROOT {2}   期望 2 / 2" -f 'TLS(LNKCTL2)', [string]([uint32]([uint64]$gt2 -band [uint64]15)), [string]([uint32]([uint64]$rt2 -band [uint64]15))))
-      }
+        if($Apply){
+          W("  --- 补写后复读 ---")
+          Chk32 'XVE_OVR' (RD32 0x8872C) '00000006'
+          Chk32 'CYA_0' (RD32 0x8C2C0) '068731B3'
+          Chk32 'PL_LINK_RATE' (RD32 0x8C1C0) '00220036'
+          $gt2 = PciRead $GPU ([uint32]($gcap+0x30)) 4; $rt2 = PciRead $ROOT ([uint32]($rcap+0x30)) 4
+          W(("  {0,-13} = GPU {1} / ROOT {2}   期望 2 / 2" -f 'TLS(LNKCTL2)', [string]([uint32]([uint64]$gt2 -band [uint64]15)), [string]([uint32]([uint64]$rt2 -band [uint64]15))))
+        }
+
+      }   # end of: if (-not $backupOk) { ... } else { write prime }
     }
   } else {
     W("  体检有缺口 (" + ($script:GuardDumpGaps -join ', ') + ") 但 TLS 已是 2/2（解锁固件跑过）→ 不自动补写，只报告")
@@ -693,6 +786,24 @@ if($script:GuardDumpGaps.Count -gt 0){
 $gs=LinkSta $gcap $GPU; $rs=LinkSta $rcap $ROOT
 W("  pre   : GPU LNKSTA=0x" + $gs.ToString('X4') + " Gen" + ($gs -band 0xF) + " x" + (($gs -shr 4) -band 0x3F) + "   ROOT LNKSTA=0x" + $rs.ToString('X4') + " Gen" + ($rs -band 0xF) + " x" + (($rs -shr 4) -band 0x3F))
 if(-not $Apply){ W("  (dry run - no writes)"); CleanupDrivers; exit 0 }
+
+# 2026-10-01b（审查 D1）：LINK_CONFIG_0 / PRIV_MISC_1 / ROOT LNKCTL(0x0020) 也是内部寄存器，
+#   写之前同样把原值追加落盘（回滚依据）。落盘失败**不阻断** —— 这几个是修 Gen2 的必经写入，
+#   不写就没法解锁；而且它们的含义已由上面 guardOk 的 baseline 校验过，风险等级低于 prime 段。
+$rwPath = 'C:\Temp\40hx-regwrite-backup.txt'
+try {
+  $rwDir = Split-Path -Parent $rwPath
+  if (-not (Test-Path -LiteralPath $rwDir)) { New-Item -ItemType Directory -Force -Path $rwDir | Out-Null }
+  @(
+    '40hx register write backup  ' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'),
+    'GPU BDF=0x' + ([uint32]$GPU).ToString('X4') + '   ROOT BDF=0x' + ([uint32]$ROOT).ToString('X4'),
+    'LINK_CONFIG_0 (0x' + ([uint64]$LC0_OFF).ToString('X') + ') original=0x' + $(if($lc0 -eq $null){'READ_FAILED'}else{([uint32]$lc0).ToString('X8')}) + '  -> target=0x' + ([uint32]$dec.Lc0).ToString('X8'),
+    'PRIV_MISC_1   (0x' + ([uint64]$PM1_OFF).ToString('X') + ') original=0x' + $(if($pm1 -eq $null){'READ_FAILED'}else{([uint32]$pm1).ToString('X8')}) + '  -> target=0x' + ([uint32]$dec.Pm1).ToString('X8'),
+    'ROOT LNKCTL (cap+0x10) 的原值见本日志里 "ROOT<n> SET_ONLY old=0x...." 那几行',
+    '回写(回滚)办法：MmioWrite 0x' + ([uint64]$LC0_OFF).ToString('X') + ' / 0x' + ([uint64]$PM1_OFF).ToString('X') + ' 写回上面的 original；ROOT LNKCTL 用 PciWrite16 写回 old 值；或重跑 -Mode Install 让 EFI 重新预埋。'
+  ) | Out-File -FilePath $rwPath -Encoding utf8 -Append
+  W('  寄存器原值已落盘(可回滚): ' + $rwPath)
+} catch { W('  [warn] 寄存器原值落盘失败（不阻止本次写入；请把日志里的 old= 值抄下来）: ' + $_.Exception.Message) }
 
 if($dec.Lc0Change){
   $ok=MmioWrite ([uint64]($bar+$LC0_OFF)) $dec.Lc0
@@ -708,9 +819,13 @@ if($dec.Pm1Change){
 $reach=$false
 for($att=1; $att -le 2 -and -not $reach; $att++){
   $ctl=PciRead $ROOT ([uint32]($rcap+0x10)) 2
+  # 2026-10-01b（第三方审查）：读失败时 $ctl 是 $null，$null -band 0xFFFF 当 0 用 →
+  #   写回的 req=0x0020 会把 LNKCTL 其它位（ASPM/RCB 等）清掉。读不到就不写。
+  if($ctl -eq $null){ W("  ROOT$att SET_ONLY SKIPPED: LNKCTL read failed"); continue }
   $old=[uint16]($ctl -band 0xFFFF)
   $req=[uint16]($old -bor 0x0020)
   $ok=PciWrite16 $ROOT ([uint32]($rcap+0x10)) $req
+  try { ('ROOT' + $att + ' LNKCTL original=0x' + $old.ToString('X4') + ' (已写入 req=0x' + $req.ToString('X4') + ')') | Out-File -FilePath $rwPath -Encoding utf8 -Append } catch { }
   $rb=PciRead $ROOT ([uint32]($rcap+0x10)) 2
   W("  ROOT$att SET_ONLY old=0x" + $old.ToString('X4') + " req=0x" + $req.ToString('X4') + " writeOk=$ok rb=0x" + ([uint16]($rb -band 0xFFFF)).ToString('X4'))
   $sawLT=0
@@ -732,6 +847,7 @@ if(-not $reach){
   # 2026-09-30 新增（客户机 VBIOS .06 场景）：只重训根端口没到 Gen2 时，再对 GPU 自身链路做 SET_ONLY（不写策略寄存器、不复位设备）
   for($att=1; $att -le 2 -and -not $reach; $att++){
     $ctl=PciRead $GPU ([uint32]($gcap+0x10)) 2
+    if($ctl -eq $null){ W("  GPU$att SET_ONLY SKIPPED: LNKCTL read failed"); continue }
     $old=[uint16]($ctl -band 0xFFFF)
     $req=[uint16]($old -bor 0x0020)
     $ok=PciWrite16 $GPU ([uint32]($gcap+0x10)) $req

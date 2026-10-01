@@ -34,7 +34,7 @@ if not exist "%SMI%" (
 
 "%SMI%" --query-gpu=name,driver_version,memory.total,temperature.gpu,power.draw,power.limit,driver_model.current,driver_model.pending,pcie.link.width.current,pcie.link.width.max --format=csv > "%TMPQ%" 2>nul
 if not exist "%TMPQ%" goto :nosmi
-for /f "skip=1 tokens=1-10 delims=," %%a in (%TMPQ%) do (
+for /f "skip=1 tokens=1-10 delims=," %%a in ("%TMPQ%") do (
   for /f "tokens=* delims= " %%x in ("%%a") do set "GPU=%%x"
   for /f "tokens=* delims= " %%x in ("%%b") do set "DRV=%%x"
   for /f "tokens=* delims= " %%x in ("%%c") do set "VMEM=%%x"
@@ -218,9 +218,10 @@ if exist "%TMPY%" del "%TMPY%" >nul 2>&1
 if exist "%TMPO%" del "%TMPO%" >nul 2>&1
 certutil -f -decode "%TMPB%" "%TMPY%" >nul 2>&1
 if not exist "%TMPY%" goto :nopython
-"%PY%" "%TMPY%" > "%TMPO%" 2>nul
+"%PY%" "%TMPY%" > "%TMPO%" 2>>"%TMPO%"
+rem 注：2>> 而不是 2>nul —— 让错误信息留在文件里（下面"Python 原始输出"会回显）
 if not exist "%TMPO%" goto :nopython
-for /f "tokens=1,2 delims= " %%a in (%TMPO%) do (
+for /f "tokens=1,2 delims= " %%a in ("%TMPO%") do (
   if /I "%%a"=="H2D" set "H2DT=%%b"
   if /I "%%a"=="D2H" set "D2HT=%%b"
   if /I "%%a"=="VERDICT" set "VERD=%%b"
@@ -244,6 +245,13 @@ if /I "%VERD%"=="GEN2" set "OKLINK=1"
 if /I "%VERD%"=="GEN2" echo     [OK] 判定: Gen2 已解锁
 if /I "%VERD%"=="GEN1" echo     [!!] 判定: Gen1 未解锁
 if not defined VERD echo     [!!] 判定: 带宽测试失败
+rem 2026-10-01b（第三方审查 H17）：Python 失败时也会建出空的 %TMPO% → 以前直接落到"带宽测试失败"，
+rem   真正的根因（nvcuda/驱动的 ERROR 行）从不显示。把原始输出回显出来，别让客户/经销商猜。
+if not defined VERD if exist "%TMPO%" (
+  echo     ---- Python 原始输出（定位根因用）----
+  type "%TMPO%"
+  echo     --------------------------------------
+)
 echo.
 
 echo [4/6] 算力验证   (满血规格: 34 SM / 2176 CUDA 核心 / TC 未砍)
@@ -293,8 +301,12 @@ echo.
 
 echo [6/6] 解锁工具状态文件
 set "NPASS="
-if exist "%LOGP%" findstr /C:"PASS: Gen2 reached on the new path" "%LOGP%" >nul 2>&1
-if not errorlevel 1 set "NPASS=1"
+if exist "%LOGP%" (
+  findstr /C:"PASS: Gen2 reached on the new path" "%LOGP%" >nul 2>&1
+  if not errorlevel 1 set "NPASS=1"
+)
+rem 2026-10-01b（审查 H17）：原来两行分开写，日志不存在时 errorlevel 沿用上一条命令（echo→0）
+rem   → 会被误判成"厂商工具报过 PASS"。包进 if exist 块后就不会了。
 if exist "%STAT%" (
   powershell -NoProfile -Command "$c = Get-Content '%STAT%' -Encoding UTF8; Write-Output ('    written: ' + (Get-Item '%STAT%').LastWriteTime); $c -replace ([char]0x2705),'[OK]' -replace ([char]0x274C),'[NG]' -replace ([char]0x2713),'v' -replace ([char]0x26A0),'!' -replace ([char]0xFE0F),''"
 ) else (

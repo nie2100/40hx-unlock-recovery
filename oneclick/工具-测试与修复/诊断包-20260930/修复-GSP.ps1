@@ -12,6 +12,7 @@
   可逆：删掉该值就回到原样，脚本最后会打印删除命令。
   不改别的任何东西；不碰驱动文件、服务、EFI、引导项。
 #>
+$script:fail = 0
 $ErrorActionPreference = 'Continue'
 try { [Console]::OutputEncoding = [Text.Encoding]::GetEncoding(936) } catch { }
 
@@ -54,10 +55,13 @@ foreach ($t in $targets) {
   Write-Host ('MatchingDeviceId : ' + $mid)
   Write-Host ('修改前 EnableGpuFirmware = ' + $(if ($null -eq $before) { '<不存在>' } else { $before }))
   if ($before -eq 1) { Write-Host '已经是 1，无需修改。' -ForegroundColor Green; continue }
-  New-ItemProperty -Path $t.PSPath -Name 'EnableGpuFirmware' -PropertyType DWord -Value 1 -Force | Out-Null
+  # 2026-10-01b（第三方审查 H6）：写失败必须体现到退出码，不能只打印红字然后 exit 0（假成功）
+  try { New-ItemProperty -Path $t.PSPath -Name 'EnableGpuFirmware' -PropertyType DWord -Value 1 -Force -ErrorAction Stop | Out-Null }
+  catch { Write-Host ('写入异常: ' + $_.Exception.Message) -ForegroundColor Red }
+  # 注：这里不再 $fail++（原来 catch 和下面的回读各计一次，文案里的数字会翻倍）；统一由回读判定计一次
   $after = (Get-ItemProperty $t.PSPath -Name EnableGpuFirmware -ErrorAction SilentlyContinue).EnableGpuFirmware
   if ($after -eq 1) { Write-Host '修改后 EnableGpuFirmware = 1  （写入成功并回读通过）' -ForegroundColor Green }
-  else { Write-Host ('写入失败，回读 = ' + $after) -ForegroundColor Red }
+  else { Write-Host ('写入失败，回读 = ' + $after) -ForegroundColor Red; $script:fail++ }
 }
 Write-Host ''
 Write-Host '================= 接下来必须这么做 =================' -ForegroundColor Yellow
@@ -69,5 +73,8 @@ Write-Host '    再看第 2 节里 40HX 的 [OK] / Problem=0（不再是 43）' 
 Write-Host ' 3) 然后双击 状态自检.bat 看最终结论' -ForegroundColor Yellow
 Write-Host ''
 Write-Host '想还原（删掉刚写的值）就用这条命令（管理员 PowerShell）：' -ForegroundColor Gray
-foreach ($t in $targets) { Write-Host ('  Remove-ItemProperty -Path "' + ($t.PSPath -replace '^Microsoft\.PowerShell\.Core\\', '') + '" -Name EnableGpuFirmware') -ForegroundColor Gray }
+foreach ($t in $targets) { Write-Host ('  Remove-ItemProperty -Path "' + ($t.PSPath -replace '^.*Registry::', '') + '" -Name EnableGpuFirmware') -ForegroundColor Gray }
 Write-Host ''
+# 2026-10-01b（审批 H18/H6）：失败要显式退出码；成功也别掩盖"没写进去"
+if ($script:fail -gt 0) { Write-Host ('有 ' + $script:fail + ' 项没写成功 —— 见上面的红字') -ForegroundColor Red; exit 1 }
+exit 0

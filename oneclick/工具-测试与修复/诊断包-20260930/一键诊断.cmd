@@ -22,12 +22,21 @@ echo   （同目录还有 40HX诊断-时间 文件夹和 .zip，一起发回去）
 echo.
 echo [*] 开始采集，大概 1-3 分钟，中途别关窗口...
 echo.
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0\40HX诊断.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp040HX诊断.ps1"
+set "RC=%ERRORLEVEL%"
 echo.
-echo 采集结束（退出码 = %ERRORLEVEL%，0 表示报告已生成）
+if errorlevel 1 (
+  echo.
+  echo [X] 采集脚本返回了错误码 %ERRORLEVEL% —— 报告可能没生成完整,
+  echo     请把窗口里最后几行拍给经销商
+) else (
+  echo.
+  echo [OK] 采集结束，报告已生成（退出码 0）
+)
 echo.
 pause
-goto :eof
+rem 2026-10-01b（审查）：把真实退出码传给调用方（原来 goto :eof 恒返回 0）
+exit /b %RC%
 
 :ask
 echo ==============================================================

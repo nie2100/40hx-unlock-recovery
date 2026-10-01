@@ -1,4 +1,4 @@
-# CMP 40HX 算力解锁 + PCIe Gen2 一键脚本（迁移版）
+﻿# CMP 40HX 算力解锁 + PCIe Gen2 一键脚本（迁移版）
 
 自含脚本：**只用本目录里的东西**，不需要联网、不需要厂商安装器。
 把整个 `40hx-oneclick` 目录拷到任意一台装有 CMP 40HX 的电脑上，双击 `一键安装.cmd`，然后**完全关机再开机**（不是“重启”），完事。
@@ -17,7 +17,8 @@
 ├─ payload\sha256.txt            ← 载荷哈希清单
 ├─ logs\                         ← 每次运行自动留日志
 ├─ backup\<时间戳>\              ← 每次运行前把被改动的原文件/原固件启动项备份在这里
-└─ state\installed.json          ← 安装状态（启动项编号等），Uninstall 用它回滚
+└─ state\installed.json          ← 安装状态记录（启动项编号等）。**只写不读**：Uninstall 不依赖它，
+                                     它是按启动项的描述/路径自己识别的，所以文件丢了也不影响卸载
 ```
 
 ## 1. 前提（装之前先确认，脚本会自己体检一遍）
@@ -114,8 +115,8 @@ powershell -ExecutionPolicy Bypass -File Install-40HXUnlock.ps1 -Mode Check
 
 | 部件 | 位置 | 作用 |
 |---|---|---|
-| `40HXUNLK.EFI` | ESP `\EFI\40HX\40HXUNLK.EFI` 与 `\EFI\Boot\bootx64.efi` | 开机时解锁算力（SS0=0x88888888）+ 预埋 Gen2 策略寄存器 + Root TLS=2，**故意不在 EFI 阶段重训**；之后 chainload 回 Windows Boot Manager |
-| 固件启动项 `40HX Unlock` | NVRAM `Boot####`（脚本自己构造，含 ESP 设备路径节点） | 让固件开机先跑解锁固件；配合 `bootx64.efi` 兜底，固件忽略 NVRAM 的主板也能生效 |
+| `40HXUNLK.EFI` | ESP `\EFI\40HX\40HXUNLK.EFI`（**默认不写** `\EFI\Boot\bootx64.efi`；只有显式加 `-WriteBootx64` 才覆盖，覆盖前备份 `.40hx.bak`） | 开机时解锁算力（SS0=0x88888888）+ 预埋 Gen2 策略寄存器 + Root TLS=2，**故意不在 EFI 阶段重训**；之后 chainload 回 Windows Boot Manager |
+| 固件启动项 `40HX Unlock` | NVRAM `Boot####`（脚本自己构造，含 ESP 设备路径节点） | 让固件开机先跑解锁固件。**注意**：本包默认不动 Windows 的 `\EFI\Boot\bootx64.efi`，所以"固件完全忽略 NVRAM"的主板需要你自己进 BIOS 选 `40HX Unlock`，或加 `-WriteBootx64` 重装一次来做兜底 |
 | `ThrottleStop.sys` / `WinRing0x64.sys` | `System32\drivers` + `%ProgramData%\CMP40HXGen2\drivers` + `%ProgramData%\40HXUnlock\drivers` + ESP `\EFI\40HX\drv` | BYOVD：Windows 侧读写 PCI 配置空间落地 Gen2（老路径用；新路径只用它的 PCI 配置空间读/写） |
 | `inpoutx64.sys` / `inpoutx64.dll` | `System32\drivers` + `%ProgramData%\CMP40HXGen2\drivers` + `%ProgramData%\40HXUnlock\drivers` + ESP `\EFI\40HX\drv` | **新路径的主力**：MMIO 直接读写 GPU BAR0（`LINK_CONFIG_0` / `PRIV_MISC_1` 两个被驱动冲掉的策略寄存器）。不建常驻服务：开机脚本自己 `sc create/delete` 临时服务 `inpoutx64T` |
 | `CMP40HXGen2.exe` | `%ProgramData%\CMP40HXGen2\windows` | 守卫（要求 SS0/SS1/TLS/LNKCAP 等基线）→ 只恢复 2 个被驱动改掉的策略寄存器 → Root Retrain SET-only ×2 → `PASS: physical Gen2 x16`。**不复位显卡，所以不会清掉算力**（老路径用） |
@@ -132,12 +133,12 @@ powershell -ExecutionPolicy Bypass -File Install-40HXUnlock.ps1 -Mode Check
 
 | 症状 | 原因 / 处理 |
 |---|---|
-| 重启后 `40hx_log.txt` 没有新的 `UNLOCKED` 行 | BIOS 的 **Above 4G Decoding 没开**，或 Secure Boot 没关，或启动项没走解锁固件 → 进 BIOS 把第一启动项设为 "40HX Unlock"（或硬盘本身，走 `\EFI\Boot\bootx64.efi` 兜底） |
+| 重启后 `40hx_log.txt` 没有新的 `UNLOCKED` 行 | BIOS 的 **Above 4G Decoding 没开**，或 Secure Boot 没关，或启动项没走解锁固件 → 进 BIOS 把第一启动项设为 "40HX Unlock"（或硬盘本身；**注意**本包默认不写 `bootx64.efi`，若这台主板只认它，需要加 `-WriteBootx64` 重装一次） |
 | 算力 OK 但 Gen2 没落地 | 先看 `%ProgramData%\CMP40HXGen2\windows\logs\postbind.log` 末尾：有 `PASS: Gen2 reached on the new path` = 好；有 `falling back to the legacy ACE path` 说明新路径失败，同段的 `NewPath EXIT=n` 就是原因（11 基线不认识 / 12 GPU 未就绪 / 13 inpoutx64 没起来 / 10 链路没到 Gen2 / 3 WinRing0 不可用），逐条读数在 `logs\retrain-inpout.log`。老路径的 `logs\last.log` 里 `EXIT=30` = 驱动没起来（杀软/ACE 拦截）；`exit 14` = 守卫基线不成立（ESP 固件被覆盖成厂商版了，重跑 Install 即可写回） |
 | 驱动文件装完 10 秒消失 | 火绒隔离 → 信任区加第 1.1 节那几项，然后 `-Mode Repair` |
 | 卡在 Code 43 / 黑屏 | **先查 GSP**：GSP 没开时，解锁后 `nvlddmkm` 认不了这张卡，表现就是「开机黑屏 1~2 分钟 + 设备管理器代码 43」→ 见 `排查指引.md` **第 5.1 节**（判据 + 一键修复）。确认 GSP 正常后才考虑“显卡被复位过” → 两种情况都**必须完全关机冷启动**（热重启无效） |
 | 开机任务上次 rc=0x1F（31） | ACE-BOOT 拦了老路径要用的驱动。首选新路径不用那个驱动，正常不会出现；真反复出现就看 `postbind.log` 里有没有 `falling back to the legacy ACE path`（新路径失败才会走它），并检查 `C:\Program Files\AntiCheatExpert\ACE-Tray.exe` 是否被别的策略拦住 |
-| 想彻底回滚 | `-Mode Uninstall -Yes`（还原 `bootx64.efi`、删启动项/任务/服务/驱动），重启后就是原生状态 |
+| 想彻底回滚 | `-Mode Uninstall -Yes`（删启动项/任务/服务/驱动；`bootx64.efi` 只在"曾经覆盖过"时还原——本包默认不覆盖它），重启后就是原生状态 |
 
 ## 6. 载荷哈希（`payload\sha256.txt` 为准）
 
@@ -184,3 +185,40 @@ f8965fdce668692c3785afa3559159f9a18287bc0d53abb21902895a8ecf221b  inpoutx64.sys 
 | 安装有失败项时**写不出** `下一步-重启后看这里.txt` | `$FailCount + ' 项失败'` 在 PowerShell 里会抛「无法将值“项失败”转换为类型“System.Int32”」（只有失败安装才踩到，本机 0 失败所以从没暴露） | 改成 `[string]$FailCount + ' 项失败'`；并且 Install 阶段的 GSP 未启用改为**提示**（脚本本来就会自动补上），退出码不再假失败 |
 
 现场取证工具：`工具-测试与修复/诊断包-20260930/`（只读收集 + `修复-GSP` 一键写开关）。
+
+## 9.1 出包前的第三方审查（2026-10-01b）
+
+这一版在出包前做了两件事，客户机安全相关：
+
+1. 由隔壁的独立审查会话（DSH）把全部 Windows 脚本静态审了一遍，结论"不可推送"，
+   列出的 3 条致命 + 19 条高危**已逐条复核并修正**（清单见 `风险与恢复.md` 第 7 节）。
+2. 本机端到端复测：`-Mode Repair` → `-Mode Check` 0 失败；破坏性自愈测试（删掉 System32 里的驱动）→
+   开机任务仍能自动补齐并 `PASS: physical Gen2 x16`。
+
+## 10. 修复记录（2026-10-01：客户反馈「每次重启都要再手动跑一次 一键修复Gen2，Gen2 才生效」）
+
+三个都在**开机路径**上（手动跑不经过，所以表现为「手动跑一次就好」）：
+
+1. **WinRing0 用不了就放弃、不回落到 ECAM** —— 而客户机上 WinRing0 被封是常态
+   （七彩虹 iGame Center 占服务名、360/火绒/Defender 的「易受攻击驱动」策略清 `WinRing0x64.sys`）。
+   现在 `auto` = WinRing0 优先、失败回落 ECAM。
+2. **ECAM 兜底本身是坏的**：ACPI `MCFG` 表的 ID 打包写错（`0x4D434647` 应为 `0x4746434D`），
+   实测 `GetSystemFirmwareTable` 返回 0 → 永远拿不到 ECAM 基址。已改成用 `EnumSystemFirmwareTables`
+   枚举系统里真实的 `MCFG` 项（仍只读 MCFG / 系统已声明资源，**绝不盲扫物理地址**）。
+3. **开机路径跑之前不做驱动自愈** —— `:heal` 原先只在旧回落分支里调用。现在新路径之前也 heal，
+   且 `inpoutx64.sys/.dll` 一起自愈（普通源 + ESP 兜底源）。
+
+另外加了一个 **「登录后 60 秒自动补跑」** 任务 `CMP40HX Gen2 PostBind Logon`：
+开机那一轮万一因为杀软拦驱动/GPU 未就绪而失败，登录后系统会自动再修一次（就是原先要你手动点的那一次），
+已经到 Gen2 时它什么都不做。`-Mode Check` / `-Mode Verify` 会显示它是否注册，`-Mode Uninstall` 会一并删掉。
+## 11. 风险与恢复（动手前必读）
+
+- 本包对系统的全部改动、每项的风险与回滚办法，都写在包内 **`风险与恢复.md`**（含"什么时候不要跑"和分级处置流程）。
+- Install/Repair 开跑前会先把这次要改的东西和风险打印一遍（见日志 `logs\run-*.log` 的"改动清单与风险"一节）。
+- **2026-10-01b 新增的两项加固**（都可一键回滚，零功能影响）：
+  1. 目录权限收紧：`C:\ProgramData\CMP40HXGen2` 与 `C:\ProgramData\40HXUnlock` 改成只剩 SYSTEM/Administrators 可写
+     （原来普通用户可写 → 任何本地用户都能替换里面的 .sys，下次开机由 SYSTEM 加载 = 本地提权）。
+     回滚：双击 `工具-测试与修复\回滚-安全加固.cmd`。
+  2. 驱动源改 base64 文本：ProgramData 两处的裸 `.sys/.dll` 转成 `.b64`（字节校验通过后才删裸文件），
+     运行时由 `Unpack-Drivers.ps1` 解码落地。好处：杀软不会再把源当 BYOVD 驱动隔离；磁盘上不留"能被 SCM 直接加载"的副本。
+     回滚：同一个 `回滚-安全加固.cmd`。

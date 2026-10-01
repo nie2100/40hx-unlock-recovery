@@ -50,6 +50,12 @@ try {
 WB ''
 WB '==== ① ② ④ 链路寄存器（只读）===='
 $lines=@()
+# 2026-10-01b（第三方审查）：只读工具要管理员才能加载驱动（非管理员会 exit 1/13），
+#   以前只打印返回码就继续下结论 → 显式提示。
+if(-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+  WB '  [!!] 当前不是管理员：下面的链路寄存器大概率读不到（工具返回码会非 0）。'
+  WB '       请右键 → 以管理员身份运行 判断延长线.cmd，再跑一次。'
+}
 if(Test-Path $tool){
   WB '  （正在用只读模式跑一次链路读取，约 5~20 秒；它不会写任何寄存器）'
   $raw = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tool 2>&1 | Out-String)

@@ -16,7 +16,7 @@
              **ACE-BOOT 全程不用停** → 反作弊预启动模式不被破坏，游戏不要求重启；
              旧路径（停 ACE-BOOT → AutoRetrain → 恢复 ACE-BOOT）保留为 fallback：新路径退出码非 0 才走
     4. ESP 固件：OnlyEFI v0.1.1 的 40HXUNLK.EFI（算力解锁 + Gen2 primer，EFI 阶段不重训）
-             → \EFI\40HX\40HXUNLK.EFI 与 \EFI\Boot\bootx64.efi（原文件备份 .40hx.bak）
+             → \EFI\40HX\40HXUNLK.EFI（默认**不动** Windows 自己的 \EFI\Boot\bootx64.efi；只有显式加 -WriteBootx64 才覆盖）
     5. 固件启动项：自己写 NVRAM Boot#### 变量（"40HX Unlock"，指向解锁 EFI），
              默认把它放到 BootOrder 第一位；原 BootOrder / 全部 Boot#### 先备份
     6. 开机任务：CMP40HX Gen2 PostBind（SYSTEM/Highest，BootTrigger）→ RunPostBind.cmd
@@ -56,7 +56,8 @@ param(
   [switch]$RunNow,       # Install/Repair 结束后立刻跑一次开机任务（要求本次开机已解锁）
   [switch]$Yes,          # Uninstall 确认
   [switch]$KeepBootx64,  # 不覆盖 ESP 的 \EFI\Boot\bootx64.efi（只写 \EFI\40HX\40HXUNLK.EFI）
-  [switch]$Purge         # Uninstall 时连 %ProgramData%\CMP40HXGen2 一起删
+  [switch]$Purge,        # Uninstall 时连 %ProgramData%\CMP40HXGen2 一起删
+  [switch]$WriteBootx64  # 2026-10-01b: 显式覆盖 \EFI\Boot\bootx64.efi（默认不覆盖 —— 见 Install-Efi 的注释）
 )
 
 $ErrorActionPreference = 'Stop'
@@ -90,6 +91,10 @@ $script:ProgDataDrv = Join-Path $script:ProgDataRoot 'drivers'
 $script:VendorDrvDir = Join-Path $env:ProgramData '40HXUnlock\drivers'
 $script:SysDrv = Join-Path $env:SystemRoot 'System32\drivers'
 $script:TaskName = 'CMP40HX Gen2 PostBind'
+# 2026-10-01 新增：登录后 60 秒的补跑任务。开机那轮跑得太早（onstart/SYSTEM），客户机上会因
+#   ①杀软在开机阶段拦驱动加载(inpoutx64 起不来 exit 13) ②GPU/驱动未就绪(exit 12) ③驱动文件被清(exit 3)
+#   而失败 —— 但登录后手动跑一次总是成功。所以让系统自己在登录后自动补跑一次，用户就不用手动了。
+$script:TaskNameLogon = 'CMP40HX Gen2 PostBind Logon'
 $script:EspRoot = $null
 $script:LogPath = $null
 $script:WarnCount = 0
@@ -330,6 +335,7 @@ function Read-TextAutoDetect {
 # 坑：ESP 已经被挂载到别的盘符时，mountvol <new>: /S 会直接报“参数错误”而不是换一个字母，
 #     所以必须先扫一遍现有盘符，找到已挂载出来的 ESP（实测被上一次运行留在 Y: 就是这样）。
 $script:EspMountError = ''
+$script:EspPreMounted = $false
 function Mount-Esp {
   if ($script:EspRoot -and (Test-Path ($script:EspRoot + '\EFI'))) { return $script:EspRoot }
   $letters = @('Y','X','W','V','U','T','S','R','Q','P','O','N','M','L','K')
@@ -349,6 +355,7 @@ function Mount-Esp {
         }
       }
       $script:EspRoot = $dl + ':'
+      $script:EspPreMounted = $true   # 2026-10-01b（审查）：本来就被挂着的盘符 —— 结束时不要卸掉别人的挂载
       return $script:EspRoot
     }
   }
@@ -365,7 +372,12 @@ function Mount-Esp {
   return $null
 }
 function Dismount-Esp {
-  if ($script:EspRoot) { Invoke-Native { mountvol $script:EspRoot /D 2>&1 | Out-Null }; $script:EspRoot = $null }
+  # 2026-10-01b（第三方审查）：只卸载"我们自己挂的"。本来就被别人挂着的盘符保持原样。
+  if ($script:EspRoot) {
+    if ($script:EspPreMounted) { Info ('盘符 ' + $script:EspRoot + ' 是本来就挂着的 → 不卸载（留给原来的使用者）') }
+    else { Invoke-Native { mountvol $script:EspRoot /D 2>&1 | Out-Null } }
+    $script:EspRoot = $null
+  }
 }
 
 # ================================================================ NVRAM (固件变量)
@@ -633,9 +645,27 @@ function Get-BootOrderIndices {
 
 function Write-BootOrderIndices {
   param([int[]]$Indices, [string]$BackupDir)
+  # 2026-10-01b（第三方审查 D2）：**读不到当前 BootOrder 就绝不改写**。
+  #   原实现：Read-FwVar 失败 → $cur 空 → 照样写新顺序；而调用方拿到的 $order 也是空 @()，
+  #   于是 BootOrder 被写成"只含解锁项 1 个元素" → Windows Boot Manager 等全部丢失 = 开不了机且无备份。
+  $cur = Read-FwVar 'BootOrder'
+  if (-not $cur -or $cur.Length -lt 2) {
+    Warn '读不到当前 BootOrder（固件变量读取失败）→ 拒绝改写 BootOrder（防止把引导顺序写坏）'
+    return $false
+  }
+  if (@($Indices).Count -eq 0) { Warn '新 BootOrder 为空 → 拒绝写入'; return $false }
   if ($BackupDir) {
-    $cur = Read-FwVar 'BootOrder'
-    if ($cur) { [IO.File]::WriteAllBytes((Join-Path $BackupDir 'BootOrder.before.bin'), $cur) }
+    try { [IO.File]::WriteAllBytes((Join-Path $BackupDir 'BootOrder.before.bin'), $cur) }
+    catch { Warn ('BootOrder 备份失败（' + $_.Exception.Message + '）→ 拒绝改写'); return $false }
+    # 审查 H11：文档承诺"备份全部 Boot####"，这里真正落实
+    try {
+      $n = 0
+      foreach ($e in @(Get-AllBootEntries)) {
+        $v = Read-FwVar ('Boot' + ('{0:X4}' -f $e.Index))
+        if ($v) { [IO.File]::WriteAllBytes((Join-Path $BackupDir ('Boot' + ('{0:X4}' -f $e.Index) + '.before.bin')), $v); $n++ }
+      }
+      Info ('已备份全部 Boot####: ' + $n + ' 项 → ' + $BackupDir)
+    } catch { Warn ('备份 Boot#### 时出错: ' + $_.Exception.Message) }
   }
   $bytes = New-Object System.Collections.Generic.List[byte]
   foreach ($idx in $Indices) { $bytes.AddRange([BitConverter]::GetBytes([uint16]$idx)) }
@@ -847,9 +877,177 @@ function Show-Check {
     if ($ti.LastTaskResult -eq 267011) { Ok ("开机任务 " + $script:TaskName + " 已注册（还没跑过 —— 刚注册或被重装过，重启/运行一次就有了）") }
     else { Ok ("开机任务 " + $script:TaskName + " 已注册, 上次 " + $ti.LastRunTime + " rc=0x" + ('{0:X}' -f $ti.LastTaskResult)) }
   } else { Info ("开机任务 " + $script:TaskName + " 未注册") }
+  $t2 = Get-ScheduledTask -TaskName $script:TaskNameLogon -ErrorAction SilentlyContinue
+  if ($t2) {
+    $ti2 = Get-ScheduledTaskInfo -TaskName $script:TaskNameLogon -ErrorAction SilentlyContinue
+    Ok ("登录后补跑任务 " + $script:TaskNameLogon + " 已注册（开机那轮没修好时，登录 60 秒后自动再修一次）")
+  } else { Warn ("登录后补跑任务 " + $script:TaskNameLogon + " 未注册 —— 开机那轮失败时没人补跑（跑 -Mode Repair 补上）") }
+  # 安全加固现状（2026-10-01b）
+  foreach ($h in $script:HardeningDirs) {
+    if (-not (Test-Path -LiteralPath $h.Path)) { continue }
+    $wr = @(Get-UsersWriteRights $h.Path)
+    if ($wr.Count -eq 0) { Ok ("目录权限: " + $h.Path + " = 只有 SYSTEM/Administrators 可写") }
+    else { Warn ("目录权限: " + $h.Path + " 普通用户可写（" + ($wr -join ', ') + "）= 本地提权面 —— 跑一次 -Mode Repair 收紧（只改 ACL，有备份可回滚）"); Add-Action ('目录权限没收紧: ' + $h.Path + ' → 跑 -Mode Repair（改 ACL，备份在 logs\acl-backup-*，可双击 工具-测试与修复\回滚-安全加固.cmd 退回）') }
+  }
+  foreach ($d in @($script:ProgDataDrv, (Join-Path $env:ProgramData '40HXUnlock\drivers'))) {
+    if (-not (Test-Path -LiteralPath $d)) { continue }
+    # inpoutx64.dll 是工具运行时必须落地的（Add-Type 要按路径加载它），不算"多余的面"，排除掉
+    $raws = @(Get-ChildItem -LiteralPath $d -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in @('.sys', '.dll') -and $_.Name -notin @('inpoutx64.dll', 'ThrottleStop.sys') })
+    $b64s = @(Get-ChildItem -LiteralPath $d -File -Filter '*.b64' -ErrorAction SilentlyContinue)
+    if ($raws.Count -eq 0 -and $b64s.Count -gt 0) { Ok ("驱动源形态: " + $d + " = 只有 base64 文本（磁盘上没有可直接被加载的驱动副本）") }
+    elseif ($raws.Count -gt 0) {
+      Warn ("驱动源形态: " + $d + " 还有 " + $raws.Count + " 个裸驱动文件（" + (($raws | ForEach-Object { $_.Name }) -join ', ') + "）—— 跑一次 -Mode Repair 转成 base64")
+      if (@($raws | Where-Object { $_.Name -eq 'HwRwDrv.sys' }).Count -gt 0) { Warn '源目录里有厂商遗留的 HwRwDrv.sys（WinIO 类 BYOVD；只有厂商工具用得到）—— 本包不用它，也不删它，只如实提示：它是磁盘上一个可被加载的签名驱动' }
+    }
+  }
 }
 
 # ================================================================ 安装各部件
+# ================================================================
+# 安全加固（2026-10-01b，按用户要求：不删任何必要文件、不退役任何路径，只做"降低被滥用面"）
+#   ① 源目录权限：去掉 BUILTIN\Users 的写权限
+#      实测（非提权 PowerShell）：C:\ProgramData\CMP40HXGen2\{,drivers} 与 C:\ProgramData\40HXUnlock\drivers
+#      原来对普通用户可写 —— 任何本地普通用户都能替换里面的 .sys，下次开机 RunPostBind 以 SYSTEM 身份
+#      把它拷进 System32\drivers 并加载 = 本地提权。收紧到 SYSTEM/Administrators 独占即可堵住，零功能影响
+#      （本包的工具都以管理员/SYSTEM 运行，厂商安装器也提权运行）。
+#      备份：<包目录>\logs\acl-backup-<时间>\*.acl.txt  →  双击 工具-测试与修复\回滚-安全加固.cmd 可退回
+#   ② 源文件形态：ProgramData 两处只留 *.b64 文本（先写 b64 + 逐字节校验，通过后才删裸文件）
+#      好处：a) 杀软不会把 base64 文本当 BYOVD 驱动秒删 → 自愈源更可靠
+#            b) 磁盘上不留"能被 SCM 直接加载"的签名驱动副本（运行时由 Unpack-Drivers.ps1 解码落地）
+#      安全：任何一步失败都保留裸文件，只记为提示，不影响功能
+# ================================================================
+$script:HardeningDirs = @(
+  @{ Path = $script:ProgDataRoot                            ; Label = '本包目录' },
+  @{ Path = $script:ProgDataDrv                             ; Label = '本包驱动源' },
+  @{ Path = (Join-Path $env:ProgramData '40HXUnlock')       ; Label = '厂商目录' },
+  @{ Path = (Join-Path $env:ProgramData '40HXUnlock\drivers'); Label = '厂商驱动源' }
+)
+function Get-UsersWriteRights([string]$Path) {
+  # 返回"普通用户身份被授予写类权限"的条目（空数组 = 已收紧）
+  $hits = @()
+  try {
+    $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+    foreach ($r in $acl.Access) {
+      if ($r.AccessControlType -ne 'Allow') { continue }
+      $id = $r.IdentityReference.Value
+      if ($id -match 'SYSTEM|Administrators|TrustedInstaller|OWNER RIGHTS') { continue }
+      if ($id -notmatch 'Users|Everyone|INTERACTIVE|Authenticated') { continue }
+      $fr = [string]$r.FileSystemRights
+      if ($fr -match 'Write|Modify|FullControl|CreateFiles|AppendData|TakeOwnership|ChangePermissions') { $hits += ($id + ':' + $fr) }
+    }
+  } catch { }
+  return $hits
+}
+function Backup-DirAcl([string]$Path) {
+  $file = ''
+  try {
+    $bakDir = Join-Path (Join-Path $script:ProgDataRoot 'logs') ('acl-backup-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    if (-not (Test-Path -LiteralPath $bakDir)) { New-Item -ItemType Directory -Force -Path $bakDir | Out-Null }
+    $file = Join-Path $bakDir (($Path -replace '[\\:]', '_') + '.acl.txt')
+    Invoke-Native { icacls "$Path" /save "$file" /T /C 2>&1 | Out-Null }
+    if (-not (Test-Path -LiteralPath $file)) { $file = '' }
+  } catch { $file = '' }
+  return $file
+}
+function Set-DirAclHardened([string]$Path) {
+  if (-not (Test-Path -LiteralPath $Path)) { return 'skip' }
+  if (@(Get-UsersWriteRights $Path).Count -eq 0) { return 'ok' }
+  $bak = Backup-DirAcl $Path
+  # 只改"目录自身"的 ACL，**绝不加 /T**。
+  #   2026-10-01b 本机实测踩到：icacls /T + /inheritance:r 会把"只有继承 ACE"的子文件清成无 DACL
+  #   → 连管理员都读不了（文件所有者不是 Administrators，只能 takeown 才救回来；本次就是这么坏的）。
+  #   子对象会自动继承父目录的新 ACE，所以改父目录就够。
+  #   顺序：① 先 grant 显式权限 ② 再断继承 + 删 Users 系多余授权 ③ 最后再 grant 一次兜底。
+  try {
+    [void](Invoke-Native { icacls "$Path" /grant "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-32-545:(OI)(CI)RX" /C 2>&1 | Out-Null })
+    [void](Invoke-Native { icacls "$Path" /inheritance:r /remove:g "*S-1-5-32-545" "*S-1-5-11" "*S-1-1-0" "*S-1-5-4" /C 2>&1 | Out-Null })
+    [void](Invoke-Native { icacls "$Path" /grant "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-32-545:(OI)(CI)RX" /C 2>&1 | Out-Null })
+  } catch { return ('fail:' + $_.Exception.Message) }
+  # 兜底自愈：递归找出"读不了"的子对象（历史操作遗留的坏 ACL），逐对象 takeown + grant 修回来。
+  #   注意这里是**逐个文件**调用 icacls（不带 /T），因为 /T 正是会清空 DACL 的那个坑。
+  $repaired = 0
+  try {
+    foreach ($it in @(Get-ChildItem -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue)) {
+      if ($it.PSIsContainer) { continue }
+      $bad = $false
+      try { $null = [IO.File]::ReadAllBytes($it.FullName) } catch { $bad = $true }
+      if (-not $bad) { continue }
+      [void](Invoke-Native { takeown /f $it.FullName /a 2>&1 | Out-Null })
+      [void](Invoke-Native { icacls $it.FullName /grant "*S-1-5-18:F" "*S-1-5-32-544:F" "*S-1-5-32-545:RX" /C 2>&1 | Out-Null })
+      try { $null = [IO.File]::ReadAllBytes($it.FullName); $repaired++ } catch { }
+    }
+  } catch { }
+  if ($repaired -gt 0) { Ok ('  顺带修回了 ' + $repaired + ' 个丢权限的文件（历史 ACL 操作遗留）') }
+  if (@(Get-UsersWriteRights $Path).Count -gt 0) { return 'fail:still-writable' }
+  if ($bak) { return ('changed:' + $bak) }
+  return 'changed'
+}
+function Set-DriverSourceB64([string]$Dir, [string]$Name) {
+  # <Dir>\<Name> → <Dir>\<Name>.b64（逐字节校验通过后才删裸文件）
+  if (-not (Test-Path -LiteralPath $Dir)) { return 'nodir' }
+  $raw = Join-Path $Dir $Name
+  $b64 = Join-Path $Dir ($Name + '.b64')
+  if (-not (Test-Path -LiteralPath $raw)) {
+    if (Test-Path -LiteralPath $b64) { return 'already-b64' }
+    return 'missing'
+  }
+  try {
+    $bytes = [IO.File]::ReadAllBytes($raw)
+    $txt = [Convert]::ToBase64String($bytes)
+    $sb = New-Object System.Text.StringBuilder
+    for ($i = 0; $i -lt $txt.Length; $i += 76) { [void]$sb.AppendLine($txt.Substring($i, [Math]::Min(76, $txt.Length - $i))) }
+    [IO.File]::WriteAllText($b64, $sb.ToString(), (New-Object System.Text.UTF8Encoding($false)))
+    $back = [Convert]::FromBase64String(((Get-Content -LiteralPath $b64 -Raw) -replace '[\r\n\s]', ''))
+    if ($back.Length -ne $bytes.Length) { return 'fail:length' }
+    for ($i = 0; $i -lt $bytes.Length; $i++) { if ($back[$i] -ne $bytes[$i]) { return 'fail:bytes' } }
+    Remove-Item -LiteralPath $raw -Force -ErrorAction Stop
+    return 'converted'
+  } catch { return ('fail:' + $_.Exception.Message) }
+}
+function Install-Hardening {
+  Head '安全加固（驱动源改 base64 + 目录权限；都不删必要文件）'
+  # 顺序：先"读源文件 → 写 .b64 → 校验 → 删裸文件"，再收紧目录权限（见下面第 1 步的说明）。
+  # 2026-10-01b（第三方审查）：ThrottleStop.sys **不**转 base64 —— 旧回退路径（legacy）靠它执行，
+  #   而自愈逻辑只认裸文件；转成 .b64 之后它就再也补不回来了。
+  # 2026-10-01b（第三方审查）：这段原来写了两遍（$names0/$names 同值，每个文件转两次），
+  #   合并成一遍（幂等：第二次本来就只会报 already-b64，纯属冗余日志）。
+  $names = @('WinRing0x64.sys', 'inpoutx64.sys', 'inpoutx64.dll')
+  foreach ($d0 in @($script:ProgDataDrv, (Join-Path $env:ProgramData '40HXUnlock\drivers'))) {
+    if (-not (Test-Path -LiteralPath $d0)) { continue }
+    foreach ($n0 in $names) {
+      $r0 = Set-DriverSourceB64 $d0 $n0
+      if ($r0 -eq 'converted') { Ok ('源已转 base64（裸文件已删，字节已校验）: ' + (Join-Path $d0 $n0)) }
+      elseif ($r0 -eq 'already-b64') { Info ('源本来就是 base64: ' + (Join-Path $d0 ($n0 + '.b64'))) }
+      elseif ($r0 -eq 'missing') { Info ('源里没有 ' + $n0 + '（不需要补就在这里放同名 .b64）') }
+      elseif ($r0 -eq 'nodir') { }
+      elseif ($r0 -like 'fail:*') { Warn ('源转 base64 失败（裸文件保留）: ' + (Join-Path $d0 $n0) + ' → ' + $r0) }
+    }
+  }
+  # ---- 1) 目录权限（放在 base64 转换之后：转换要读文件，而收紧后可能读不到）----
+  foreach ($t in $script:HardeningDirs) {
+    if (-not (Test-Path -LiteralPath $t.Path)) { Info ('跳过（不存在）: ' + $t.Path); continue }
+    $r = Set-DirAclHardened $t.Path
+    if ($r -eq 'ok') { Ok ('目录权限已是最严（普通用户不可写）: ' + $t.Path) }
+    elseif ($r -eq 'changed') { Ok ('已收紧目录权限: ' + $t.Path + ' → 只剩 SYSTEM/Administrators 可写') }
+    elseif ($r -like 'changed:*') { Ok ('已收紧目录权限: ' + $t.Path + '（ACL 备份: ' + $r.Substring(8) + '）') }
+    else { Warn ('收紧目录权限失败: ' + $t.Path + ' → ' + $r + '（不影响解锁/Gen2，只是少了一层保护）'); Add-Action ('目录权限没收紧: ' + $t.Path + ' —— 可手工跑 icacls "' + $t.Path + '" /inheritance:r /grant:r "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F" "Users:(OI)(CI)RX"') }
+  }
+  # 若之前误把 ThrottleStop.sys 转成了 .b64（老版本行为），这里解回裸文件
+  foreach ($d2 in @($script:ProgDataDrv, (Join-Path $env:ProgramData '40HXUnlock\drivers'))) {
+    if (-not (Test-Path -LiteralPath $d2)) { continue }
+    $b64f = Join-Path $d2 'ThrottleStop.sys.b64'
+    $rawf = Join-Path $d2 'ThrottleStop.sys'
+    if ((Test-Path -LiteralPath $b64f) -and -not (Test-Path -LiteralPath $rawf)) {
+      try {
+        [IO.File]::WriteAllBytes($rawf, [Convert]::FromBase64String(((Get-Content -LiteralPath $b64f -Raw) -replace '[\r\n\s]', '')))
+        Ok ('已把 ThrottleStop.sys 解回裸文件（legacy 回退要用）: ' + $rawf)
+      } catch { Warn ('解回 ThrottleStop.sys 失败: ' + $_.Exception.Message) }
+    }
+  }
+  Ok '加固完成：平时 ProgramData 里没有"可直接被加载"的驱动副本；需要时由 Unpack-Drivers.ps1 解码落地'
+  Info '要退回这次加固：双击 工具-测试与修复\回滚-安全加固.cmd（恢复目录权限 + 写回裸驱动文件）'
+}
+
 function Install-DriverFiles {
   param([string]$BackupDir)
   Head '驱动 + 服务'
@@ -906,7 +1104,7 @@ function Install-DriverFiles {
 function Install-WindowsFiles {
   Head 'Windows 侧 helper'
   $src = Join-Path $script:PayloadDir 'windows'
-  foreach ($f in @('CMP40HXGen2.exe', 'AutoRetrain.cmd', 'Status.cmd', 'Uninstall_Auto.cmd', 'ACE-Toggle.ps1', '40hx-retrain-inpout.ps1')) {
+  foreach ($f in @('CMP40HXGen2.exe', 'AutoRetrain.cmd', 'Status.cmd', 'Uninstall_Auto.cmd', 'ACE-Toggle.ps1', '40hx-retrain-inpout.ps1', 'Unpack-Drivers.ps1')) {
     $s = Join-Path $src $f
     if (-not (Test-Path $s)) { Fail ("载荷缺失: " + $s) $script:ExitHash '包不完整 → 重新解压一份完整包（payload 目录必须跟脚本在一起）' }
     Copy-WithVerify $s (Join-Path $script:ProgDataWin $f) | Out-Null
@@ -1013,8 +1211,17 @@ function Install-Efi {
   }
   Ok ("解锁固件载荷校验通过: " + $srcSize + " B  sha256 " + $srcHash.Substring(0, 16) + "…")
 
+  # 2026-10-01b（第三方审查 D3）：默认**不再覆盖** \EFI\Boot\bootx64.efi。
+  #   那是 Windows 自己的引导文件；覆盖后万一固件不认我们的启动项、chainload 又出问题 → 开不了机，
+  #   而"进不了系统就跑不了 Uninstall"，ESP 上的 .40hx.bak 也就用不上。
+  #   本机实测：自建 NVRAM 启动项（Boot#### → \EFI\40HX\40HXUNLK.EFI）+ BootOrder 已能正常解锁并进系统，不需要覆盖。
+  #   只有确认"主板连 Boot#### 都不认"时，才用 -WriteBootx64 显式打开。
   $targets = @((Join-Path $espRoot 'EFI\40HX\40HXUNLK.EFI'))
-  if (-not $KeepBootx64) { $targets += (Join-Path $espRoot 'EFI\Boot\bootx64.efi') }
+  if ($KeepBootx64) { Info '（-KeepBootx64 现在默认生效：\EFI\Boot\bootx64.efi 不动）' }
+  if ($WriteBootx64) {
+    $targets += (Join-Path $espRoot 'EFI\Boot\bootx64.efi')
+    Warn '按 -WriteBootx64 显式要求：将覆盖 Windows 的 \EFI\Boot\bootx64.efi（原文件备份成 .40hx.bak，卸载会还原）'
+  }
   foreach ($dst in $targets) {
     $parent = Split-Path -Parent $dst
     if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
@@ -1072,7 +1279,7 @@ function Install-BootEntry {
     Info ("构造 " + $name + ": " + $bytes.Length + " 字节 (描述 '40HX Unlock' → \EFI\40HX\40HXUNLK.EFI)")
     if (-not (Write-FwVar $name $bytes)) { Fail ('写 ' + $name + ' 失败') $script:ExitNvram '同上：先关安全软件的启动项/UEFI 保护；或改用 -BootMode next 一次性启动项试跑' }
     $readback = Read-FwVar $name
-    if (-not $readback) { Fail ('回读 ' + $name + ' 失败') $script:ExitNvram '有的主板对某些 Boot 槽位行为异常 → 重跑一次，或直接进 BIOS 手动选启动项（\EFI\Boot\bootx64.efi 已兜底）' }
+    if (-not $readback) { Fail ('回读 ' + $name + ' 失败') $script:ExitNvram '有的主板对某些 Boot 槽位行为异常 → 重跑一次，或直接进 BIOS 手动选启动项 "40HX Unlock"（自建启动项已建好）' }
     if ([Convert]::ToBase64String($readback) -ne [Convert]::ToBase64String($bytes)) {
       [IO.File]::WriteAllBytes((Join-Path $BackupDir ($name + '.readback.bin')), $readback)
       Fail ('回读内容与写入不一致（已存证到 backup 目录）') $script:ExitNvram '主板固件改写了内容（少见）→ 进 BIOS 手动设启动项；backup 目录里有原始字节可对照'
@@ -1094,13 +1301,22 @@ function Install-BootEntry {
   } elseif ($BootMode -eq 'default') {
     if ($order.Count -gt 0 -and $order[0] -eq $index) {
       Ok ("BootOrder 第一位已经是 " + ('{0:X4}' -f $index) + "，不改动")
+    } elseif (@($order).Count -eq 0) {
+      # 2026-10-01b（第三方审查 N3）：这属于"安装没做到"—— 原来只 Warn，脚本结尾仍打印"安装步骤全部成功"并 exit 0
+      Bad '读不到 BootOrder（固件变量读取失败）→ 拒绝改写（防止把引导顺序写成只有解锁项）。先重启重试，或进 BIOS 把 "40HX Unlock" 手动设为第一启动项'
+      Add-Action 'BootOrder 读不到：重启后再跑一次 Install/Repair；或在 BIOS 里手动把 "40HX Unlock" 排到第一位'
     } else {
       $newOrder = @($index) + @($order | Where-Object { $_ -ne $index })
       if (Write-BootOrderIndices -Indices $newOrder -BackupDir $BackupDir) {
         $rb = Get-BootOrderIndices
         if ((Format-BootOrderIndices $rb) -eq (Format-BootOrderIndices $newOrder)) {
           Ok ("BootOrder 现在 = " + (Format-BootOrderIndices $rb) + "（原顺序已备份）")
-        } else { Warn ("BootOrder 回读不符: " + (Format-BootOrderIndices $rb)) }
+        } else { Bad ("BootOrder 回读不符: " + (Format-BootOrderIndices $rb)) + '（解锁大概率不生效）' ; Add-Action 'BootOrder 回读不符：进 BIOS 手动把 "40HX Unlock" 排到第一位' }
+      } else {
+        # 2026-10-01b（第三方审查）：写失败原来只内部 Warn → 脚本仍可能以 0 退出、打印"安装成功"。
+        #   引导顺序没写好 = 解锁不会自动生效，必须算失败并把手工做法写进"待办"。
+        Bad 'BootOrder 写入失败（引导顺序没改，解锁不会自动生效）'
+        Add-Action 'BootOrder 写失败：① 先关安全软件的"启动项保护"再重跑；② 或进 BIOS 把 "40HX Unlock" 手动设为第一启动项'
       }
     }
     if (Read-FwVar 'BootNext') { Remove-FwVar 'BootNext' | Out-Null; Info '清掉遗留的 BootNext' }
@@ -1147,11 +1363,22 @@ function Install-Task {
     Info ('  动作: ' + $act)
     Info ('  触发器: ' + (($t.Triggers | ForEach-Object { $_.CimClass.CimClassName }) -join ', ') + ' ; 身份: ' + $t.Principal.UserId + '/' + $t.Principal.RunLevel)
   } else { Bad '任务未注册成功' }
+  # 2026-10-01：登录后 60 秒自动补跑一次（见 $script:TaskNameLogon 的注释）。
+  # 为什么需要：开机那轮是最早的一批服务，客户机实测会因杀软拦驱动 / GPU 未就绪 / 驱动文件被清而失败，
+  #   而用户登录后手动跑一次总是成功 —— 那就别让用户点，由系统自己补跑。
+  # 幂等：已经到 Gen2 时工具输出 PASS: already physical Gen2 x16; no writes needed.，不做任何写入。
+  if (Get-ScheduledTask -TaskName $script:TaskNameLogon -ErrorAction SilentlyContinue) {
+    Invoke-Native { schtasks /delete /tn $script:TaskNameLogon /f 2>&1 | Out-Null }
+  }
+  $out2 = (Invoke-Native { schtasks /create /tn $script:TaskNameLogon /sc onlogon /delay 0001:00 /ru SYSTEM /rl HIGHEST /tr $cmdLine /f 2>&1 } | Out-String)
+  if ($out2 -match '成功|SUCCESS') { Ok ('登录后补跑任务已注册: ' + $script:TaskNameLogon + ' (LogonTrigger +60s, SYSTEM/Highest)') }
+  else { Warn ('登录后补跑任务注册可能失败: ' + $out2.Trim() + ' —— 需要它的话跑 -Mode Repair 重试') }
   # 厂商自启（会在本机把算力清掉/覆盖 EFI）一律停掉
   # 2026-09-30 修：不再只认两个固定任务名（厂商换名就漏），改成按"名字或动作命令行里含 40HX"全扫
   $dis = 0
   foreach ($t in @(Get-ScheduledTask -ErrorAction SilentlyContinue)) {
     if ([string]$t.TaskName -eq $script:TaskName) { continue }
+    if ([string]$t.TaskName -eq $script:TaskNameLogon) { continue }
     $acts = ((@($t.Actions) | ForEach-Object { ([string]$_.Execute + ' ' + [string]$_.Arguments) }) -join ' ')
     if (([string]$t.TaskName -match '40HX|CMP40HX') -or ($acts -match '40HX|CMP40HX')) {
       if ($t.State -ne 'Disabled') {
@@ -1333,14 +1560,23 @@ function Invoke-SelfTest {
   $order = Get-BootOrderIndices
   Info ("当前 BootOrder = " + (Format-BootOrderIndices $order))
   $raw = Read-FwVar 'BootOrder'
-  if ($raw) { [IO.File]::WriteAllBytes((Join-Path $BackupDir 'BootOrder.selftest.bin'), $raw) }
-  if (Write-FwVar 'BootOrder' $raw) {
-    $rb = Read-FwVar 'BootOrder'
-    if ($rb -and ([Convert]::ToBase64String($rb) -eq [Convert]::ToBase64String($raw))) { Ok ('BootOrder 写回 + 回读一致 (' + $raw.Length + " 字节，值未变)") }
-    else { Bad 'BootOrder 回读不一致'; $problems++ }
-  } else { Bad 'BootOrder 写入失败'; $problems++ }
-  $after = Get-BootOrderIndices
-  if ((Format-BootOrderIndices $after) -eq (Format-BootOrderIndices $order)) { Ok ('BootOrder 未被改动: ' + (Format-BootOrderIndices $after)) } else { Bad 'BootOrder 变了！'; $problems++ }
+  # 2026-10-01b（第三方审查 D2 旁路 A，致命）：读不到就**绝不能**调 Write-FwVar —— 把 $null 传进去
+  #   长度算 0，而 SetFirmwareEnvironmentVariableW(name,guid,0,0) 的语义是**删除这个变量**，
+  #   等于把 BootOrder 清空（Windows 的启动项全丢），更糟的是下面还会打印"BootOrder 未被改动"。
+  if (-not $raw -or $raw.Length -lt 2) {
+    Warn 'BootOrder 读不到（或长度异常 <2 字节）→ 这一项跳过、不写入（防止把启动顺序清空）'
+    Info '  这不代表解锁有问题：重启后再跑一次自检即可；连续读不到见 排查指引.md「固件变量读不到」'
+    $problems++
+  } else {
+    try { [IO.File]::WriteAllBytes((Join-Path $BackupDir 'BootOrder.selftest.bin'), $raw) } catch { Warn ('原值落盘失败（仍继续：只是原样写回）: ' + $_.Exception.Message) }
+    if (Write-FwVar 'BootOrder' $raw) {
+      $rb = Read-FwVar 'BootOrder'
+      if ($rb -and ([Convert]::ToBase64String($rb) -eq [Convert]::ToBase64String($raw))) { Ok ('BootOrder 写回 + 回读一致 (' + $raw.Length + " 字节，值未变)") }
+      else { Bad 'BootOrder 回读不一致'; $problems++ }
+    } else { Bad 'BootOrder 写入失败'; $problems++ }
+    $after = Get-BootOrderIndices
+    if ((Format-BootOrderIndices $after) -eq (Format-BootOrderIndices $order)) { Ok ('BootOrder 未被改动: ' + (Format-BootOrderIndices $after)) } else { Bad 'BootOrder 变了！'; $problems++ }
+  }
   if (-not (Read-FwVar 'BootNext')) { Ok 'BootNext 为空（没留一次性启动项）' } else { Warn 'BootNext 有值（注意下次开机走一次性项）' }
 
   Say ''
@@ -1409,6 +1645,11 @@ function Invoke-Verify {
     $ti = Get-ScheduledTaskInfo -TaskName $script:TaskName -ErrorAction SilentlyContinue
     Info ('开机任务上次运行: ' + $ti.LastRunTime + '  rc=0x' + ('{0:X}' -f $ti.LastTaskResult))
   }
+  $t2 = Get-ScheduledTask -TaskName $script:TaskNameLogon -ErrorAction SilentlyContinue
+  if ($t2) {
+    $ti2 = Get-ScheduledTaskInfo -TaskName $script:TaskNameLogon -ErrorAction SilentlyContinue
+    Info ('登录后补跑任务上次运行: ' + $ti2.LastRunTime + '  rc=0x' + ('{0:X}' -f $ti2.LastTaskResult))
+  } else { Info ('登录后补跑任务 ' + $script:TaskNameLogon + ' 未注册') }
   $smi = Get-NvidiaSmi
   if ($smi) {
     $csv = (Invoke-Native { & $smi --query-gpu=name,vbios_version,pcie.link.gen.current,pcie.link.gen.max,pcie.link.width.current --format=csv,noheader 2>&1 } | Out-String).Trim()
@@ -1459,16 +1700,27 @@ function Invoke-Uninstall {
       $index = $unlock.Index
       $name = $unlock.Name
       $order = @(Get-BootOrderIndices | Where-Object { $_ -ne $index })
-      if ($order.Count -gt 0) { Write-BootOrderIndices -Indices $order -BackupDir $BackupDir | Out-Null; Ok ('BootOrder 已移除 ' + ('{0:X4}' -f $index) + ' → ' + (Format-BootOrderIndices (Get-BootOrderIndices))) }
+      # 2026-10-01b（第三方审查 N4）：读不到 BootOrder 时也要如实说；写失败不能照样报"已移除"
+      if (@(Get-BootOrderIndices).Count -eq 0) {
+        Warn '读不到 BootOrder → 只删启动项、不动 BootOrder（重启后再跑一次卸载，把它从启动顺序里去掉）'
+      } elseif ($order.Count -gt 0) {
+        if (Write-BootOrderIndices -Indices $order -BackupDir $BackupDir) {
+          Ok ('BootOrder 已移除 ' + ('{0:X4}' -f $index) + '（原顺序已备份）')
+        } else {
+          Warn ('BootOrder 没改成功 —— 顺序里可能还留着 ' + ('{0:X4}' -f $index) + '（重启后再跑一次卸载，或进 BIOS 删掉它）')
+        }
+      }
       Remove-FwVar $name | Out-Null
       if (-not (Read-FwVar $name)) { Ok ('已删除固件启动项 ' + $name) } else { Warn ('固件启动项 ' + $name + ' 删不掉') }
     } else { Info '没有找到解锁启动项' }
     if (Read-FwVar 'BootNext') { Remove-FwVar 'BootNext' | Out-Null; Ok '已清掉 BootNext' }
   }
-  if (Get-ScheduledTask -TaskName $script:TaskName -ErrorAction SilentlyContinue) {
-    Invoke-Native { schtasks /delete /tn $script:TaskName /f 2>&1 | Out-Null }
+  foreach ($tn in @($script:TaskName, $script:TaskNameLogon)) {
+    if (Get-ScheduledTask -TaskName $tn -ErrorAction SilentlyContinue) {
+      Invoke-Native { schtasks /delete /tn $tn /f 2>&1 | Out-Null }
+    }
+    if (-not (Get-ScheduledTask -TaskName $tn -ErrorAction SilentlyContinue)) { Ok ('已删除任务 ' + $tn) }
   }
-  if (-not (Get-ScheduledTask -TaskName $script:TaskName -ErrorAction SilentlyContinue)) { Ok ('已删除开机任务 ' + $script:TaskName) }
   foreach ($d in $script:Drivers) {
     Invoke-Native { sc.exe stop $d.Service 2>&1 | Out-Null }
     Invoke-Native { sc.exe delete $d.Service 2>&1 | Out-Null }
@@ -1488,7 +1740,22 @@ function Invoke-Uninstall {
   if ($Purge) {
     if (Test-Path $script:ProgDataRoot) { Remove-Item -LiteralPath $script:ProgDataRoot -Recurse -Force -ErrorAction SilentlyContinue; Ok ('已删除 ' + $script:ProgDataRoot) }
   } else { Info ('保留 ' + $script:ProgDataRoot + '（要一起删就加 -Purge）') }
+  # 2026-10-01b（审查 H10）：把安装时加的 Defender 排除项一并撤掉
+  try {
+    Remove-MpPreference -ExclusionPath $script:ProgDataRoot -ErrorAction SilentlyContinue
+    Remove-MpPreference -ExclusionProcess 'CMP40HXGen2.exe' -ErrorAction SilentlyContinue
+    Ok '已撤销 Defender 排除项（CMP40HXGen2）'
+  } catch { Info '撤 Defender 排除项跳过（未启用或无权限）' }
   if (Test-Path $script:StateFile) { Remove-Item -LiteralPath $script:StateFile -Force }
+  Say ''
+  # 2026-10-01b（第三方审查 H10）：如实说明哪些没还原（原来文档/输出都说"全部撤销"，是过度承诺）
+  Say '注：下面这些**不会**自动还原（都不影响使用，想要回到改之前请手工改）：' 'Yellow'
+  Say '  · 显示类子键 EnableGpuFirmware=1（GSP 开关；留着无害，想关就删掉该值）' 'Gray'
+  Say '  · HiberbootEnabled=0（快速启动关着；控制面板→电源选项→选择电源按钮功能→启用快速启动 可开回）' 'Gray'
+  Say '  · HKLM\SOFTWARE\40HXUnlock 的策略键（本包写 0 = 永不复位显卡，无害）' 'Gray'
+  Say '  · HKCU\...\Run 里被改名的 40HXGen2_parked（改回 40HXGen2 即恢复厂商登录自启）' 'Gray'
+  Say '  · 被本包禁用的厂商计划任务（任务计划程序里手动启用）' 'Gray'
+  Say '  · ProgramData\CMP40HXGen2 下我们加过的目录权限（要恢复继承：icacls "<目录>" /inheritance:e /T /C）' 'Gray'
   Say ''
   Say '卸载完成：重启后就是原生（未解锁）状态。' 'Yellow'
 }
@@ -1547,7 +1814,14 @@ if ($Mode -eq 'MakeDefault') {
   $unlock = Get-UnlockBootEntry $entries
   if (-not $unlock) { Fail '没有找到 "40HX Unlock" 启动项，先跑 -Mode Install' $script:ExitNvram '这台机器本来就没装过（或已被卸载）→ 不需要卸载；想清理驱动/任务可以跑 -Mode Uninstall -Yes 或直接删 %ProgramData%\CMP40HXGen2' }
   $bk = New-BackupFolder
-  $order = @($unlock.Index) + @(Get-BootOrderIndices | Where-Object { $_ -ne $unlock.Index })
+  # 2026-10-01b（第三方审查 D2 旁路 B）：先确认"这一次读到的是有效值"再组装 —— 否则第一次读失败（空）
+  #   会让 $order 退化成只含解锁项 1 个元素，而 Write-BootOrderIndices 内部会**再读一次**（这次可能成功）
+  #   → 校验通过 → 写成单元素 BootOrder，Windows Boot Manager 等全丢。
+  $curOrder = @(Get-BootOrderIndices)
+  if ($curOrder.Count -eq 0) {
+    Fail '读不到 BootOrder（固件变量读取失败）→ 拒绝改写' $script:ExitNvram '重启后再跑一次；或进 BIOS 把 "40HX Unlock" 手动设为第一启动项（启动项已经建好了）'
+  }
+  $order = @($unlock.Index) + @($curOrder | Where-Object { $_ -ne $unlock.Index })
   if (Write-BootOrderIndices -Indices $order -BackupDir $bk) {
     Ok ('BootOrder = ' + (Format-BootOrderIndices (Get-BootOrderIndices)) + '（"40HX Unlock" 已排第一）')
   } else { Fail 'BootOrder 写入失败' $script:ExitNvram '先关安全软件的启动项保护；或进 BIOS 把「40HX Unlock」手工排到第一位（脚本已把启动项建好）' }
@@ -1560,7 +1834,7 @@ $rep = Get-CheckReport
 Show-Check $rep -FromInstall
 
 Head '计划'
-if ($Mode -eq 'Install') { Info '安装/修复：驱动+服务 → helper(含新路径工具) → 新路径驱动(inpoutx64) → GSP 开关 → 关快速启动 → ESP 固件 → 固件启动项 → 开机任务 → 厂商自启收尾' } else { Info 'Repair：只补驱动/服务/helper/新路径驱动/任务，不动 ESP 与固件启动项' }
+if ($Mode -eq 'Install') { Info '安装/修复：驱动+服务 → helper(含新路径工具) → 新路径驱动(inpoutx64) → 安全加固(目录权限 + 驱动源 base64) → GSP 开关 → 关快速启动 → ESP 固件 → 固件启动项 → 开机任务 → 厂商自启收尾' } else { Info 'Repair：只补驱动/服务/helper/新路径驱动/任务/安全加固，不动 ESP 与固件启动项' }
 
 $blockers = 0
 if ($rep.Firmware -ne 'Uefi') { Bad '固件不是 UEFI 模式'; $blockers++ }
@@ -1573,10 +1847,29 @@ if ($blockers -gt 0) {
   else { Fail ('有 ' + $blockers + ' 项前提不满足，先处理后重跑；确认要继续就加 -Force') $script:ExitPrereq '按上面 [失败] 行逐条处理：Secure Boot→BIOS 关；BitLocker→暂停/解密；MBR 盘→mbr2gpt；显卡没识别→插紧/装 NVIDIA 驱动；不是 UEFI→BIOS 关 CSM' }
 }
 
+Head '改动清单与风险（出事怎么办，都写在下面）'
+Info '这次会改的东西（每项都有备份或回滚办法）：'
+Info '  1. 驱动/服务      ：写 System32\drivers 下 3 个驱动 + 建/纠正对应服务（只动文件与服务，不改系统安全策略）'
+Info '  2. 开机任务      ：注册 CMP40HX Gen2 PostBind（开机）与 CMP40HX Gen2 PostBind Logon（登录后 60 秒补跑）'
+Info '  3. 注册表        ：显示类子键 EnableGpuFirmware=1（GSP）、关快速启动、HKLM\SOFTWARE\40HXUnlock 两个策略键'
+Info '  4. 目录权限      ：把 CMP40HXGen2 与 40HXUnlock 收紧到只剩 SYSTEM/Administrators 可写（有 ACL 备份）'
+Info '  5. 驱动源形态    ：ProgramData 两处的裸 .sys/.dll 转成 base64 文本（先逐字节校验，通过才删裸文件）'
+Info '  6. Install 还有  ：把解锁固件写进 ESP（\EFI\40HX\40HXUNLK.EFI）+ 写固件启动项 Boot####/BootOrder（默认**不改** Windows 的 \EFI\Boot\bootx64.efi）'
+Info '已知风险与恢复：'
+Info '  · 改引导（只有 Install 会） 最坏=写坏启动顺序 → 进 BIOS 把启动项切回 Windows Boot Manager（本包默认不碰 Windows 的 bootx64.efi，所以进系统这条路一直在）'
+Info '  · ACE-BOOT（腾讯反作弊）  只在必要时停、结束就恢复；若客户点过"退出预启动模式"，恢复可能让桌面起不来 → 跑 工具-测试与修复\桌面恢复.cmd（没桌面也能跑）'
+Info '  · 驱动被杀软隔离（火绒/360）  症状=Gen2 落不了地、算力不受影响 → 把 README 1.1 的路径加信任区后跑 -Mode Repair'
+Info '  · 显卡被复位  本包 Gen2AutoHard=0 / Gen2PnpFallback=0，绝不复位显卡；万一出现代码 43 → 完全关机（不是重启）再开机'
+Info '  · 目录权限/驱动源改动  零功能影响；要退回双击 工具-测试与修复\回滚-安全加固.cmd'
+Info '  · 主要撤销项  powershell -ExecutionPolicy Bypass -File 本目录\Install-40HXUnlock.ps1 -Mode Uninstall -Yes（卸载后仍会留几项不影响使用的东西，见上面"不会自动还原"清单）'
+Info '详见包内 排查指引.md 与 风险与恢复.md；本次日志：'
+Info ('  ' + $script:LogPath)
+Info ''
 $bk = New-BackupFolder
 Install-DriverFiles -BackupDir $bk
 Install-WindowsFiles
 Install-InpoutFiles -BackupDir $bk
+Install-Hardening
 Install-Gsp
 Install-Power
 if ($Mode -eq 'Install') {
@@ -1649,7 +1942,7 @@ if ($script:ActionItems.Count -gt 0) {
 Say ''
 Say '   若开机后没效果：别乱试，打开 排查指引.md 按日志原话搜；黑屏/代码 43 见第 5 节与第 5.1 节（GSP）。' 'Yellow'
 Say '   若开机没进 "40HX Unlock"（看 40hx_log.txt 时间不是本次开机）：进 BIOS 启动项手动选它一次；' 'Yellow'
-Say '   脚本已把解锁固件写到 \EFI\Boot\bootx64.efi 兜底，多数主板不看 NVRAM 也能生效。' 'Yellow'
+Say '   解锁固件在 \EFI\40HX\40HXUNLK.EFI，用一个自建的固件启动项（Boot####）指向它；默认不动 Windows 自己的 \EFI\Boot\bootx64.efi。' 'Yellow'
 Say ''
 Say ('  回滚：powershell -ExecutionPolicy Bypass -File "' + (Join-Path $script:PkgRoot 'Install-40HXUnlock.ps1') + '" -Mode Uninstall -Yes') 'Gray'
 

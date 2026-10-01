@@ -50,6 +50,11 @@ try {
 } catch { W ('  读取失败: ' + $_.Exception.Message) }
 W ''
 W '==== 3) minidump 清单 ===='
+# 2026-10-01b（第三方审查）：非管理员时读不到 C:\Windows\Minidump 与 CrashControl，
+#   会把"没权限"显示成"没有 dmp"（假阴性）—— 显式提示，别让经销商误判
+if(-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+  W '  [!!] 当前不是管理员：这一节可能看不到 dump/CrashControl（不是"没有"，是"读不到"）→ 请以管理员身份重跑'
+}
 try {
   $dumps = @(Get-ChildItem 'C:\Windows\Minidump' -Filter '*.dmp' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 12)
   if($dumps){ foreach($d in $dumps){ W ('  ' + $d.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss') + '  ' + $d.Name + '  ' + [int]($d.Length/1024) + ' KB') } }

@@ -61,16 +61,52 @@ function Get-SvcByPath {
       }
     } catch {}
   }
-  ,@($out)
+  # 2026-10-01b（实测回归，同 ACE修复 的 Get-AceComponents）：**不要**用 `,@($out)` 包 ——
+  #   调用方写的是 `@(Get-SvcByPath ...)`，外层 @() 会把"单元素数组"当成一个元素收下，
+  #   于是 $x.Count 恒为 1、过滤与逐项打印全部退化成"一行挤出所有名字"。逐元素输出即可。
+  @($out) | ForEach-Object { $_ }
 }
 function Get-AceComponents {
   # 注意：**不能用 'ACE' 裸匹配** —— 会把 "Human Interf-ACE Device Service"(hidserv)、
   # "jhi_service"/"nsi"(都含 Interface) 全捞进来（2026-10-01 元测试实测踩到）。
-  Get-CimInstance Win32_Service -ErrorAction SilentlyContinue | Where-Object {
+  $wmi = @(Get-CimInstance Win32_Service -ErrorAction SilentlyContinue | Where-Object {
     ($_.PathName -match 'AntiCheatExpert|ACE-BOOT|ACE-GAME|ACE-SVC|ACE-Guard|SGuard') -or
     ($_.Name -match '^(ACE-BOOT|ACE-GAME|ACE-SVC|ACE-ADVT|ACE-Guard|AntiCheatExpert)') -or
     ($_.DisplayName -match 'AntiCheatExpert|反作弊|腾讯游戏安全')
-  } | Where-Object { $_ } | Sort-Object Name
+  } | Where-Object { $_ })
+  # 2026-10-01b（第三方审查 H16）：**Win32_Service 看不到内核驱动**（ACE-BOOT 是 boot 驱动）→
+  #   只用 WMI 会漏检它，进而误判「组件缺失、去重装 ACE」。这里补一遍注册表 Services 扫描。
+  $names = @($wmi | ForEach-Object { $_.Name })
+  $extra = @()
+  try {
+    foreach ($k in @(Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Services' -ErrorAction SilentlyContinue)) {
+      if ($names -contains $k.PSChildName) { continue }
+      $ip = (Get-ItemProperty -LiteralPath $k.PSPath -Name ImagePath -ErrorAction SilentlyContinue).ImagePath
+      if (-not $ip) { continue }
+      if ($ip -match 'AntiCheatExpert|ACE-BOOT|ACE-GAME|ACE-SVC|ACE-Guard|SGuard' -or $k.PSChildName -match '^(ACE-BOOT|ACE-GAME|ACE-SVC|ACE-ADVT|ACE-Guard|AntiCheatExpert)') {
+        $props = Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction SilentlyContinue
+        $startV = $props.Start
+        $mode = switch ([int]$startV) { 0 { 'Boot' } 1 { 'System' } 2 { 'Automatic' } 3 { 'Manual' } 4 { 'Disabled' } default { '' } }
+        # 2026-10-01b（第三方审查）：State 不能留空！留空会让下面所有 "State -ne 'Running'" 的判定恒为真，
+        #   把一个**正在运行**的 ACE-BOOT 报成"根因/需要恢复"，甚至进硬兜底去改它的启动类型（会动到预启动反作弊时序）。
+        #   这里用 sc.exe query 取真实状态。
+        $qtext = (sc.exe query $k.PSChildName 2>&1 | Out-String)
+        # 2026-10-01b（第三方审查 N1）：读不到时必须是**未知**，不能默认成 'Stopped' ——
+        #   默认 Stopped 会让下面"状态读不到就不动手"的保护分支永远不可达（形同虚设）。
+        $state = 'Unknown'
+        if     ($qtext -match 'RUNNING')       { $state = 'Running' }
+        elseif ($qtext -match 'START_PENDING') { $state = 'Start Pending' }
+        elseif ($qtext -match 'STOP_PENDING')  { $state = 'Stop Pending' }
+        elseif ($qtext -match 'PAUSED')        { $state = 'Paused' }
+        elseif ($qtext -match 'STOPPED')       { $state = 'Stopped' }
+        $extra += [pscustomobject]@{ Name = $k.PSChildName; PathName = $ip; State = $state; Start = $startV; StartMode = $mode; StartName = $props.ObjectName; Type = ''; DisplayName = '(内核驱动，来自注册表)' }
+      }
+    }
+  } catch { }
+  # 2026-10-01b（实测发现的回归）：**不要**用 `,@(...)` 包 —— 那会让调用方拿到"一个数组对象"，
+  #   于是 $comps 只有 1 个元素、$c.Name 变成一串名字、$bootComp.State 永远是 $null →
+  #   组件列表挤成一行、结论误报"状态读不到"。逐元素输出即可（和原来的 WMI 版一致）。
+  @($wmi) + @($extra) | Sort-Object Name
 }
 
 WB '============================================================'
@@ -87,7 +123,7 @@ if($comps.Count -eq 0){
   WB '     → 说明 ACE 组件缺失或被卸载：在游戏客户端里点「修复/重新安装」由游戏重新部署 ACE'
 } else {
   foreach($c in $comps){
-    $flag = if($c.State -eq 'Running'){ '  ' } else { '  ★' }
+    $flag = if($c.State -eq 'Running'){ '  ' } elseif($c.State -eq 'Unknown'){ '  ?' } else { '  ★' }
     W ($flag + ' ' + $c.Name + '   显示名=' + $c.DisplayName)
     W ('     启动类型=' + $c.StartMode + '   状态=' + $c.State + '   账号=' + $c.StartName)
     W ('     路径=' + $c.PathName)
@@ -168,7 +204,7 @@ WB ''
 WB '==== 6b) ThrottleStop 溯源（ACE 弹窗就是指它）===='
 $tsSvc = Get-SvcByPath 'ThrottleStop'
 if($tsSvc.Count -eq 0){ WB '  指向 ThrottleStop.sys 的服务: 无（名字不限）' }
-else { foreach($s in $tsSvc){ WB ('  ★ 服务 ' + $s.Name + '  ' + $s.StartMode + '  ' + $s.State + '  → ' + $s.PathName) } }
+else { foreach($s in $tsSvc){ WB ('  ★ 服务 ' + $s.Name + '  Start=' + $s.Start + '  类型=' + $s.Type + '  → ' + $s.ImagePath) } }
 $tsFile='C:\Windows\System32\drivers\ThrottleStop.sys'
 if(Test-Path $tsFile){ WB ('  驱动文件: 存在  ' + (Get-Item $tsFile).Length + ' B  修改于 ' + (Get-Item $tsFile).LastWriteTime) } else { WB '  驱动文件: 不存在（已退场）' }
 $tsTasks = @(Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $a = ($_.Actions | ForEach-Object { ('' + $_.Execute) + ' ' + ('' + $_.Arguments) }) -join ' '; $a -match 'ThrottleStop|40HX|AutoRetrain|RunPostBind|CMP40HX' } | Where-Object { $_ })
@@ -232,6 +268,10 @@ WB ''
 WB '==== 7) 结论 ===='
 if($comps.Count -eq 0){
   WB '  ACE 组件不在本机 → 请在游戏客户端里点「修复 / 重新安装」让游戏重新部署 ACE'
+} elseif($bootComp -and $bootComp.State -eq 'Unknown'){
+  # 2026-10-01b（审查）：状态都读不到时不要下"根因"结论（原来 State 为空会被当成"没在运行"→ 误报根因）
+  WB ('  ACE 引导驱动 ' + $bootComp.Name + ' 的状态读不到（sc query 没返回）→ 不下结论。')
+  WB '     处理：以管理员身份重跑本工具；或直接跑「ACE修复.cmd /fix」。'
 } elseif($bootComp -and $bootComp.State -ne 'Running'){
   WB ('  ★ 根因：ACE 引导驱动 ' + $bootComp.Name + ' 当前是 ' + $bootComp.State + '（应为 Running）')
   WB '     典型成因：旧版开机任务只在 Gen2 成功时才恢复 ACE-BOOT，某轮失败后就一直停着。'
@@ -394,7 +434,7 @@ if($Fix){
     # 先把所有指向它的服务停掉并删除（名字不限）
     $svcs = Get-SvcByPath 'ThrottleStop'
     foreach($sv in $svcs){
-      WB ('      服务 ' + $sv.Name + '（' + $sv.StartMode + '/' + $sv.State + '）→ 停止并删除')
+      WB ('      服务 ' + $sv.Name + '（Start=' + $sv.Start + '）→ 停止并删除')
       & sc.exe stop $sv.Name 2>&1 | Out-Null
       Start-Sleep -Milliseconds 800
       & sc.exe delete $sv.Name 2>&1 | Out-Null
@@ -422,7 +462,7 @@ if($Fix){
     if($moved -eq 0){ WB '      （没有可挪的副本 —— 已经退场过了）' }
     # 复查
     $left = Get-SvcByPath 'ThrottleStop'
-    WB ('      复查: 指向它的服务 ' + $left.Count + ' 个；文件存在? ' + (Test-Path 'C:\Windows\System32\drivers\ThrottleStop.sys'))
+    WB ('      复查: 指向它的服务 ' + @($left).Count + ' 个；文件存在? ' + (Test-Path 'C:\Windows\System32\drivers\ThrottleStop.sys'))
     if($moved -gt 0){ WB '      说明：本机 legacy 旧路径（厂商 AutoRetrain）将不再可用，新路径不受影响；还原请把备份文件移回原处' }
     WB ('      备份目录: ' + $bkDir)
   } catch { WB ('      [X] 退场失败: ' + $_.Exception.Message) }
@@ -487,15 +527,28 @@ if($Fix){
   $comps2 = @(Get-AceComponents | Where-Object { $_ })
   $boot2 = $comps2 | Where-Object { $_.Name -eq 'ACE-BOOT' } | Select-Object -First 1
   if(-not $boot2){ $boot2 = $comps2 | Where-Object { $_.PathName -match 'AntiCheatExpert' -and $_.Name -match 'BOOT' } | Select-Object -First 1 }
-  if($boot2 -and $boot2.State -ne 'Running'){
-    WB '  [4] 硬兜底：仍没起来 → 恢复启动类型并启动它'
-    $kw='system'
-    if(Test-Path $StateFile){ try { $r=Get-Content -LiteralPath $StateFile -Raw -Encoding UTF8 | ConvertFrom-Json; if($r.StartKeyword){ $kw=$r.StartKeyword } } catch {} }
-    WB ('      用启动类型: ' + $kw)
-    & sc.exe config $boot2.Name ('start= ' + $kw) 2>&1 | ForEach-Object { WB ('      ' + $_) }
-    & sc.exe start $boot2.Name 2>&1 | ForEach-Object { WB ('      ' + $_) }
-    Start-Sleep -Seconds 2
-    WB ('      现在状态: ' + (((sc.exe query $boot2.Name) | Out-String) -replace '\s+',' '))
+  if($boot2 -and $boot2.State -eq 'Unknown'){
+    WB '  [4] 硬兜底：跳过 —— 读不到 ACE-BOOT 的状态（sc query 没返回），**不猜、不动手**'
+  } elseif($boot2 -and $boot2.State -ne 'Running'){
+    # 2026-10-01b（第三方审查 H14）：先看它当前是不是**被刻意禁用**了（DISABLED = 客户点过
+    #   ACE 弹窗里的"退出/卸载预启动模式"）。那种情况下把它改成 system 并启动 → 反作弊预启动层
+    #   与用户态状态不一致，实测会卡在进系统界面 / 登录后没有桌面。所以：DISABLED 就只报告、不动手。
+    $qc = ((sc.exe qc $boot2.Name 2>&1) | Out-String)
+    if($qc -match 'DISABLED'){
+      WB '  [4] 硬兜底：跳过 —— 该服务当前是 DISABLED（你/客户点过"退出预启动模式"）'
+      WB '      现在的做法是**尊重现状、不强行恢复**（强行恢复可能卡启动/黑屏）。'
+      WB '      要继续用腾讯游戏的预启动反作弊，请在游戏客户端里点"修复/重装 ACE"，让 ACE 自己回到一致状态。'
+    } else {
+      WB '  [4] 硬兜底：仍没起来 → 按记录恢复启动类型并启动它'
+      $kw=''
+      if(Test-Path $StateFile){ try { $r=Get-Content -LiteralPath $StateFile -Raw -Encoding UTF8 | ConvertFrom-Json; if($r.StartKeyword){ $kw=$r.StartKeyword } } catch {} }
+      if(-not $kw){ $kw='system' }
+      WB ('      用启动类型: ' + $kw)
+      & sc.exe config $boot2.Name ('start= ' + $kw) 2>&1 | ForEach-Object { WB ('      ' + $_) }
+      & sc.exe start $boot2.Name 2>&1 | ForEach-Object { WB ('      ' + $_) }
+      Start-Sleep -Seconds 2
+      WB ('      现在状态: ' + (((sc.exe query $boot2.Name) | Out-String) -replace '\s+',' '))
+    }
   }
   WB ''
   WB '  修复动作完成。建议：'
