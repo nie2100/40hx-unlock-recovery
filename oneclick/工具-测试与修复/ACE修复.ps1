@@ -205,6 +205,28 @@ if(Test-Path $PostLog){
   else { WB '  最近开机日志里没有 throttle / legacy 回落痕迹 → 说明不是我们脚本在加载它' }
 }
 WB ''
+# ---------- 6c) 厂商 v3.2 / 其它解锁包的遗留项（任务 + 服务）----------
+WB ''
+WB '==== 6c) 厂商遗留项（任务 / 服务）===='
+$vPat = '40HX|Gen2|ThrottleStop|40HXUnlock'
+$vTasks = @(Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {
+  $a = ($_.Actions | ForEach-Object { ('' + $_.Execute) + ' ' + ('' + $_.Arguments) }) -join ' '
+  ($_.TaskName -match $vPat) -or ($a -match $vPat)
+} | Where-Object { $_ -and $_.TaskName -notmatch 'CMP40HX Gen2 PostBind' })
+if($vTasks.Count -eq 0){ WB '  任务: 无（干净）' }
+else {
+  $script:vendorTasks = @($vTasks | ForEach-Object { $_.TaskName })
+  foreach($t in $vTasks){
+    $a=($t.Actions | ForEach-Object { ('' + $_.Execute) + ' ' + ('' + $_.Arguments) }) -join ' | '
+    WB ('  ★ 任务 ' + $t.TaskName + '  ' + $t.State + '  → ' + $a)
+  }
+  WB '    危害：厂商 Gen2 任务会重新拉 ThrottleStop/硬复位显卡 → ACE 弹窗 + 算力被清'
+}
+$vSvcs = @(Get-SvcByPath 'ThrottleStop|40HXUnlock|40HXGen2' | Where-Object { $_.Name -notmatch '^(WinRing0_1_2_0|WinRing0_40HX|ThrottleStop)$' })
+if($vSvcs.Count -eq 0){ WB '  服务: 无额外项' }
+else { foreach($v in $vSvcs){ WB ('  ★ 服务 ' + $v.Name + '  Start=' + $v.Start + ' → ' + $v.ImagePath) } }
+WB '  处置：ACE修复.cmd /fix 会把这些任务/服务**禁用**（不删除、留档可还原）'
+WB ''
 # ---------- 7) 结论 ----------
 WB ''
 WB '==== 7) 结论 ===='
@@ -314,6 +336,34 @@ if($Fix){
       }
     }
   }
+  WB ''
+
+  # ---- 9.0b) 接管厂商遗留（任务/服务）—— 只禁用，不删除，留档可还原 ----
+  WB '  [0b] 接管厂商遗留任务/服务（禁用 + 留档）'
+  $bk2 = Join-Path $ProgDataWin ('logs\vendor-disabled-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.txt')
+  $vPat2 = '40HX|Gen2|ThrottleStop|40HXUnlock'
+  $n1 = 0
+  try {
+    $vt = @(Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {
+      $a = ($_.Actions | ForEach-Object { ('' + $_.Execute) + ' ' + ('' + $_.Arguments) }) -join ' '
+      (($_.TaskName -match $vPat2) -or ($a -match $vPat2)) -and ($_.TaskName -notmatch 'CMP40HX Gen2 PostBind')
+    } | Where-Object { $_ })
+    foreach($t in $vt){
+      $a=($t.Actions | ForEach-Object { ('' + $_.Execute) + ' ' + ('' + $_.Arguments) }) -join ' | '
+      Add-Content -LiteralPath $bk2 -Value ('TASK | ' + $t.TaskName + ' | state=' + $t.State + ' | ' + $a) -Encoding UTF8
+      Disable-ScheduledTask -TaskName $t.TaskName -ErrorAction SilentlyContinue | Out-Null
+      WB ('      已禁用任务: ' + $t.TaskName)
+      $n1++
+    }
+    $vs = @(Get-SvcByPath 'ThrottleStop|40HXUnlock|40HXGen2' | Where-Object { $_.Name -notmatch '^(WinRing0_1_2_0|WinRing0_40HX)$' })
+    foreach($v in $vs){
+      Add-Content -LiteralPath $bk2 -Value ('SVC | ' + $v.Name + ' | start=' + $v.Start + ' | ' + $v.ImagePath) -Encoding UTF8
+      & sc.exe config $v.Name start= disabled 2>&1 | Out-Null
+      WB ('      已禁用服务: ' + $v.Name + '（原 start=' + $v.Start + '）')
+      $n1++
+    }
+    if($n1 -eq 0){ WB '      （没有需要接管的厂商遗留）' } else { WB ('      共处置 ' + $n1 + ' 项，留档: ' + $bk2) }
+  } catch { WB ('      [X] 接管失败: ' + $_.Exception.Message) }
   WB ''
 
   # ---- 9.1) ThrottleStop 退场（ACE 报的就是它）----

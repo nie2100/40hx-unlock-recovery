@@ -747,6 +747,19 @@ function Show-Check {
     Info ('目录: ' + $script:PkgRoot)
     Info '安装时火绒大概率会弹一次 “Exploit/Vulndriver.ad” 拦截（这几个都是 BYOVD 类驱动，属预期）——按提示“信任/恢复”即可，脚本有 ESP 兜底源自愈'
   } else { Ok '未检测到火绒' }
+  # 2026-10-01: 七彩虹 iGame Center 会占用 WinRing0_1_2_0 这个公用服务名（客户机实测）
+  try {
+    $wrName = $null
+    foreach($k in @(Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Services' -ErrorAction SilentlyContinue)){
+      $ip = (Get-ItemProperty -LiteralPath $k.PSPath -Name ImagePath -ErrorAction SilentlyContinue).ImagePath
+      if($ip -and $ip -match 'iGameCenter|iGame\\'){ $wrName = $k.PSChildName; break }
+    }
+    if ($wrName) {
+      Info ('检测到七彩虹 iGame Center（服务 ' + $wrName + '）—— 它会占用 WinRing0 驱动；本包已自动避让：优先用 ECAM(不需 WinRing0)，必要时改用独立服务名 WinRing0_40HX')
+      Add-Action '如遇 Gen2 写不进去：先退出 iGame Center（托盘右键退出）再跑；本包不会改动它的任何配置'
+    }
+  } catch {}
+
   if ($Report.AceBoot) { Warn '检测到腾讯 ACE-BOOT 反作弊（会在映像加载阶段拦 ThrottleStop.sys）—— 首选新路径用 inpoutx64 直写寄存器，ACE-BOOT 全程不用停；只有新路径失败才回落到“停ACE→重训→恢复ACE”，无需手工关闭' }
   else { Ok '未检测到 ACE-BOOT' }
 

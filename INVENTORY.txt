@@ -53,7 +53,7 @@ c7c28a0972d3bc2e024e4a766d16f516      3533  oneclick/hotfix-20260928/payload/Run
 bd68fd7e0798cca7bf8c07d14bb22081       312  oneclick/hotfix-20260928/应用热修.cmd
 608745073b72d3257937eb1821addcea       312  oneclick/hotfix-20260928/应用热修并立即验证.cmd
 bd4c1fe281fc9374017178f17821f7fb      2694  oneclick/hotfix-20260928/热修说明.txt
-0234eb566b6c1ce7b739f231678e2a41    106020  oneclick/Install-40HXUnlock.ps1
+590e7a2599543fe74abcefeaf01239f8    106859  oneclick/Install-40HXUnlock.ps1
 8598c45c61f04e9ce2145628adcfe28b    134522  oneclick/payload/drivers/inpoutx64.dll.b64
 59f7f4409873dae9abb7eba851d958bc     20540  oneclick/payload/drivers/inpoutx64.sys.b64
 87ac9051ad8dcef59f0f474252875361     68718  oneclick/payload/drivers/ThrottleStop.sys.b64
@@ -61,10 +61,10 @@ bd4c1fe281fc9374017178f17821f7fb      2694  oneclick/hotfix-20260928/热修说�
 aedc410f05ed43e5833543a0dc849242    590868  oneclick/payload/EFI/40HXUNLK.EFI
 61147cb5f86f740e1cad0861c903f2a8       854  oneclick/payload/sha256.txt
 5512a33807bdd2bec3856107779296fc     49929  oneclick/payload/windows/40hx-retrain-inpout.ps1
-177df8ba35c81d94ff65c069c76d153f     18676  oneclick/payload/windows/ACE-Toggle.ps1
+c928cda3e3808dc89338c8d59ea72682     19619  oneclick/payload/windows/ACE-Toggle.ps1
 0021c1978b749ee7e55834e2aa7ef59a      1551  oneclick/payload/windows/AutoRetrain.cmd
 1490de9bd90105e6ebc73e50abecc5cf     23040  oneclick/payload/windows/CMP40HXGen2.exe
-4c8e72e48d8edb707d2b2f12b0d27ac4      8439  oneclick/payload/windows/RunPostBind.cmd
+62752c718b0c9be96f6142b8a814faa8      9548  oneclick/payload/windows/RunPostBind.cmd
 6e3f7dbd75d2e59fd824c195b7278477       735  oneclick/payload/windows/Status.cmd
 2a44b95ea3797a1dcffe4cf5fe4fb08f      1017  oneclick/payload/windows/Uninstall_Auto.cmd
 be503bcdccd5b9d52c47c690d468ef81     19969  oneclick/README-使用说明.md
@@ -74,7 +74,7 @@ c0a6b8b0e94858293d450f16e8de8c1a      1972  oneclick/一键安装.cmd
 2d4de87d0c33cecb05879875230ad59e       418  oneclick/就地更新并跑一次.cmd
 56ba5437d011d1fe85462509eda34085      4117  oneclick/就地更新并跑一次.ps1
 b5cbdfd2a8393a6c800f80bf1deab1c2       300  oneclick/工具-测试与修复/ACE修复.cmd
-0e5865c716a56d24a0a3d2b389178ad0     30084  oneclick/工具-测试与修复/ACE修复.ps1
+acc843e952dd5dc1e1cc8f9961da3d82     33184  oneclick/工具-测试与修复/ACE修复.ps1
 0d5c7cff85f253578c97b400b1dbd54a       336  oneclick/工具-测试与修复/DesktopRecover.cmd
 211895936d7e61a785245a7b19bb4d89      9776  oneclick/工具-测试与修复/DesktopRecover.ps1
 bf45613b7f784bf953465d9e9f6c9654      2546  oneclick/工具-测试与修复/README-工具说明.txt
@@ -94,10 +94,10 @@ e5b1792debe8e0c89fda1ced340d02e0      2341  oneclick/工具-测试与修复/诊�
 5c18c9a5a21b95c74723006a40e085b1       990  oneclick/工具-测试与修复/诊断包-20260930/修复-GSP.cmd
 dd04e102e490e5bb1a312f56ca3c5a9e      5378  oneclick/工具-测试与修复/诊断包-20260930/修复-GSP.ps1
 a088e03568d33cb3d939132cd2ec52db     12689  oneclick/工具-测试与修复/诊断包-20260930/装完黑屏43-原因与修复说明.md
-b122ac44487a54a9162a449d6c9b4d87     35028  oneclick/排查指引.md
+07426069ec9f93854da57db133049393     39367  oneclick/排查指引.md
 06f726f05f38086c67d4062d85997716     20918  oneclick/状态自检.bat
 909d8d0175c2e2508dc7522f965576a8      3617  oneclick/给客户-操作指引-20260930d.txt
-28307b9437849027425b3a70c2fe2772     48927  oneclick/验证记录.md
+c46da6450ef46f0f47def62bf52eb6b5     52436  oneclick/验证记录.md
 82c7fceede927d3101aab34768fd70d6      1686  payload/drivers/README.md
 8cf6ba0b9577f2362758c486e2f23d76      2146  payload/drivers/RESTORE-DRIVERS.ps1
 6bc8e3505d9f51368ddf323acb6abc49     50216  payload/drivers/ThrottleStop.sys

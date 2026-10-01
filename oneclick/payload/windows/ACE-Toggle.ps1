@@ -233,6 +233,19 @@ if ($Action -eq 'On') {
     Write-AceLog '没有本次停止的记录 —— 不动任何服务'
     exit 0
   }
+  # 2026-10-01 事故防护（客户机实测：卡启动 / 登录后无桌面）：
+  # 只有在「服务仍存在」且「当前启动类型不是 DISABLED」时才恢复。
+  # 若客户点过 ACE 弹窗里的"退出或卸载腾讯游戏反作弊预启动模式"，ACE 会自己把该服务禁用/删掉；
+  # 那种情况下我们**绝不能**把它拉回启用，否则预启动层与 ACE 用户态状态不一致 → 卡启动/黑屏+鼠标。
+  $qc = (sc.exe qc $st.Name 2>&1 | Out-String)
+  if ($qc -notmatch 'SERVICE_NAME') {
+    Write-AceLog ($st.Name + ' 服务已不存在（多为 ACE 自己卸载/退出预启动模式）—— 尊重现状：不新建、不恢复、不改启动类型') 'WARN'
+    exit 0
+  }
+  if ($qc -match 'DISABLED') {
+    Write-AceLog ($st.Name + ' 当前启动类型是 DISABLED（ACE 或系统有意禁用）—— 尊重现状：不恢复，避免与 ACE 用户态状态冲突') 'WARN'
+    exit 0
+  }
   if ($DryRun) { Write-AceLog ('DryRun：会恢复 ' + $st.Name + '（start=' + $st.StartMode + '）'); exit 0 }
   if ($st.StartKeyword) {
     & sc.exe config $st.Name ('start= ' + $st.StartKeyword) | Out-Null
