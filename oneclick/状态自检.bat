@@ -275,8 +275,10 @@ echo.
 goto :summary
 
 :nopython
-echo     [!!] 未找到可用的 Python, 无法实测链路与算力
-echo     (本机应有 C:\Windows\py.exe)
+set "NOPY=1"
+echo     [跳过] 本机没有可用的 Python, 算力/带宽实测做不了
+echo            ^(这不是显卡故障^) 想实测请装 Python 3.x 并勾选 Add to PATH, 或用 工具-测试与修复\ 下的检测
+echo            Gen2 是否落地请看下面 [5/6] 里有没有 "PASS: Gen2 reached on the new path"
 echo.
 goto :gen2info
 
@@ -290,24 +292,38 @@ if exist "%LOGP%" (
 echo.
 
 echo [6/6] 解锁工具状态文件
+set "NPASS="
+if exist "%LOGP%" findstr /C:"PASS: Gen2 reached on the new path" "%LOGP%" >nul 2>&1
+if not errorlevel 1 set "NPASS=1"
 if exist "%STAT%" (
   powershell -NoProfile -Command "$c = Get-Content '%STAT%' -Encoding UTF8; Write-Output ('    written: ' + (Get-Item '%STAT%').LastWriteTime); $c -replace ([char]0x2705),'[OK]' -replace ([char]0x274C),'[NG]' -replace ([char]0x2713),'v' -replace ([char]0x26A0),'!' -replace ([char]0xFE0F),''"
 ) else (
   echo     [--] 未找到 %STAT%
 )
+if defined NPASS (
+  echo.
+  echo     [说明] 上面这份是**厂商工具**的状态文件; 本包走新路径 ^(ECAM+inpoutx64, 不需要 ThrottleStop^),
+  echo            它报"ThrottleStop 驱动未运行"属正常现象, 请以 [5/6] 的 PASS 为准
+)
 echo.
 
 :summary
 echo ============================================================
+if defined NOPY if "%OKMODE%"=="1" (
+  echo   结论: 正常 ^(部分未实测^) -- WDDM 正常; 算力/带宽因本机无 Python 未实测
+  echo     - Gen2 以 [5/6] 的 "PASS: Gen2 reached on the new path" 为准
+  goto :selfcheck_end
+)
 if "%OKMODE%%OKLINK%%OKPOWER%"=="111" (
   echo   结论: 全绿 -- WDDM + PCIe Gen2 + 算力满血, 解锁正常
 ) else (
   echo   结论: 存在异常
   if "%OKMODE%"=="0" echo     - 驱动模式不是 WDDM: 管理员执行 nvidia-smi -dm 0, 然后重启
   if "%OKLINK%"=="0" echo     - PCIe 未达 Gen2: 先重启让开机任务重训; 仍不行检查 ACE-BOOT 是否拦截
-  if "%OKPOWER%"=="0" echo     - 算力低于基线: 检查是否降频/高温, 或驱动未正常加载
+  if "%OKPOWER%"=="0" if not defined NOPY echo     - 算力低于基线: 检查是否降频/高温, 或驱动未正常加载
 )
 echo ============================================================
+:selfcheck_end
 echo.
 echo 按任意键退出...
 pause >nul
