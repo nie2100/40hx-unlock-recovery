@@ -104,7 +104,7 @@ bd4c1fe281fc9374017178f17821f7fb      2694  oneclick/归档-旧版本/hotfix-202
 9569fbec8ed617c23eb5d34a0f1097c5     25463  oneclick/文档/使用说明-详细.md
 6fb85ad44c58899fbdf0e2782dce20ff      3270  oneclick/文档/给客户-操作指引-20261001.txt
 49d65c7b108c56315fb8e7ec6f052935     13577  oneclick/文档/风险与恢复.md
-9d23f1d37a94a0d0f7b32ebadefbb375     81309  oneclick/文档/验证记录.md
+f78e392d8bfd631cbb1da5c5e605c9e5     83624  oneclick/文档/验证记录.md
 7f9ec1ac201d1cbca3ffec794eb1c6ee     22010  oneclick/状态自检.bat
 82c7fceede927d3101aab34768fd70d6      1686  payload/drivers/README.md
 8cf6ba0b9577f2362758c486e2f23d76      2146  payload/drivers/RESTORE-DRIVERS.ps1
