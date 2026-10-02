@@ -1,0 +1,327 @@
+# 07 · 恢复手册（原仓库 README 的技术版全量内容）
+
+> **说明**：这是本项目原来的仓库 `README.md`（技术版：本机基线、方案骨架、重装后的逐步恢复、关键坑、回滚）。
+> 2026-10-02 起仓库根 `README.md` 换成「人类友好版」（一页上手），**技术内容一字未删、整篇搬到这里**。
+> 想动手恢复/排错时看本篇；只想把机器装起来看根 `README.md` + `oneclick/README.md`。
+
+---
+
+# CMP 40HX 解锁状态恢复手册（本机实测版）
+
+> 目的：重装 Windows / 换盘 / 清 CMOS 之后，照本文把 **算力解锁 + PCIe Gen2 x16 两全** 的状态恢复回来，不必重新摸索。
+> 最近一次端到端验证：**2026-09-20 00:09 冷启动 PASS** —— EFI 日志 `*** UNLOCKED (SS0=0x88888888 SS1=0x8) ***`，开机任务 `CMP40HX Gen2 PostBind` → `EXIT=0` + `PASS: physical Gen2 x16 reached.`，同一次运行里 `GUARD=PASS SS0=0x88888888`（算力与 Gen2 同时成立）。
+> 最近一次 ACE 相关验证：**2026-09-22 22:08 真·开机（BootTrigger）PASS** —— 腾讯 ACE 升级后 ACE-BOOT 会在映像加载阶段拦 `ThrottleStop.sys`（Gen2 驱动），
+> 已实测出「杀 `ACE-Tray.exe` → 停 ACE-BOOT → 重训 → 再恢复 ACE」的完整解法并写进开机任务，**反作弊正常运行与 Gen2 解锁可以并存**。详见 `docs/06-ace-boot.md`。
+> 最近一次开机首跑（首选路径）：**2026-09-29 11:34 PASS**（真机，非排练）—— 开机任务先跑 `oneclick/payload/windows/40hx-retrain-inpout.ps1`：
+> `NewPath EXIT=0` + `PASS: Gen2 reached on the new path - ACE-BOOT was never stopped`；同次运行 `GUARD=PASS SS0=0x88888888`、
+> `GPU LNKSTA=0x1102 / ROOT LNKSTA=0xF102`（Gen2 x16）、`LINK_CONFIG_0=0x80085800`、`PRIV_MISC_1=0xE0B42D00`
+> → **算力与 Gen2 两全，而且全程没停反作弊**。证据目录 `evidence/boot-20260929/`。
+> 客户机实装反馈（2026-09-29）：用 `oneclick/` 打出的包装完 → 用户反馈 **解锁正常、腾讯 ACE 正常**（游戏进得去、不再被要求重启），属用户转述，见 `evidence/boot-20260929/05`。
+> 方案来源：**2026-09-29 09:06 PASS** —— 找到 **ACE 不拦**的物理内存驱动 `inpoutx64`（Red Fox UK 签名，能力等同 ThrottleStop 的 MMIO 读写），
+> 实测在 `ACE-BOOT` + `ACE-Tray` **全程运行**时成功读写 GPU BAR0 全部 9 个寄存器（9/9 MATCH）→ Gen2 重训不再需要停反作弊。
+> 本仓库自含所需二进制（解锁 EFI、Windows 侧 helper、三个签名驱动与配套 DLL、脚本），重装后不依赖网上重新找。
+
+---
+
+## 一键入口（推荐）：`oneclick/` 自含迁移包
+
+2026-09-28 新增。**不需要厂商安装器、不需要联网**，整个 `oneclick/` 目录拷到任意一台装了 CMP 40HX 的 Windows 上，双击 `一键安装.cmd` 即可把「算力解锁 + PCIe Gen2 两全」这套状态完整装出来；也可以在本机重装系统后直接用它恢复。
+
+> **2026-09-30 修正（客户机反馈：装完重启黑屏 1~2 分钟、设备管理器代码 43）**：主因是包内 GSP 判定与写入位置两处缺陷
+> → 解锁后 nvlddmkm 认不了卡。同一提交修掉：GSP 判定（`N/A` 不再算“已开启”）、开关写显示类子键（`Services\nvlddmkm\Parameters` 实测无效）、
+> 显卡/根端口自动探测（不再写死 `01:00.0`/`00:01.0`）、策略键无条件写 0、厂商自启全扫禁用、ESP 挂载点比对、交付文案改「完全关机」。
+> 详见 `oneclick/诊断包-20260930/装完黑屏43-原因与修复说明.md`。
+
+```
+oneclick\
+├─ 一键安装.cmd                 双击（先摘要+确认，再自己申请 UAC；提权后那份不再问第二次）
+├─ 状态自检.bat                 双击看结论（与 scripts/40HX解锁状态.bat 逐字节相同）
+├─ Install-40HXUnlock.ps1       主脚本：Check / SelfTest / Install / Repair / Verify / MakeDefault / Uninstall
+├─ README-使用说明.md           包内使用说明（前提、模式、退出码、装了什么）
+├─ 排查指引.md                  **报错时按日志原话/退出码索引**（杀软/前提/ESP-NVRAM/重启无效/驱动服务）
+├─ 验证记录.md                  交付前的本机实测记录（每条日志文件名 + 读数）
+├─ ACE排查\                     **装机后 ACE 报错先跑这个**：双击 排查ACE.cmd 出桌面报告；-Fix 顺手修
+├─ hotfix-20260928\             只想补「ACE 弹初始化失败」这一个改动时的最小热修包
+├─ 诊断包-20260930\             **装完黑屏 / 设备管理器代码 43 先跑这个**：一键诊断.cmd 只读取证（GSP/显卡位置/日志/开机时间线）+ 修复-GSP.cmd 写开关
+└─ payload\                     EFI 解锁固件 + Windows helper（含 40hx-retrain-inpout.ps1）+ 三个驱动的 base64 + sha256 清单
+```
+
+> **2026-09-29 更新（本版重点：装完不用再管反作弊；已由客户机实装验证）**
+> ① **首选路径改成「全程不停 ACE-BOOT」**：开机任务先跑 `payload\windows\40hx-retrain-inpout.ps1`
+>    （MMIO 走 `inpoutx64.sys`、PCI 配置空间走 `WinRing0x64.sys`），退出码 `0` 就直接结束；**非 0 才回落到旧的
+>    「停 ACE-BOOT → 重训 → 恢复 ACE-BOOT」**（回落会临时停一次反作弊 → 那一轮开机里腾讯游戏会要求重启，日志里能看到
+>    `NewPath EXIT=<非0>` / `falling back to the legacy ...`）。所以本包**不再需要为了 Gen2 去停腾讯反作弊**，
+>    也就没有「预启动模式未在启动阶段加载 → 请重新安装并重启」这个副作用。
+>    真机证据：`evidence/boot-20260929/01`~`03`；机理与现场判据：`docs/06-ace-boot.md` 第 11 节。
+> ② **客户机实装反馈**：本版包在客户机器上装完 → **解锁正常、ACE 正常**（用户转述，见 `evidence/boot-20260929/05`）。
+> ③ `payload\drivers\` 增加 `inpoutx64.sys` / `inpoutx64.dll`（base64；不建常驻服务，开机脚本临时建了用完即删）；
+>    杀软信任项从 4 项变 5 项（`C:\Windows\System32\drivers\inpoutx64.sys`），见包内 `README-使用说明.md` 第 1.1 节。
+> ④ `ACE排查\` 采集器升级：新增第 5b 节（直接给「新路径成功 / 回落老路径」次数与结论）、`ACE-BOOT.sys` 的大小·时间·FileVersion、
+>    ACE 目录里各 `.sys` 的 FileVersion。
+>
+> **2026-09-28 深夜更新（两处「装了才暴露」的问题，都已修）**
+> ① **全新机器首次安装会中断**：PS 5.1 在 `$ErrorActionPreference='Stop'` 下，外部程序往 stderr 写字会产生
+>    `NativeCommandError` 并**终止脚本**（`schtasks /delete` 在开机任务还不存在时就会），连 `2>&1 | Out-Null` 都挡不住。
+>    现在所有原生命令统一走一层包装（命令与输出文本不变）。本机当初没炸，只因任务早已存在。
+> ② **装机后 ACE 可能弹「初始化失败」**：`ACE-Tray.exe` 由注册表 Run 在登录时只拉起一次，若撞上开机任务
+>    「停 ACE-BOOT」的那几秒窗口，托盘初始化必然失败（算力/Gen2 其实是好的）。现在开机任务在恢复 ACE-BOOT 之后
+>    会自动检查并把托盘修回用户会话（`ACE-Toggle.ps1 -Action HealTray`）。
+>    取证：`oneclick\ACE排查\`；只补这一处：`oneclick\hotfix-20260928\`；原理：`docs/06-ace-boot.md` 第 10 节。
+
+它自己做完这些事（**不调用厂商安装器**，因为那会覆盖 ESP 上的 OnlyEFI 固件 → helper 守卫失效、Gen2 永不落地）：
+
+1. 两个 BYOVD 驱动 → `System32\drivers` + `%ProgramData%\CMP40HXGen2\drivers` + `%ProgramData%\40HXUnlock\drivers`，缺服务则 `sc create`；
+2. OnlyEFI 固件 → `\EFI\40HX\40HXUNLK.EFI`（原文件先备份）+ `\EFI\Boot\bootx64.efi` 兜底；
+3. **自己构造**固件启动项 `40HX Unlock` 并写进 NVRAM（含现场 ESP 的设备路径节点），按需写 `BootOrder`；
+4. 注册开机任务 `CMP40HX Gen2 PostBind`（含 ACE 处理与多源自愈），禁用厂商残留任务/自启；
+   ACE 处理：**首选全程不停反作弊**（`payload\windows\40hx-retrain-inpout.ps1`，退出码 0 即结束）；只有首选失败才由 `payload\windows\ACE-Toggle.ps1` **按安装路径定位** ACE-BOOT（换目录/改服务名都行）临时停掉、Gen2 落地后按记录的原始启动类型恢复，并在恢复之后自愈托盘；
+5. 全新命令 `-Mode Verify` 现场取证：一次给出「算力解锁 PASS/FAIL + PCIe Gen2 PASS/FAIL」结论。
+
+退出码：`0` 成功 / `1` 一般失败 / `2` 前提或权限 / `3` 载荷哈希 / `4` 固件变量 / `5` 驱动服务；失败时会自动打印「出错怎么办」（退出码含义＋日志绝对路径＋体检命令＋`排查指引.md`＋回滚命令）。
+
+交付前本机实测（2026-09-28）：Check / SelfTest / Install（幂等 4 次）/ Repair / Verify / MakeDefault / Uninstall（故意缺 `-Yes` 触发报错路径）全部符合预期，`Verify` 结论为「两全达成」；把整包拷到 `C:\Temp\` 另跑一遍 Check/Repair 也 EXIT=0 → **包内无本机路径硬编码**。细节见 `oneclick/验证记录.md`；**2026-09-29 首选路径的真机开机证据**见 `evidence/boot-20260929/`。
+
+---
+
+## 0. 本机基线（实测，非推测）
+
+| 项目 | 值 |
+|---|---|
+| 主板 | Gigabyte B560M AORUS ELITE |
+| BIOS | AMI F13d（2026-06-29） |
+| CPU | Intel Xeon W-1370P（8C/16T） |
+| 显卡 | NVIDIA CMP 40HX，ASUS 版，子系统 `1043:8804`，VBIOS `90.06.67.00.04` |
+| 拓扑 | GPU `01:00.0` ← Root Port `00:01.0`（x16 电气） |
+| 内存 | 8 GB |
+| 系统 | Windows 11 专业版 build 26200，UEFI + GPT，无 BitLocker |
+| 显卡驱动 | NVIDIA 616.92（GSP 固件必须开启） |
+| 实测性能 | FP32 8.35 TFLOPs/s、显存读 400 / 写 426 GB/s、PCIe 物理 Gen2 x16 双向 ≈ 5.98 GB/s |
+
+`payload/esp-2026-09-20/` 是当前 ESP 的实际快照（解锁固件、固件日志、驱动备份），可逐字节比对。
+
+---
+
+## 1. 方案骨架（为什么是这两步）
+
+解锁与 Gen2 是**两个独立动作**，分处固件与 Windows：
+
+1. **EFI 阶段（每次开机都要跑，算力是易失的）**
+   `\EFI\40HX\40HXUNLK.EFI`（OnlyEFI v0.1.1）在开机时：
+   - 写 SS0/SS1 解锁算力 → 日志 `*** UNLOCKED (SS0=0x88888888 SS1=0x8) ***`
+   - 对 4 个 TU106 Gen2 策略寄存器做 RMW，并把 Root Port 的 TLS 设为 Gen2（`[efi-b] Root TLS=Gen2; GPU TLS intentionally unchanged`）
+   - **故意不在 EFI 里重训链路**（`[efi-b] NO-RETRAIN: TLS2 set; skip EFI retrain`）
+   - 然后 chainload `\EFI\Microsoft\Boot\bootmgfw.efi` 进 Windows（`chainload: bootmgfw.efi from current device`）
+
+2. **Windows 阶段（驱动 bind 之后，一次开机只需成功一次）**
+   `C:\ProgramData\CMP40HXGen2\windows\CMP40HXGen2.exe`（由开机任务调用）：
+   守卫校验（要求 `SS0=0x88888888`、`SS1=0x8`、`GPU LNKCAP=0x00453D02`、`LNKCAP2=6`、`GPU TLS=2`、`ROOT TLS=2`、`PL_LINK_RATE=0x00220036`、`VSEC=0x801`）
+   → 只恢复两个被驱动改写的寄存器 `LINK_CONFIG_0 800C5800→80085800`、`PRIV_MISC_1 E0B40D00→E0B42D00`
+   → Root Retrain SET_ONLY #1（LT=0，只压不发）再 #2（LT=1，落地）
+   → `PASS: physical Gen2 x16 reached`（`GPU final: Gen2 x16 LNKSTA=0x1102` / `ROOT final: ... 0xF102`）
+
+   **不复位显卡**（不写 GPU/Root TLS、不写 XVE/CYA、不用 GPU retrain / PnP / FLR / D3 / SBR / Link Disable）—— 所以算力不会被清。幂等：已是 Gen2 时输出 `PASS: already physical Gen2 x16; no writes needed.`
+
+> 关键前提：EFI 与 Windows helper 是一对，**守卫要求的基线由 OnlyEFI 的 EFI 预埋**。厂商版 EFI 不做这组预埋（`LNKCAP=0x00453D01`/`LNKCAP2=2`/`GPU TLS=1`），helper 会 `exit 14 / ERROR: validated post-driver baseline not reached`。两者不能混用。
+
+---
+
+## 2. 重装后的恢复步骤
+
+### 步骤 0 — BIOS 前置（不满足必失败）
+
+- UEFI + GPT 引导（MBR 需先 `mbr2gpt`）
+- **Secure Boot = Disabled**（固件变量 `SecureBoot` = 00）
+- **Above 4G Decoding = Enabled** ← 头号失败原因
+- CSM = Disabled，Fast Boot = Disabled
+- 无 BitLocker（否则改引导链会索要恢复密钥）
+- 启动顺序：让 `40HX Unlock`（或硬盘本身，见步骤 3b）排第一
+
+### 步骤 1 — 显卡驱动 + GSP
+
+- 安装 NVIDIA 驱动（本机为 616.92；**GSP 必须开**，否则解锁后 nvlddmkm 不认卡 → 开机黑屏 + 设备管理器代码 43）
+  判据：`nvidia-smi -q` 的 `GSP Firmware Version` 行 —— **显示版本号 = 已启用；显示 `N/A` = 没启用**（别把 `N/A` 当成已开启）
+  开关位置（**2026-09-30 更正**）：显示类子键
+  `HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\<000X>` 下的 `EnableGpuFirmware = 1`（DWORD），
+  `<000X>` 取 `MatchingDeviceId` 含 `ven_10de&dev_1f0b` 的那个子键。
+  ⚠ 旧文档写的 `Services\nvlddmkm\Parameters` 是**错的**（实测无效）；改完 **完全关机再开机**（不是重启）。
+- 设备管理器确认显卡 `Status=OK / Problem=0`（不是 Code 43）
+
+### 步骤 2 — 把解锁 EFI 写回 ESP
+
+```
+# 管理员 PowerShell
+mountvol Y: /s
+mkdir Y:\EFI\40HX            # 若不存在
+copy /y  <repo>\payload\onlyefi-v0.1.1\EFI\40HXUNLK.EFI  Y:\EFI\40HX\40HXUNLK.EFI
+# 兜底路径：先备份原 Windows 引导器，再覆盖
+copy /y  Y:\EFI\Boot\bootx64.efi  Y:\EFI\Boot\bootx64.efi.40hx.bak
+copy /y  <repo>\payload\onlyefi-v0.1.1\EFI\40HXUNLK.EFI  Y:\EFI\Boot\bootx64.efi
+# 自愈源（杀软不扫 ESP 分区）：先把仓库里的 base64 备份还原成二进制
+#   powershell -ExecutionPolicy Bypass -File <repo>\payload\drivers\RESTORE-DRIVERS.ps1
+mkdir Y:\EFI\40HX\drv
+copy /y  <repo>\payload\drivers\ThrottleStop.sys   Y:\EFI\40HX\drv\
+copy /y  <repo>\payload\drivers\WinRing0x64.sys    Y:\EFI\40HX\drv\
+# 校验：两个 EFI 的 sha256 必须都是
+#   1e9ca43fab3d5ce851e8fcd09dc9be63282fbf3ce3828c3dbcdcbb21cf7ce1c7
+Get-FileHash Y:\EFI\40HX\40HXUNLK.EFI,Y:\EFI\Boot\bootx64.efi -Algorithm SHA256
+mountvol Y: /d
+```
+
+现成脚本：`scripts/install_onlyefi.ps1`（含备份+哈希校验，需把里面写死的路径改成仓库所在盘）。
+
+### 步骤 3 — 固件启动项（三选一）
+
+a. **BIOS 里手动设**：启动项列表选 `40HX Unlock`，排第一。
+b. **没有该项时**：把第一启动项设为**硬盘本身** —— 固件会走 `\EFI\Boot\bootx64.efi` 兜底，该文件已被换成解锁固件（步骤 2 已处理）。
+c. **远程重建 NVRAM 项**（不必进 BIOS）：
+   1. `scripts/nvram_chk.ps1` 读现状（管理员；P/Invoke `GetFirmwareEnvironmentVariableW`，需先启用 `SeSystemEnvironmentPrivilege`）
+   2. 复制现有 `Boot####` 的 EFI_LOAD_OPTION 结构（属性 + FilePathLen + 描述 UTF-16 + 设备路径节点），只把描述改成 `40HX Unlock`、FilePath 节点改成 `\EFI\40HX\40HXUNLK.EFI`（同步修正节点长度、FilePathListLength，并用 0 填充保持总长），写成新的 `Boot####`
+   3. **先用 `BootNext=<新编号>` 做一次性试跑**（失败断电重开即恢复，最安全）
+   4. 验证成功后写 `BootOrder` = [解锁项, Windows 项, 其余]
+   - 本机当前实测：`BootOrder = 0005, 0003, 0002`，其中 `Boot0005` = `40HX Unlock`（`\EFI\40HX\40HXUNLK.EFI`），`0003`/`0002` = Windows Boot Manager。**Boot#### 编号每台机器不同，别硬编码**（仓库里 `scripts/nvram_bootorder.ps1` 里的 0003 是历史版本，用前先按 `nvram_chk.ps1` 的实际编号改）。
+   - 另一条只读核对途径：管理员 `bcdedit /enum firmware`（能看到 `40HX Unlock` 项与 `{fwbootmgr}` 的 `displayorder`）。
+
+### 步骤 4 — Windows 侧（helper + 驱动 + 服务 + 开机任务）
+
+```
+# 目录
+C:\ProgramData\CMP40HXGen2\
+├─ windows\      CMP40HXGen2.exe / AutoRetrain.cmd / RunPostBind.cmd / Status.cmd / logs\ / state\
+└─ drivers\      ThrottleStop.sys / WinRing0x64.sys     （自愈源）
+```
+
+1. 复制 `payload/windows-live/*` → `C:\ProgramData\CMP40HXGen2\windows\`
+2. 驱动：仓库里以 base64 文本备份（裸 `ThrottleStop.sys` 会被杀软秒删）→ 跑一次
+   `powershell -ExecutionPolicy Bypass -File <repo>\payload\drivers\RESTORE-DRIVERS.ps1`
+   还原到 `C:\Windows\System32\drivers\` 与 `C:\ProgramData\CMP40HXGen2\drivers\`，并自动补建缺失的服务
+3. 重建两个内核服务（厂商脚本只启动不创建，缺了会报 1060）：
+   ```
+   sc create ThrottleStop    type= kernel start= demand binPath= "\SystemRoot\System32\drivers\ThrottleStop.sys"
+   sc create WinRing0_1_2_0  type= kernel start= demand binPath= "\SystemRoot\System32\drivers\WinRing0x64.sys"
+   ```
+4. `RunPostBind.cmd` = 多源自愈包装（每轮补驱动 → 补/建服务 → 调 `AutoRetrain.cmd`，失败重试 3 次），仓库里那份 **已含 ACE 处理**（`:ace_off` / `:ace_wait` / `:ace_on`：先停 `ACE-BOOT`，
+   `STOP_PENDING` 卡住就 `taskkill /IM ACE-Tray.exe /F`，只在重训成功后才把反作弊恢复成 `SYSTEM_START`），模板见 `payload/windows-live/RunPostBind.cmd`（**注意里面写死的源路径要按新机器改**）；
+   改前的老版本留档 `payload/windows-live/RunPostBind.no-ace.cmd.bak`。原理与踩坑：`docs/06-ace-boot.md`
+5. 注册开机任务（SYSTEM / ONSTART）：
+   ```
+   schtasks /create /tn "CMP40HX Gen2 PostBind" /sc onstart /ru SYSTEM /rl HIGHEST ^
+     /tr "cmd.exe /d /c C:\ProgramData\CMP40HXGen2\windows\RunPostBind.cmd" /f
+   ```
+   现成脚本：`scripts/step6_auto.ps1`（建目录+拷文件+注册任务）、`scripts/step7_heal.ps1`（生成多源自愈包装）
+
+### 步骤 5 — 杀软信任（火绒/360 等）
+
+必须加信任，否则 `ThrottleStop.sys` 会被**秒删**、服务被删（症状：`postbind.log` 里 `[SC] OpenService 失败 1060` + `FATAL: ThrottleStop service did not start`，退出码 30，本次开机停在 Gen1）：
+
+- 文件：`C:\Windows\System32\drivers\ThrottleStop.sys`、`C:\Windows\System32\drivers\WinRing0x64.sys`
+- 目录：`C:\ProgramData\CMP40HXGen2`、解锁工作目录（本机为 `D:\40hx-unlock`）
+
+自愈机制已内建（普通目录 + ESP `\EFI\40HX\drv\` 兜底源自愈 + 重建服务），但**信任区仍要加**，否则每轮开机都靠自愈，链路会间歇失败。
+
+### 步骤 5b — 腾讯 ACE（装了腾讯游戏才有，但**必读**）
+
+腾讯 ACE 升级（2026-09-22 实测）后，「反作弊预启动模式」的内核驱动 `ACE-BOOT.sys`
+（`C:\Program Files\AntiCheatExpert\ACE-BOOT.sys`，`SYSTEM_START`）会在**映像加载阶段**拦掉
+`ThrottleStop.sys` → 该次开机 Gen2 落地失败（任务 `EXIT=30`，`last.log` = `[SC] StartService 失败 31`），
+而**算力是好的**（EFI 那条链条 ACE 管不到）。
+
+厂商文档没写的关键一步：**`sc stop ACE-BOOT` 会永久卡在 `STOP_PENDING`，必须先结束持有它的用户态托盘 `ACE-Tray.exe`**：
+
+```
+taskkill /IM ACE-Tray.exe /F        :: 等价托盘右键「退出」
+sc stop ACE-BOOT                    :: 这次立刻 STOPPED
+sc start ThrottleStop               :: exitcode=0
+:: 重训成功后把反作弊恢复回去（Gen2 是链路寄存器状态，不会被撤销）
+sc config ACE-BOOT start= system
+sc start ACE-BOOT
+```
+
+以上已全部自动化进 `payload/windows-live/RunPostBind.cmd`（只放行成功路径才恢复 ACE），
+真·开机路径连托盘都不用杀（那时 `ACE-Tray.exe` 还没启动）。完整判据、误判陷阱、A/B 实测、
+厂商诊断的"驱动未拉起"误报：**`docs/06-ace-boot.md`**。
+
+**2026-09-29 更新（首选方案，已取代上面的停 ACE 流程）**：改用 `inpoutx64.sys`（Red Fox UK 签名；loldrivers 收录的 BYOVD，
+能力等同 ThrottleStop 的 MMIO 读写）配合 WinRing0 走 PCI 配置空间，实测 **`ACE-BOOT` 与 `ACE-Tray` 全程运行**时即可完成 Gen2 重训：
+
+```
+实测读数(ACE 运行时, 09:06:22):
+  BOOT0=0x166000A1  XVE_OVR=0x00000006  CYA_0=0x068731B3  PL_LINK_RATE=0x00220036
+  VSEC_DEVICE=0x00000801  LINK_CONFIG_0=0x80085800  PRIV_MISC_1=0xE0B42D00
+  SS0=0x88888888  SS1=0x00000008            → 9/9 MATCH
+驱动加载: sc create/start OK, ACE-BOOT 全程 RUNNING (未停过)
+```
+
+- 落地：开机任务优先跑 `40hx-retrain-inpout.ps1`（inpoutx64 直写 MMIO + WinRing0 读 PCI 配置空间），**退出码非 0 才回落**到上面那套「杀 ACE-Tray → 停 ACE-BOOT → 重训 → 恢复」的旧路径
+- 优点：反作弊预启动模式全程不被破坏，不再有「需要重启才能进游戏」的副作用
+- 注意：`inpoutx64.sys` 属 loldrivers 收录的 BYOVD，需要 `VulnerableDriverBlocklistEnable=0`（本机已是 0）；杀软可能误报，需加信任
+
+**装了之后 ACE 弹「初始化失败」（2026-09-28 实测）**：如果算力/Gen2 都是好的（`40hx_log.txt` 有 `UNLOCKED`、
+开机任务 rc=0），那多半是 ACE 托盘被开机任务的「停窗」撞坏了 —— 托盘由 HKLM Run 在登录时只拉起一次，
+撞在「停 ACE-BOOT → 恢复」的几秒里就会初始化失败。两条判据：① 托盘进程 `CreationDate` 落在
+`postbind.log` 的「已停止」与「已恢复运行」之间；② explorer 的登录时刻与该窗口重叠（托盘已被重启过也有效）。
+现在开机任务会自动修（`HealTray`）；手动救急用 `oneclick\ACE排查\排查ACE.cmd -Fix`，根治用
+`oneclick\hotfix-20260928\`。详见 `docs/06-ace-boot.md` 第 10 节。
+
+### 步骤 6 — 验证（判据，别用 nvidia-smi）
+
+1. **算力**：ESP 根目录 `40hx_log.txt` 出现 `*** UNLOCKED (SS0=0x88888888 SS1=0x8) ***`；文件不存在 = 本次开机 EFI 没跑（启动项/兜底 没生效）
+2. **Gen2（落地）**：`C:\ProgramData\CMP40HXGen2\windows\logs\last.log` 要 `GUARD=PASS` + `GPU final: Gen2 x16 LNKSTA=0x1102` + `ROOT final: Gen2 x16 LNKSTA=0xF102` + `PASS: physical Gen2 x16 reached.` + `EXIT=0`
+3. **开机任务**：`postbind.log` 该轮 `PostBind EXIT=0` / `PASS: physical Gen2 post-bind step succeeded`；任务 `CMP40HX Gen2 PostBind` 上次结果 = 0
+4. **带宽交叉验证**：跑 `release\OpenCL.exe` 基准，输出里会标注 `PCIe Bandwidth (bidirectional) (Gen2 x16)` 且 ≈ 5.7–6.2 GB/s（Gen1 只有 3.2–4）
+   ⚠ 该工具会把机器上**所有** GPU 依次跑一遍：`Device ID 0` 是 40HX（FP32 ≈ 8.3 TFLOPs/s），再往后是核显（本机 ≈ 0.54 TFLOPs/s）——别看错段
+5. **别信 `nvidia-smi` 的 `pcie.link.gen.current`**：纯计算负载不产生 PCIe 流量时它会动态降到 1，实测 100% 负载也照样显示 1。看 `LNKSTA` 寄存器或带宽工具
+7. **一键自检**（推荐日常用）：双击 `scripts\40HX解锁状态.bat` → 6 步输出（显卡 / WDDM / 实测链路带宽 / 实测算力 / 开机任务日志 / 厂商状态文件），
+   末行 `结论: 全绿 -- WDDM + PCIe Gen2 + 算力满血, 解锁正常` 即正常。三项判据分别是 WDDM 模式、实测 H2D ≥ 4.5 GB/s（Gen2）、实测 SM ≥34 / FP32 ≥7 TFLOPS / TC ≥40 TFLOPS；
+   它用 **CUDA ctypes 实测带宽与算力**代替不可信的 `nvidia-smi` 速率读数，无需管理员权限
+8. **ACE 相关**：日志里应出现 `ACE: ACE-BOOT running - temporary stop…` → `ACE: ACE-BOOT stopped` → `---- attempt 1 ----` → `PASS` → `ACE: ACE-BOOT restored (SYSTEM_START)`（见 `docs/06-ace-boot.md`）
+
+---
+
+## 3. 关键坑（摘要）
+
+- **腾讯 ACE（反作弊预启动模式）会拦 Gen2 驱动的映像加载**（2026-09-22 起实测必遇）：ACE 弹窗点名 `C:\Windows\System32\drivers\ThrottleStop.sys`，该次开机任务 `EXIT=30` / `last.log` = `[SC] StartService 失败 31`，
+  而 ESP 固件日志仍有 `UNLOCKED` → **算力正常，只是 Gen2 没落地**，别误判成整机解锁崩了。
+  解法：**先 `taskkill /IM ACE-Tray.exe /F` 再 `sc stop ACE-BOOT`**（只 `sc stop` 会永久卡 `STOP_PENDING`），重训成功后 `sc start ACE-BOOT` 恢复反作弊，Gen2 不会被撤销。已自动化进 `RunPostBind.cmd`；完整过程见 `docs/06-ace-boot.md`
+- **厂商安装器会静默覆盖 ESP 上的解锁 EFI**（`\EFI\40HX\40HXUNLK.EFI` 与 `\EFI\Boot\bootx64.efi` 变回厂商版，MD5 `A2D47F4C…`）→ OnlyEFI 的 Windows helper 立刻失效（每天 `exit 14`），Gen2 永不落地。**试厂商包前先备份这两个文件，试完写回并复核 sha256。**
+- **算力与 Gen2 在部分主板上互斥**：厂商方案若走 Stage2 硬回退（Root Link Disable + PnP 禁用/启用显卡）→ 显卡一复位，算力（易失寄存器）清零。本机 v3.2 实测：retrain-only 6 轮全败，只能硬回退，且**显卡会变 Code 43，热重启无效，必须完全关机冷启动**。OnlyEFI 路线正是为绕开这一点（不复位设备）。
+- **升级厂商工具后**：`HKLM\SOFTWARE\40HXUnlock` 的 `Gen2AutoHard=0` / `Gen2PnpFallback=0` 会被改回，HKCU Run 的 `40HXGen2` 与两个厂商计划任务会被放回来 —— 每次升级后都要复查并重新禁用（`scripts/restore-onlyefi.ps1` 一条命令做完：备份厂商 EFI → 写回 OnlyEFI EFI → 校验哈希 → 禁厂商任务 → 清 HKCU Run → 设策略键）。
+- **别在验证前跑厂商 `40HXCheck.exe`**：它是"临时拉起驱动、测完即卸"，跑完会把 `System32\drivers` 里的 .sys 清掉，随后 helper 报 `cannot open \\.\ThrottleStop`（退出码 10）。踩了就重拷驱动再跑。
+- **`schtasks /ru SYSTEM` 的任务里跑 OpenCL 基准会枚举成核显**（Device 0 = Intel）→ 测显卡别用 SYSTEM 会话。
+- 幽灵设备实例（`Problem=0x2D`，`present=False`）不影响功能，可用 `pnputil /remove-device "<instanceid>"` 清掉，脚本 `scripts/ghost-clean.ps1`。
+- **裸 `ThrottleStop.sys` 会被杀软从任何非信任路径秒删**（临时目录、解压出来的上游包内都保不住，实测 10 秒内消失）→ 本仓库以 base64 文本保存；恢复时跑 `payload/drivers/RESTORE-DRIVERS.ps1`，之后把两个 .sys 加进杀软信任区。
+  **别把裸 .sys 再拷到任意目录"做备份"**：实测在 `C:\Temp\` 下写一份会立刻触发火绒弹窗（`Exploit/Vulndriver.ad`，操作进程就是当时的 powershell）。`oneclick/` 包已按这条规矩改过：裸驱动只写 `System32\drivers` 与两个 `%ProgramData%` 目录，另有 ESP `\EFI\40HX\drv` 兜底源（杀软不扫 EFI 分区）。杀软信任区怎么加、弹窗长什么样，见 `oneclick/排查指引.md` 第 2 节。
+
+细节（完整踩坑史、时间线、原始输出）：`docs/03-pitfalls.md`。
+
+---
+
+## 4. 目录说明
+
+```
+README.md                     本手册（恢复主流程）
+oneclick/                     **自含一键迁移包**（双击 一键安装.cmd 装/修；含 排查指引.md、验证记录.md、payload/）
+oneclick/ACE排查/             现场排查包：排查ACE.cmd（只读采集 ACE 弹窗/初始化失败 → 桌面报告，-Fix 顺手修）
+oneclick/hotfix-20260928/     最小热修包（只覆盖 RunPostBind.cmd + ACE-Toggle.ps1，含 应用热修*.cmd）
+docs/01-hardware.md           本机硬件/固件/拓扑实测
+docs/02-how-it-works.md       原理：EFI 阶段与 Windows 阶段做了什么
+docs/03-pitfalls.md           坑清单与历史踩坑记录（含厂商 v3.2 回滚经过）
+docs/04-verify.md             验证判据与证据
+docs/05-inventory.md          文件清点（来源、哈希、用途）
+docs/06-ace-boot.md           **过腾讯 ACE**：ACE-BOOT 拦驱动的判据、杀 ACE-Tray 的关键一步、自动化与误判陷阱
+payload/onlyefi-v0.1.1/       OnlyEFI v0.1.1 完整发布包（EFI + Windows helper + 源码 + 文档）
+payload/windows-live/         本机在用的 Windows 侧文件（含多源自愈 + ACE 处理 的 RunPostBind.cmd；老版本 RunPostBind.no-ace.cmd.bak）
+payload/drivers/              两个 BYOVD 驱动：base64 文本备份（裸 .sys 会被杀软秒删）+ RESTORE-DRIVERS.ps1 还原脚本
+payload/esp-2026-09-20/       当前 ESP 快照（解锁固件 + 固件日志 + drv 备份）
+payload/nvram-backup-20260911/ NVRAM 引导变量原始二进制备份（BootOrder/Boot0000/0002/0003/0005…）
+scripts/                      可直接跑的 PowerShell 脚本（见 docs/05-inventory.md）+ 状态自检 `40HX解锁状态.bat`（双击即用）
+evidence/                     实测证据：冷启动报告、基准输出、helper 日志、固件日志
+evidence/ace-20260922/        ACE 专项证据：诊断 / STOP_PENDING / 杀托盘后驱动加载 / A-B 双 PASS + 原始 ps1
+```
+
+## 5. 回滚到"没有解锁"的干净状态
+
+1. 用 `payload/esp-2026-09-20/EFI_Boot/bootx64.efi.40hx.bak`（或重新从 Windows 修复安装取的 `bootmgfw.efi`）还原 `\EFI\Boot\bootx64.efi`
+2. 删除 `\EFI\40HX\`
+3. 禁用/删除任务 `CMP40HX Gen2 PostBind`，删除 `C:\ProgramData\CMP40HXGen2\`
+4. `sc delete ThrottleStop` / `sc delete WinRing0_1_2_0`，删两个 .sys
+5. BIOS 启动顺序改回 Windows Boot Manager

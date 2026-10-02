@@ -34,7 +34,10 @@ if not exist "%SMI%" (
 
 "%SMI%" --query-gpu=name,driver_version,memory.total,temperature.gpu,power.draw,power.limit,driver_model.current,driver_model.pending,pcie.link.width.current,pcie.link.width.max --format=csv > "%TMPQ%" 2>nul
 if not exist "%TMPQ%" goto :nosmi
-for /f "skip=1 tokens=1-10 delims=," %%a in (%TMPQ%) do (
+rem 2026-10-02 修 BUG：这里以前写成 in ("%TMPQ%") —— 带引号的单个 token 会被 for /f 当成**字符串**
+rem   而不是文件名（配合 skip=1 就一行都不解析），结果 GPU/驱动/链路宽度全是空值 → 结论永远"存在异常"。
+rem   正确写法 = usebackq + 引号（既能当文件读，又能容忍路径里有空格）。
+for /f "usebackq skip=1 tokens=1-10 delims=," %%a in ("%TMPQ%") do (
   for /f "tokens=* delims= " %%x in ("%%a") do set "GPU=%%x"
   for /f "tokens=* delims= " %%x in ("%%b") do set "DRV=%%x"
   for /f "tokens=* delims= " %%x in ("%%c") do set "VMEM=%%x"
@@ -218,9 +221,12 @@ if exist "%TMPY%" del "%TMPY%" >nul 2>&1
 if exist "%TMPO%" del "%TMPO%" >nul 2>&1
 certutil -f -decode "%TMPB%" "%TMPY%" >nul 2>&1
 if not exist "%TMPY%" goto :nopython
-"%PY%" "%TMPY%" > "%TMPO%" 2>nul
+"%PY%" "%TMPY%" > "%TMPO%" 2>&1
+rem 注：2>&1 而不是 2>nul —— 让错误信息留在同一个文件里（下面"Python 原始输出"会回显）。
+rem   2026-10-02 修 BUG：以前写 2>>"%TMPO%"（同一个文件开两个句柄）→ cmd 直接报
+rem   「另一个程序正在使用此文件，进程无法访问。」而且 Python 的报错其实没进去。
 if not exist "%TMPO%" goto :nopython
-for /f "tokens=1,2 delims= " %%a in (%TMPO%) do (
+for /f "usebackq tokens=1,2 delims= " %%a in ("%TMPO%") do (
   if /I "%%a"=="H2D" set "H2DT=%%b"
   if /I "%%a"=="D2H" set "D2HT=%%b"
   if /I "%%a"=="VERDICT" set "VERD=%%b"
@@ -244,6 +250,13 @@ if /I "%VERD%"=="GEN2" set "OKLINK=1"
 if /I "%VERD%"=="GEN2" echo     [OK] 判定: Gen2 已解锁
 if /I "%VERD%"=="GEN1" echo     [!!] 判定: Gen1 未解锁
 if not defined VERD echo     [!!] 判定: 带宽测试失败
+rem 2026-10-01b（第三方审查 H17）：Python 失败时也会建出空的 %TMPO% → 以前直接落到"带宽测试失败"，
+rem   真正的根因（nvcuda/驱动的 ERROR 行）从不显示。把原始输出回显出来，别让客户/经销商猜。
+if not defined VERD if exist "%TMPO%" (
+  echo     ---- Python 原始输出（定位根因用）----
+  type "%TMPO%"
+  echo     --------------------------------------
+)
 echo.
 
 echo [4/6] 算力验证   (满血规格: 34 SM / 2176 CUDA 核心 / TC 未砍)
@@ -275,8 +288,10 @@ echo.
 goto :summary
 
 :nopython
-echo     [!!] 未找到可用的 Python, 无法实测链路与算力
-echo     (本机应有 C:\Windows\py.exe)
+set "NOPY=1"
+echo     [跳过] 本机没有可用的 Python, 算力/带宽实测做不了
+echo            ^(这不是显卡故障^) 想实测请装 Python 3.x 并勾选 Add to PATH, 或用 工具-测试与修复\ 下的检测
+echo            Gen2 是否落地请看下面 [5/6] 里有没有 "PASS: Gen2 reached on the new path"
 echo.
 goto :gen2info
 
@@ -290,24 +305,42 @@ if exist "%LOGP%" (
 echo.
 
 echo [6/6] 解锁工具状态文件
+set "NPASS="
+if exist "%LOGP%" (
+  findstr /C:"PASS: Gen2 reached on the new path" "%LOGP%" >nul 2>&1
+  if not errorlevel 1 set "NPASS=1"
+)
+rem 2026-10-01b（审查 H17）：原来两行分开写，日志不存在时 errorlevel 沿用上一条命令（echo→0）
+rem   → 会被误判成"厂商工具报过 PASS"。包进 if exist 块后就不会了。
 if exist "%STAT%" (
   powershell -NoProfile -Command "$c = Get-Content '%STAT%' -Encoding UTF8; Write-Output ('    written: ' + (Get-Item '%STAT%').LastWriteTime); $c -replace ([char]0x2705),'[OK]' -replace ([char]0x274C),'[NG]' -replace ([char]0x2713),'v' -replace ([char]0x26A0),'!' -replace ([char]0xFE0F),''"
 ) else (
   echo     [--] 未找到 %STAT%
 )
+if defined NPASS (
+  echo.
+  echo     [说明] 上面这份是**厂商工具**的状态文件; 本包走新路径 ^(ECAM+inpoutx64, 不需要 ThrottleStop^),
+  echo            它报"ThrottleStop 驱动未运行"属正常现象, 请以 [5/6] 的 PASS 为准
+)
 echo.
 
 :summary
 echo ============================================================
+if defined NOPY if "%OKMODE%"=="1" (
+  echo   结论: 正常 ^(部分未实测^) -- WDDM 正常; 算力/带宽因本机无 Python 未实测
+  echo     - Gen2 以 [5/6] 的 "PASS: Gen2 reached on the new path" 为准
+  goto :selfcheck_end
+)
 if "%OKMODE%%OKLINK%%OKPOWER%"=="111" (
   echo   结论: 全绿 -- WDDM + PCIe Gen2 + 算力满血, 解锁正常
 ) else (
   echo   结论: 存在异常
   if "%OKMODE%"=="0" echo     - 驱动模式不是 WDDM: 管理员执行 nvidia-smi -dm 0, 然后重启
   if "%OKLINK%"=="0" echo     - PCIe 未达 Gen2: 先重启让开机任务重训; 仍不行检查 ACE-BOOT 是否拦截
-  if "%OKPOWER%"=="0" echo     - 算力低于基线: 检查是否降频/高温, 或驱动未正常加载
+  if "%OKPOWER%"=="0" if not defined NOPY echo     - 算力低于基线: 检查是否降频/高温, 或驱动未正常加载
 )
 echo ============================================================
+:selfcheck_end
 echo.
 echo 按任意键退出...
 pause >nul

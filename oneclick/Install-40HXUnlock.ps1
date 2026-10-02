@@ -808,7 +808,15 @@ function Show-Check {
     $log = Join-Path $Report.Esp '40hx_log.txt'
     if (Test-Path $log) {
       $txt = Get-Content -LiteralPath $log -ErrorAction SilentlyContinue
-      if ($txt -match 'UNLOCKED \(SS0=0x88888888 SS1=0x8\)') { Ok ("40hx_log.txt: 本次开机解锁成功 *** UNLOCKED (SS0=0x88888888 SS1=0x8) ***  (" + (Get-Item $log).LastWriteTime + ")") }
+      # 2026-10-02（第三方审查）：40hx_log.txt 是**跨开机累积**的 —— 只查“有没有 UNLOCKED 行”会把历史成功当成本次成功。
+      #   必须带“本次开机”的时间门槛（EFI 先写、Windows 后起，容差 10 分钟）。
+      $btC = $null
+      try { $btC = (Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue).LastBootUpTime } catch { }
+      $freshC = $false
+      if ($btC -and ((Get-Item $log).LastWriteTime -ge $btC.AddMinutes(-10))) { $freshC = $true }
+      if (($txt -match 'UNLOCKED \(SS0=0x88888888 SS1=0x8\)') -and $freshC) { Ok ("40hx_log.txt: 本次开机解锁成功 *** UNLOCKED (SS0=0x88888888 SS1=0x8) ***  (" + (Get-Item $log).LastWriteTime + ")") }
+      elseif (($txt -match 'UNLOCKED \(SS0=0x88888888 SS1=0x8\)') -and (-not $btC)) { Warn '读不到本次开机时间，无法确认 40hx_log.txt 里的 UNLOCKED 是不是本次开机 → 建议管理员身份重跑 -Mode Check' }
+      elseif ($txt -match 'UNLOCKED \(SS0=0x88888888 SS1=0x8\)') { Warn ('40hx_log.txt 里的 UNLOCKED 是**之前开机**的记录（文件时间 ' + (Get-Item $log).LastWriteTime + '）→ 本次开机解锁固件很可能没跑，别按“已解锁”处理') }
       else { Warn "40hx_log.txt 里没有 UNLOCKED 行（EFI 这次开机可能没跑）" }
       $tls = $txt | Select-String -Pattern 'TLS|NO-RETRAIN' | Select-Object -Last 3
       foreach ($l in $tls) { Info ("  " + $l.Line) }
@@ -824,6 +832,8 @@ function Show-Check {
     Info ("BootOrder = " + (Format-BootOrderIndices $order))
     $unlock = Get-UnlockBootEntry $entries
     if ($unlock) { Ok ("固件启动项 " + $unlock.Name + " = '" + $unlock.Entry.Description + "' → " + $unlock.FilePath) }
+    # 2026-10-02（第三方审查）：读不到 NVRAM 时列表为空 —— 不能说成“还没有”（同“读不到≠没有”家族）
+    elseif (@($entries).Count -eq 0 -or @($order).Count -eq 0) { Warn '固件变量（NVRAM）读不到 → 不能判断 "40HX Unlock" 启动项在不在；别据此重装，重启/提权后再跑一次 -Mode Check' }
     else { Info '固件启动项：还没有 "40HX Unlock"（Install 会创建）' }
     foreach ($e in $entries) {
       $gt = ''
@@ -864,9 +874,19 @@ function Show-Check {
     $pass = ($c | Select-String 'PASS:' | Select-Object -Last 1)
     $exit = ($c | Select-String 'EXIT=' | Select-Object -Last 1)
     if ($guard) { Info ("helper: " + $guard.Line.Trim()) }
-    if ($pass) { Ok ("helper: " + $pass.Line.Trim()) } elseif ($exit) { Warn ("helper: " + $exit.Line.Trim()) }
-    Info ("last.log 时间: " + (Get-Item $lastLog).LastWriteTime)
-  } else { Info 'last.log 不存在（旧路径没跑过；新路径只写 postbind.log + retrain-inpout.log，属正常）' }
+    # 2026-10-02（第三方审查）：last.log 是旧路径的日志，新路径生效后就不再更新 —— 里面的 PASS 可能是很久以前的，
+    #   必须带上"是不是本次开机写的"，否则会显示成 [OK] 让人以为一切正常（本机实测停在 2026-09-29）。
+    $lastFresh = $false
+    try {
+      $btL = (Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue).LastBootUpTime
+      if ($btL -and ((Get-Item $lastLog).LastWriteTime -ge $btL.AddMinutes(-10))) { $lastFresh = $true }
+    } catch { }
+    if ($pass -and $lastFresh) { Ok ("helper: " + $pass.Line.Trim()) }
+    elseif ($pass -and -not $btL) { Warn ("helper: " + $pass.Line.Trim() + "   ← 读不到本次开机时间，无法确认这条 PASS 是不是本次开机的") }
+    elseif ($pass) { Warn ("helper: " + $pass.Line.Trim() + "   ← 但这是**之前开机**留下的记录（last.log 时间 " + (Get-Item $lastLog).LastWriteTime + "），不代表本次") }
+    elseif ($exit) { Warn ("helper: " + $exit.Line.Trim()) }
+    Info ("last.log 时间: " + (Get-Item $lastLog).LastWriteTime + $(if ($lastFresh) { '（本次开机）' } else { '（不是本次开机 —— 旧路径已不再使用属正常）' }))
+  } else { Info 'last.log 不存在（旧路径没跑过；新路径只写 postbind.log + retrain-last.log，属正常）' }
   $pbLog = Join-Path $script:ProgDataWin 'logs\postbind.log'
   if (Test-Path $pbLog) {
     (Get-Content -LiteralPath $pbLog | Select-Object -Last 4) | ForEach-Object { Info ('postbind: ' + $_) }
@@ -876,12 +896,20 @@ function Show-Check {
     $ti = Get-ScheduledTaskInfo -TaskName $script:TaskName -ErrorAction SilentlyContinue
     if ($ti.LastTaskResult -eq 267011) { Ok ("开机任务 " + $script:TaskName + " 已注册（还没跑过 —— 刚注册或被重装过，重启/运行一次就有了）") }
     else { Ok ("开机任务 " + $script:TaskName + " 已注册, 上次 " + $ti.LastRunTime + " rc=0x" + ('{0:X}' -f $ti.LastTaskResult)) }
-  } else { Info ("开机任务 " + $script:TaskName + " 未注册") }
+  } else {
+    # 2026-10-02：非管理员身份查不到 SYSTEM 任务（实测 unelevated schtasks 直接「拒绝访问」）——
+    #   不能把"读不到"说成"没注册"（会误导用户去重装）。
+    if (Test-Admin) { Info ("开机任务 " + $script:TaskName + " 未注册") }
+    else { Warn ("开机任务 " + $script:TaskName + " 读不到 —— 当前不是管理员，非管理员查不了 SYSTEM 任务；要确认就跑管理员：-Mode Verify（或 -Mode Repair）") }
+  }
   $t2 = Get-ScheduledTask -TaskName $script:TaskNameLogon -ErrorAction SilentlyContinue
   if ($t2) {
     $ti2 = Get-ScheduledTaskInfo -TaskName $script:TaskNameLogon -ErrorAction SilentlyContinue
     Ok ("登录后补跑任务 " + $script:TaskNameLogon + " 已注册（开机那轮没修好时，登录 60 秒后自动再修一次）")
-  } else { Warn ("登录后补跑任务 " + $script:TaskNameLogon + " 未注册 —— 开机那轮失败时没人补跑（跑 -Mode Repair 补上）") }
+  } else {
+    if (Test-Admin) { Warn ("登录后补跑任务 " + $script:TaskNameLogon + " 未注册 —— 开机那轮失败时没人补跑（跑 -Mode Repair 补上）") }
+    else { Warn ("登录后补跑任务 " + $script:TaskNameLogon + " 读不到 —— 当前不是管理员（非管理员查不了 SYSTEM 任务）；要确认就跑管理员：-Mode Verify") }
+  }
   # 安全加固现状（2026-10-01b）
   foreach ($h in $script:HardeningDirs) {
     if (-not (Test-Path -LiteralPath $h.Path)) { continue }
@@ -1586,17 +1614,105 @@ function Invoke-SelfTest {
   return
 }
 
+# ================================================================ 日志瘦身 + “状态是否已经正常”判据（2026-10-02）
+# 用户要求：解锁状态完全正常了，就不要再往包里堆日志、也不要再跳“下一步”指引。
+# 这里的策略是“保留最近 N 份 + 只删自己生成的空备份目录”，别人的文件一律不动。
+function Invoke-Retention {
+  $kept = @()
+  try {
+    $runLogs = @(Get-ChildItem -LiteralPath $script:LogDir -Filter 'run-*.log' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+    if ($runLogs.Count -gt 10) {
+      foreach ($f in ($runLogs | Select-Object -Skip 10)) {
+        Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue
+        $kept += ('日志 ' + $f.Name)
+      }
+    }
+    # 备份目录里只有“空目录”才删（没存到任何东西的那种，本机实测 33 个里有 26 个是空的）；
+    # 存了 NVRAM/ACL/固件的备份一律留着 —— 那是出事时的回滚料。
+    $bks = @(Get-ChildItem -LiteralPath $script:BackupRoot -Directory -ErrorAction SilentlyContinue)
+    foreach ($b in $bks) {
+      $has = @(Get-ChildItem -LiteralPath $b.FullName -Recurse -File -Force -ErrorAction SilentlyContinue)
+      if ($has.Count -eq 0) { Remove-Item -LiteralPath $b.FullName -Recurse -Force -ErrorAction SilentlyContinue; $kept += ('空备份 ' + $b.Name) }
+    }
+    # 机器上的开机日志：postbind.log 由开机任务自己裁剪（超过 64 KB 只留最后 200 行）；
+    # 老版本那份“只增不减”的 retrain-inpout.log 只保留最后 200 行。
+    $pdLogs = Join-Path $script:ProgDataWin 'logs'
+    foreach ($lf in @('retrain-inpout.log')) {
+      $fp = Join-Path $pdLogs $lf
+      if ((Test-Path $fp) -and ((Get-Item $fp).Length -gt 131072)) {
+        Set-Content -LiteralPath $fp -Value (@(Get-Content -LiteralPath $fp -Tail 200)) -Encoding Default
+        $kept += ('裁剪 ' + $lf)
+      }
+    }
+  } catch { }
+  if ($kept.Count -gt 0) { Info ('已清理旧日志/空备份（日志保留最近 10 份）: ' + ($kept -join ', ')) }
+}
+
+function Test-LiveAllGood {
+  # 本次开机是不是已经“两全”——用来决定还要不要给用户留“下一步”指引。
+  # ① ESP 的 40hx_log.txt 有 UNLOCKED 行，且文件时间就是本次开机（EFI 先写、Windows 后起，±10 分钟）
+  # ② 开机任务这次开机跑过且 rc=0（新路径 PASS 才是 0）
+  # ③ GSP 已开 + 40HX 没有代码 43
+  $ok = $false
+  $bt = $null
+  try { $bt = (Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue).LastBootUpTime } catch { }
+  try {
+    $espRoot = Mount-Esp
+    if ($espRoot) {
+      $lg = Join-Path $espRoot '40hx_log.txt'
+      if (Test-Path $lg) {
+        $hit = (Get-Content -LiteralPath $lg | Select-String 'UNLOCKED \(SS0=0x88888888 SS1=0x8\)' | Select-Object -Last 1)
+        if ($hit) {
+          # 2026-10-02（第三方审查）：读不到开机时间时**不能**当成“已解锁”（宁严不松）
+          if (-not $bt) { $ok = $false }
+          elseif ((Get-Item $lg).LastWriteTime -ge $bt.AddMinutes(-10)) { $ok = $true }
+        }
+      }
+      Dismount-Esp
+    }
+  } catch { $ok = $false }
+  if ($ok) {
+    try {
+      $ti = Get-ScheduledTaskInfo -TaskName $script:TaskName -ErrorAction SilentlyContinue
+      $bt2 = (Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue).LastBootUpTime
+      # 2026-10-02（第三方审查）：任务信息或开机时间读不到 → 一律不算“本次已跑”（宁严不松，否则会误删指引）
+      if (-not $ti -or -not $bt2) { $ok = $false }
+      elseif ($ti.LastTaskResult -ne 0) { $ok = $false }
+      elseif ($ti.LastRunTime -lt $bt2.AddMinutes(-10)) { $ok = $false }
+    } catch { $ok = $false }
+  }
+  if ($ok) { try { if ((Get-GspState).State -ne 'on') { $ok = $false } } catch { $ok = $false } }
+  if ($ok) {
+    try {
+      $gpuBad = @(Get-PnpDevice -Class Display -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -match 'DEV_1F0B' -and $_.Status -ne 'OK' })
+      if ($gpuBad.Count -gt 0) { $ok = $false }
+    } catch { }
+  }
+  return $ok
+}
+
 # ================================================================ 取证
 function Invoke-Verify {
   Head '取证：算力（EFI 侧）'
   $compute = 'FAIL'; $gen2 = 'FAIL'
+  # 2026-10-02（第三方审查 H）：ESP 的 40hx_log.txt 与 postbind.log 都是**跨开机累积**的 ——
+  #   只查“存在 PASS/UNLOCKED 行”会把历史成功当成本次成功，进而误删“下一步”指引。
+  #   这里统一先取本次开机时间，所有"本次开机"判据都以它为门槛（读不到就按不通过处理，宁严不松）。
+  $boot = $null
+  try { $boot = (Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue).LastBootUpTime } catch { }
+  $freshCut = $null
+  if ($boot) { $freshCut = $boot.AddMinutes(-10) } else { Warn '读不到本次开机时间（LastBootUpTime）→ 下面所有“本次开机”判据按不通过处理（宁严不松）' }
   $espRoot = Mount-Esp
   if ($espRoot) {
     $log = Join-Path $espRoot '40hx_log.txt'
     if (Test-Path $log) {
       $txt = Get-Content -LiteralPath $log
       $hit = $txt | Select-String 'UNLOCKED \(SS0=0x88888888 SS1=0x8\)' | Select-Object -Last 1
-      if ($hit) { $compute = 'PASS'; Ok ("*** UNLOCKED (SS0=0x88888888 SS1=0x8) ***  文件时间 " + (Get-Item $log).LastWriteTime) }
+      $espFresh = $false
+      if ($hit -and $freshCut -and ((Get-Item $log).LastWriteTime -ge $freshCut)) { $espFresh = $true }
+      if ($espFresh) { $compute = 'PASS'; Ok ("*** UNLOCKED (SS0=0x88888888 SS1=0x8) ***  文件时间 " + (Get-Item $log).LastWriteTime) }
+      elseif ($hit -and -not $freshCut) { Bad '读不到本次开机时间，无法确认 40hx_log.txt 里的 UNLOCKED 是不是本次开机 → 按不通过处理（宁严不松）' }
+      elseif ($hit) { Bad ('40hx_log.txt 里的 UNLOCKED 是**之前开机**的记录（文件时间 ' + (Get-Item $log).LastWriteTime + '）→ 本次开机解锁固件很可能没跑；别按“已解锁”处理') }
       else { Bad '40hx_log.txt 里没有本次开机的 UNLOCKED 行' }
       $txt | Select-String -Pattern 'NO-RETRAIN|Root TLS=Gen2|chainload' | Select-Object -Last 4 | ForEach-Object { Info ($_.Line) }
     } else { Bad '40hx_log.txt 不存在 → 解锁固件这次开机没跑（算力一定没解锁）' }
@@ -1605,23 +1721,73 @@ function Invoke-Verify {
 
   Head '取证：PCIe Gen2（Windows 侧）'
   # 首选路径证据（2026-09-29 起）：postbind.log 的 "PASS: Gen2 reached on the new path"
-  # + retrain-inpout.log 的逐条硬件读数。判 Gen2 看 LNKSTA（0x1102/0xF102），别看 nvidia-smi 的 link.gen.current（空闲会降速）
+  # + retrain-last.log 的逐条硬件读数（每次覆盖；老版本是 retrain-inpout.log）。判 Gen2 看 LNKSTA（0x1102/0xF102），别看 nvidia-smi 的 link.gen.current（空闲会降速）
   $newPass = $null
   $pbLog2 = Join-Path $script:ProgDataWin 'logs\postbind.log'
-  $rtLog = Join-Path $script:ProgDataWin 'logs\retrain-inpout.log'
+  # 2026-10-02：新版本把完整读数写 retrain-last.log（每次覆盖）；老机器上可能还有追加式的 retrain-inpout.log
+  $rtLog = Join-Path $script:ProgDataWin 'logs\retrain-last.log'
+  if (-not (Test-Path $rtLog)) { $rtLogLegacy = Join-Path $script:ProgDataWin 'logs\retrain-inpout.log'; if (Test-Path $rtLogLegacy) { $rtLog = $rtLogLegacy } }
+  $pbStalePass = $false
+  # 把 “==== PostBind start 2026/10/02 周五  9:01:10.83 ====” 里的时间抠出来（本地化格式，宽匹配；抠不到返回 $null）
+  $ParseStartStamp = {
+    param([string]$Line)
+    if (-not $Line) { return $null }
+    # 兼容两种本地化日期顺序：中文/欧洲 年/月/日；en-US 月/日/年（哪一段是 4 位就当“年”）
+    # 日期与时间之间可能夹着星期/“上午·下午”（12 小时制），所以放宽到 12 个非数字字符
+    $m = [regex]::Match($Line, '(\d{1,4})[/\-](\d{1,2})[/\-](\d{1,4})[^\d]{0,12}(\d{1,2}):(\d{2}):(\d{2})')
+    if (-not $m.Success) { return $null }
+    $a = $m.Groups[1].Value; $b = [int]$m.Groups[2].Value; $c = $m.Groups[3].Value
+    if ($a.Length -eq 4) { $Y = [int]$a; $Mo = $b; $D = [int]$c }
+    elseif ($c.Length -eq 4) { $Y = [int]$c; $Mo = [int]$a; $D = $b }
+    else { return $null }
+    try { return (Get-Date -Year $Y -Month $Mo -Day $D -Hour ([int]$m.Groups[4].Value) -Minute ([int]$m.Groups[5].Value) -Second ([int]$m.Groups[6].Value)) } catch { return $null }
+  }
   if (Test-Path $pbLog2) {
-    $pbAll = Get-Content -LiteralPath $pbLog2
-    $newPass = ($pbAll | Select-String -Pattern 'PASS:\s*Gen2 reached on the new path' | Select-Object -Last 1)
+    $pbAll = @(Get-Content -LiteralPath $pbLog2)
+    # 2026-10-02（第三方审查 H + 第 2 轮复审 A）：postbind.log 是**跨开机累积**的，而且主任务与“登录后 60 秒补跑”任务
+    #   共用同一个日志文件 —— 只认“最后一次 start 之后的 PASS”会把「主任务成功 + 补跑那轮失败」的**好机器**判成 FAIL。
+    #   正确做法：给每条 PASS 找它所属那一段的 start 时间，只要**有一条 PASS 属于本次开机**就算落地。
+    # 2026-10-02（第 3 轮复审建议）：这里用 ArrayList.Add 显式占位，让 $segIdx 与 $segTime **下标永远一一对应**。
+    #   备注（本机实测，别写错）：PS 5.1 里 `$a=@(); $a += $null; $a.Count` → 1（不是 0），
+    #   所以原写法本来也不会错位；`@($null).Count` → 0 才是那个常见坑。改这里只是让语义更直白。
+    $segIdx = New-Object System.Collections.ArrayList
+    $segTime = New-Object System.Collections.ArrayList
+    for ($bi = 0; $bi -lt $pbAll.Count; $bi++) {
+      if ($pbAll[$bi] -match '={2,}\s*PostBind start') {
+        $t0 = & $ParseStartStamp $pbAll[$bi]
+        [void]$segIdx.Add($bi)
+        [void]$segTime.Add($t0)
+      }
+    }
+    $passHits = @($pbAll | Select-String -Pattern 'PASS:\s*Gen2 reached on the new path')
+    if ($passHits.Count -gt 0) {
+      $anyParsed = @($segTime | Where-Object { $_ }).Count -gt 0
+      for ($pi = $passHits.Count - 1; $pi -ge 0; $pi--) {
+        $pIdx = $passHits[$pi].LineNumber - 1
+        $segT = $null
+        for ($si = $segIdx.Count - 1; $si -ge 0; $si--) { if ($segIdx[$si] -lt $pIdx) { $segT = $segTime[$si]; break } }
+        if ($segT -and $freshCut -and ($segT -ge $freshCut)) { $newPass = $passHits[$pi]; break }
+      }
+      if (-not $newPass) {
+        $pbStalePass = $true
+        # 一段时间都抠不出来 = 日志格式/区域设置异常 → 明确说出来（宁严：按未落地处理，绝不靠文件时间猜）
+        if (-not $anyParsed) { Warn 'postbind.log 里连一条 “PostBind start 时间” 都解析不出来（区域格式异常？）→ 按“本次未落地”处理；请把 postbind.log 发回来核对' }
+      }
+    }
     ($pbAll | Select-String -Pattern '==== PostBind start|NewPath EXIT=|PASS:|FAIL:|falling back' | Select-Object -Last 3) | ForEach-Object { Info ('postbind: ' + $_.Line.Trim()) }
     if ($pbAll | Select-String -Pattern 'falling back to the legacy ACE path' | Select-Object -Last 1) { Info 'postbind 里出现过“回落到旧路径”：新路径那次没成功（看上面的 NewPath EXIT 码：11 基线不认识 / 12 GPU 未就绪 / 13 inpoutx64 没起来 / 10 链路没到 Gen2 / 3 WinRing0 不可用）' }
   } else { Bad 'postbind.log 不存在（开机任务没跑过）' }
+  if ($pbStalePass) {
+    if ($anyParsed) { Bad ('postbind.log 里所有“新路径 PASS”都不是**本次开机**写的（上一次开机的记录）→ 本次 Gen2 没有落地，别按 PASS 处理') }
+    else { Bad 'postbind.log 里的时间戳解析不出来，无法确认哪条 PASS 属于本次开机 → 按“本次未落地”处理（宁严），别按 PASS 处理' }
+  }
   if ($newPass) {
     $gen2 = 'PASS'
     Ok 'postbind: 新路径 PASS —— inpoutx64 直写 MMIO，ACE-BOOT 全程没被停'
     if (Test-Path $rtLog) {
       (Get-Content -LiteralPath $rtLog | Select-String -Pattern 'pre   :|writeOk=|GPU final|ROOT final' | Select-Object -Last 6) | ForEach-Object { Info ('retrain: ' + $_.Line.Trim()) }
-      Info ('retrain-inpout.log 时间: ' + (Get-Item $rtLog).LastWriteTime)
-    } else { Warn 'retrain-inpout.log 不存在（新路径 PASS 就一定会写它，建议重跑一次任务核对）' }
+      Info ('retrain 完整读数日志时间: ' + (Get-Item $rtLog).LastWriteTime + '（' + (Split-Path -Leaf $rtLog) + '）')
+    } else { Warn 'retrain-last.log 不存在（新路径 PASS 就一定会写它，建议重跑一次任务核对）' }
   }
   $lastLog = Join-Path $script:ProgDataWin 'logs\last.log'
   if ($newPass) { Info '旧路径的 last.log 本次不用看（新路径已 PASS）；下面 SC 任务时间戳与 nvidia-smi 仅作参考' }
@@ -1631,7 +1797,14 @@ function Invoke-Verify {
     # 幂等路径会输出 'PASS: already physical Gen2 x16; no writes needed.'，只认 'PASS: physical Gen2 x16' 会误判为失败
     $passLine = ($c | Select-String -Pattern 'PASS:\s*(already\s+)?physical Gen2 x16' | Select-Object -Last 1)
     $exitLine = ($c | Select-String -Pattern 'EXIT=\d+' | Select-Object -Last 1)
-    if ($passLine) { $gen2 = 'PASS'; Ok ('helper: ' + $passLine.Line.Trim()) }
+    # 2026-10-02（第三方审查 H 的同一族）：last.log 是**旧路径**的日志，新路径生效后它就不再更新 ——
+    #   本机实测它停在 2026-09-29 的那次 PASS，于是"新路径失败的那次开机"会被它顶成 PASS（假成功）。
+    #   所以这里也要时间门槛：只有本来就是**本次开机**写的才算数。
+    $lastFresh = $false
+    if ($freshCut -and ((Get-Item $lastLog).LastWriteTime -ge $freshCut)) { $lastFresh = $true }
+    if ($passLine -and $lastFresh) { $gen2 = 'PASS'; Ok ('helper: ' + $passLine.Line.Trim()) }
+    elseif ($passLine -and -not $freshCut) { Bad '读不到本次开机时间，无法确认 last.log 里的 PASS 是不是本次开机 → 按不通过处理（宁严不松）' }
+    elseif ($passLine) { Bad ('last.log 里的 PASS 是**之前开机**的记录（文件时间 ' + (Get-Item $lastLog).LastWriteTime + '）→ 本次没有落地，别按 PASS 处理') }
     elseif ($exitLine -and $exitLine.Line -match 'EXIT=0') { Warn ('helper 进程退出码 0 但没打印 PASS 行，请人工核对: ' + $exitLine.Line.Trim()) }
     else { Bad 'helper 没到 PASS（见上面 last.log 行）' }
   } else { Bad 'last.log 不存在（开机任务没跑过 Gen2 落地）' }
@@ -1674,8 +1847,28 @@ function Invoke-Verify {
     Say ('  40HX 设备 : 异常 [' + $gpuErr[0].Status + '] Problem=' + $pr + $(if ($pr -eq '43') { '   ← 这就是客户说的"设备管理器 43"' } else { '' })) 'Red'
     if ($pr -eq '43') { Say '    处理顺序：① 确认 GSP 已启用 ② 完全关机（不是重启）再开机 ③ 仍 43 跑 -Mode Repair 后重复 ①②' 'Yellow' }
   } else { Say '  40HX 设备 : OK（没有代码 43）' 'Green' }
-  if ($compute -eq 'PASS' -and $gen2 -eq 'PASS' -and $gspV.State -eq 'on') { Say '  结论: 两全达成（算力满血 + Gen2 x16 + GSP 正常）' 'Green' }
+  # 2026-10-02（第 2 轮复审 B）：结论行必须与 $allGood/$liveOk（也就是退出码）同源，
+  #   否则会出现同一屏“绿色 两全达成 + 退出码 1”这种自相矛盾。
+  $allGood = ($compute -eq 'PASS' -and $gen2 -eq 'PASS' -and $gspV.State -eq 'on' -and $gpuErr.Count -eq 0)
+  $liveOk = $false
+  try { $liveOk = Test-LiveAllGood } catch { $liveOk = $false }
+  if ($allGood -and $liveOk) { Say '  结论: 两全达成（算力满血 + Gen2 x16 + GSP 正常）' 'Green' }
+  elseif ($allGood -and -not $liveOk) { Say '  结论: 判据显示两全，但“本次开机”的证据不齐（ESP 时间戳 / 开机任务 rc / GSP / 代码 43）→ 按未验证处理（退出码非 0，指引保留）' 'Yellow' }
   elseif ($compute -eq 'PASS' -and $gen2 -eq 'PASS') { Say '  结论: 算力+Gen2 已达成，但 GSP 这项要处理（否则设备管理器会显示代码 43）' 'Yellow' }
+  # 2026-10-02（用户要求）：状态正常了就别再跳“下一步”指引 —— 顺手清掉上次留下的那个文件。
+  #   2026-10-02（第三方审查 H）：删之前再用 Test-LiveAllGood 复核一遍“就是本次开机”的证据，
+  #   避免历史日志被当成现状而把该留的指引删掉。
+  $guidePath = Join-Path $script:PkgRoot '下一步-重启后看这里.txt'
+  if ($allGood -and $liveOk) {
+    if (Test-Path $guidePath) {
+      try { Remove-Item -LiteralPath $guidePath -Force -ErrorAction Stop; Ok '状态正常 → 已移除旧的“下一步-重启后看这里.txt”（正常状态不需要它）' }
+      catch { Warn ('清理“下一步”提示文件失败: ' + $_.Exception.Message) }
+    } else { Info '没有遗留的“下一步”提示文件（状态正常，不需要它）' }
+  } elseif ($allGood -and -not $liveOk) {
+    Info '判据显示两全，但“本次开机”证据不齐（Test-LiveAllGood 未通过）→ 保留“下一步”提示文件不动'
+  }
+  # 供主流程决定退出码（-Mode Verify 不再无条件返回 0）
+  $script:VerifyResult = @{ Compute = $compute; Gen2 = $gen2; Gsp = $gspV.State; GpuOk = ($gpuErr.Count -eq 0); AllPass = ($allGood -and $liveOk) }
 }
 
 # ================================================================ 卸载
@@ -1757,6 +1950,13 @@ function Invoke-Uninstall {
   Say '  · 被本包禁用的厂商计划任务（任务计划程序里手动启用）' 'Gray'
   Say '  · ProgramData\CMP40HXGen2 下我们加过的目录权限（要恢复继承：icacls "<目录>" /inheritance:e /T /C）' 'Gray'
   Say ''
+  $gp = Join-Path $script:PkgRoot '下一步-重启后看这里.txt'
+  if (Test-Path $gp) {
+    Remove-Item -LiteralPath $gp -Force -ErrorAction SilentlyContinue
+    # 2026-10-02（第三方审查）：删不掉就别报“已移除”（例如被记事本占着）
+    if (Test-Path $gp) { Warn '“下一步-重启后看这里.txt”没删掉（可能正被记事本打开）—— 关掉它再删即可' }
+    else { Ok '已移除“下一步-重启后看这里.txt”（卸载后不再需要）' }
+  }
   Say '卸载完成：重启后就是原生（未解锁）状态。' 'Yellow'
 }
 
@@ -1764,6 +1964,9 @@ function Invoke-Uninstall {
 $isAdmin = Test-Admin
 if (-not (Test-Path $script:LogDir)) { New-Item -ItemType Directory -Force -Path $script:LogDir | Out-Null }
 $script:LogPath = Join-Path $script:LogDir ('run-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + $Mode + '.log')
+# 2026-10-02（第三方审查）：瘦身要在**所有模式**都做（技师最常跑的就是 Check/Verify，它们也会各写一份日志）
+Info '日志/备份瘦身：只保留最近 10 份运行日志与空备份目录的清理'
+Invoke-Retention
 
 Say ''
 Say '################################################################'
@@ -1783,7 +1986,8 @@ if ($Mode -eq 'Check') {
   if ($script:FailCount -eq 0 -and $script:WarnCount -eq 0) { Say '体检完成：没有发现问题，可以跑 Install。' 'Green' }
   else { Say ('体检完成：' + $script:FailCount + ' 项失败、' + $script:WarnCount + ' 条提示（见上面 [失败]/[提示]）。') $(if ($script:FailCount -eq 0) { 'Yellow' } else { 'Red' }) }
   Say ('日志: ' + $script:LogPath)
-  Exit-With $script:ExitOk
+  # 2026-10-02（第三方审查）：Check 有失败项时不再返回 0（脚本化调用也能判失败）
+  if ($script:FailCount -gt 0) { Exit-With $script:ExitFail } else { Exit-With $script:ExitOk }
 }
 
 if ($Mode -eq 'SelfTest') {
@@ -1797,7 +2001,8 @@ if ($Mode -eq 'SelfTest') {
 if ($Mode -eq 'Verify') {
   Invoke-Verify
   Say ('日志: ' + $script:LogPath)
-  Exit-With $script:ExitOk
+  # 2026-10-02（第三方审查）：Verify 不再无条件返回 0 —— 没到“两全”就返回失败码
+  if ($script:VerifyResult -and $script:VerifyResult.AllPass) { Exit-With $script:ExitOk } else { Exit-With $script:ExitFail }
 }
 
 if ($Mode -eq 'Uninstall') {
@@ -1862,7 +2067,7 @@ Info '  · 驱动被杀软隔离（火绒/360）  症状=Gen2 落不了地、算
 Info '  · 显卡被复位  本包 Gen2AutoHard=0 / Gen2PnpFallback=0，绝不复位显卡；万一出现代码 43 → 完全关机（不是重启）再开机'
 Info '  · 目录权限/驱动源改动  零功能影响；要退回双击 工具-测试与修复\回滚-安全加固.cmd'
 Info '  · 主要撤销项  powershell -ExecutionPolicy Bypass -File 本目录\Install-40HXUnlock.ps1 -Mode Uninstall -Yes（卸载后仍会留几项不影响使用的东西，见上面"不会自动还原"清单）'
-Info '详见包内 排查指引.md 与 风险与恢复.md；本次日志：'
+Info '详见包内 排查指引.md 与 文档\风险与恢复.md；本次日志：'
 Info ('  ' + $script:LogPath)
 Info ''
 $bk = New-BackupFolder
@@ -1946,7 +2151,20 @@ Say '   解锁固件在 \EFI\40HX\40HXUNLK.EFI，用一个自建的固件启动�
 Say ''
 Say ('  回滚：powershell -ExecutionPolicy Bypass -File "' + (Join-Path $script:PkgRoot 'Install-40HXUnlock.ps1') + '" -Mode Uninstall -Yes') 'Gray'
 
-# 控制台关掉后还能看：把“下一步”写成文件放包目录
+# 控制台关掉后还能看：把“下一步”写成文件放包目录 —— 但只在“真的需要你动手”时写。
+# 2026-10-02（用户要求：状态正常就别再跳指引）：只在“真的需要你动手”时写这个文件：
+#   ① 有失败项（FailCount>0），或 ② 本次开机还没验证过两全（首装/刚改过 EFI，必须冷启动才算数）。
+#   只有“提示类待办”（比如杀软信任区提醒）且现场已经验证两全时 → 不再写文件，
+#   那些提示照样打在控制台并记进本次 run-*.log，不丢信息（别把“安静”做成“哑巴”）。
+$guidePath = Join-Path $script:PkgRoot '下一步-重启后看这里.txt'
+$liveOk = Test-LiveAllGood
+if ($script:FailCount -eq 0 -and $liveOk) {
+  if (Test-Path $guidePath) {
+    try { Remove-Item -LiteralPath $guidePath -Force -ErrorAction Stop; Say '  状态正常（本次开机已解锁 + Gen2 已到位 + GSP 正常）→ 已移除“下一步-重启后看这里.txt”，不留指引。' 'Green' }
+    catch { Warn ('清理“下一步”提示文件失败: ' + $_.Exception.Message) }
+  } else { Say '  状态正常 → 不需要“下一步”指引（不会生成该文件）。' 'Green' }
+  if ($script:ActionItems.Count -gt 0) { Say ('  （下面这些只是提示，不影响功能，也已记进本次日志）: ' + ($script:ActionItems -join ' / ')) 'Gray' }
+} else {
 try {
   $nl = New-Object System.Collections.ArrayList
   [void]$nl.Add('CMP 40HX 安装完成 —— 下一步（' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '，模式 ' + $Mode + '）')
@@ -1973,6 +2191,7 @@ try {
   [void]$nl.Add('出问题看：' + (Join-Path $script:PkgRoot '排查指引.md'))
   [void]$nl.Add('回滚命令：powershell -ExecutionPolicy Bypass -File "' + (Join-Path $script:PkgRoot 'Install-40HXUnlock.ps1') + '" -Mode Uninstall -Yes')
   [IO.File]::WriteAllLines((Join-Path $script:PkgRoot '下一步-重启后看这里.txt'), $nl, (New-Object System.Text.UTF8Encoding($true)))
-  Say ('  已写出下一步提示（控制台关了也能看）: ' + (Join-Path $script:PkgRoot '下一步-重启后看这里.txt')) 'Cyan'
+  Say ('  已写出下一步提示（控制台关了也能看）: ' + $guidePath) 'Cyan'
 } catch { Warn ('写“下一步”提示文件失败: ' + $_.Exception.Message) }
+}
 if ($script:FailCount -eq 0) { Exit-With $script:ExitOk } else { Exit-With $script:ExitFail }

@@ -4,6 +4,12 @@ set "LOGDIR=C:\ProgramData\CMP40HXGen2\windows\logs"
 if not exist "%LOGDIR%" md "%LOGDIR%" >nul 2>&1
 set "LOG=%LOGDIR%\postbind.log"
 >>"%LOG%" echo ==== PostBind start !DATE! !TIME! ====
+rem ---- 2026-10-02 (user request: keep the boot log small) ----------------------------------
+rem The full hardware transcript now goes to logs\retrain-last.log (rewritten every boot).
+rem This file keeps only the short verdict lines; trim it when it grows past 64 KB.
+for %%A in ("%LOG%") do set "LOGSZ=%%~zA"
+if not defined LOGSZ set "LOGSZ=0"
+if !LOGSZ! GTR 65536 call :trim
 rem ---- 2026-10-01 FIX BUG: restore ACE UNCONDITIONALLY (customer: unlocked but ACE blocked) ----
 rem old logic: ACE was restored only when Gen2 succeeded (RC==0) -> one failed round left ACE-BOOT
 rem   permanently STOPPED (game cannot start its anti-cheat), and a later new-path success never fixed it.
@@ -77,16 +83,24 @@ rem The tool verifies the baseline, writes only the two driver-clobbered policy 
 rem and validates Gen2. It exits 0 only on a verified PASS, otherwise we fall back to the legacy ACE path below.
 set "NRC=3"
 set "NEWTOOL=C:\ProgramData\CMP40HXGen2\windows\40hx-retrain-inpout.ps1"
+set "NOUT=%LOGDIR%\newpath-last.out"
 if exist "%NEWTOOL%" (
   >>"%LOG%" echo ---- NewPath start: %NEWTOOL% -Apply !DATE! !TIME! ----
-  powershell -NoProfile -ExecutionPolicy Bypass -File "%NEWTOOL%" -Apply >>"%LOG%" 2>&1
+  rem 2026-10-02: run the tool into its own file. On success only the verdict lines reach this log;
+  rem   the full transcript stays in logs\retrain-last.log, which the tool rewrites on every boot.
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%NEWTOOL%" -Apply > "!NOUT!" 2>&1
   set "NRC=!ERRORLEVEL!"
   >>"%LOG%" echo ---- NewPath EXIT=!NRC! !DATE! !TIME! ----
   if "!NRC!"=="0" (
+    for /f "usebackq delims=" %%L in (`findstr /C:"GPU final" /C:"ROOT final" /C:"GUARD = " "!NOUT!"`) do >>"%LOG%" echo %%L
     >>"%LOG%" echo ==== PostBind EXIT=0 !DATE! !TIME! ====
     >>"%LOG%" echo PASS: Gen2 reached on the new path - ACE-BOOT was never stopped
+    >>"%LOG%" echo OK: full hardware readings are in logs\retrain-last.log
     exit /b 0
   )
+  rem failure: keep the whole transcript here AND archive it - a later boot must not wipe the evidence
+  type "!NOUT!" >>"%LOG%"
+  call :keepfail !NRC!
   >>"%LOG%" echo NewPath did not PASS - exit=!NRC! - falling back to the legacy ACE path
 ) else (
   >>"%LOG%" echo NewPath: tool not found - using the legacy ACE path
@@ -214,4 +228,16 @@ rem param %1 = off / on
 rem ACE (Tencent anti-cheat) locate/stop/restore is handled by ACE-Toggle.ps1: it matches on ImagePath
 rem containing AntiCheatExpert, so no hardcoded service name / install dir; original start type is recorded for restore.
 powershell -NoProfile -ExecutionPolicy Bypass -File "C:\ProgramData\CMP40HXGen2\windows\ACE-Toggle.ps1" -Action %1 >>"%LOG%" 2>&1
+exit /b 0
+
+:trim
+rem 2026-10-02: only called when postbind.log passed 64 KB. Keeps the last 200 lines,
+rem moves the previous content to postbind.log.1 (full readings live in retrain-last.log anyway).
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p='%LOG%'; if((Test-Path -LiteralPath $p) -and ((Get-Item -LiteralPath $p).Length -gt 65536)){ Copy-Item -LiteralPath $p ($p + '.1') -Force; Set-Content -LiteralPath $p -Value (@(Get-Content -LiteralPath $p -Tail 200)) -Encoding Default }" >nul 2>&1
+exit /b 0
+
+:keepfail
+rem 2026-10-02: archive a failed round so later boots cannot wipe it. %1 = exit code of the tool.
+rem logs\failures\ keeps the newest 20 rounds.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$d='%LOGDIR%\failures'; if(-not (Test-Path -LiteralPath $d)){ New-Item -ItemType Directory -Path $d | Out-Null }; $s=Get-Date -Format 'yyyyMMdd-HHmmss'; if(Test-Path -LiteralPath '%NOUT%'){ Copy-Item -LiteralPath '%NOUT%' (Join-Path $d ('newpath-'+$s+'-exit%1.out')) -Force }; if(Test-Path -LiteralPath '%LOGDIR%\retrain-last.log'){ Copy-Item -LiteralPath '%LOGDIR%\retrain-last.log' (Join-Path $d ('retrain-'+$s+'-exit%1.log')) -Force }; Get-ChildItem -LiteralPath $d -File | Sort-Object LastWriteTime -Descending | Select-Object -Skip 20 | Remove-Item -Force" >nul 2>&1
 exit /b 0

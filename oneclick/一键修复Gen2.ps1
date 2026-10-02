@@ -28,8 +28,10 @@ if (-not $__adm) {
 }
 $src  = Join-Path $here 'payload\windows\40hx-retrain-inpout.ps1'
 $dst  = "$env:ProgramData\CMP40HXGen2\windows\40hx-retrain-inpout.ps1"
-$rlog = "$env:ProgramData\CMP40HXGen2\windows\logs\retrain-inpout.log"
-$wantVer = '20261001c-audit'  # 必须与 payload 里工具的 TOOL_VER 一致（2026-10-01：修 MCFG 表 ID + WinRing0 不可用时自动回落 ECAM）
+# 2026-10-02：新工具把完整读数写 retrain-last.log（每次覆盖，不再无限增长）；老机器上可能还有老的追加日志
+$rlog = "$env:ProgramData\CMP40HXGen2\windows\logs\retrain-last.log"
+$rlogOld = "$env:ProgramData\CMP40HXGen2\windows\logs\retrain-inpout.log"
+$wantVer = '20261002-quiet'  # 必须与 payload 里工具的 TOOL_VER 一致（2026-10-02：完整读数写 retrain-last.log，正常状态不再堆日志）
 $desk = [Environment]::GetFolderPath('Desktop')
 if (-not $desk) { $desk = 'C:\Users\Public\Desktop' }
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -95,6 +97,7 @@ T ('  工具返回码: ' + $rc + '   （0=Gen2 到位  10=链路没到 Gen2  11=
 T ''
 T '[3/4] 结果汇总' 'Cyan'
 $keys = @()
+if (-not (Test-Path $rlog) -and (Test-Path $rlogOld)) { $rlog = $rlogOld }   # 老机器兜底
 if (Test-Path $rlog) {
   $tail = @(Get-Content -LiteralPath $rlog -Encoding UTF8)
   # 只取最后一次运行的块
@@ -106,7 +109,11 @@ $show = @($keys | Where-Object { $_ -match 'ver=|vbios/driver|guard 全量体检
 foreach ($l in $show) { Write-Host ('   ' + $l.Trim()); [void]$out.Add('   ' + $l.Trim()) }
 # 2026-10-01b（审查 H3）：工具的幂等输出是 "PASS: already physical Gen2 x16; no writes needed."，
 #   只认旧文案会把"已经到位"误报成失败。
-$gen2ok = ($keys -join "`n") -match 'PASS:\s*(already\s+)?physical Gen2 x16'
+# 2026-10-02（第三方审查 H + 本机实测踩到）：**必须同时**认工具退出码与日志 PASS。
+#   只认日志会读到"上一次运行留下的 PASS"（工具这次根本没写成/写了一半就退）→ 报假成功。
+#   工具语义：退出码 0 = 本次已验证 Gen2 到位（含幂等 already），非 0 一律不算成功。
+$gen2ok = (($rc -eq 0) -and (($keys -join "`n") -match 'PASS:\s*(already\s+)?physical Gen2 x16'))
+if (-not $gen2ok) { T ('  判定依据: 工具返回码=' + $rc + $(if ($rc -ne 0) { '（非 0 = 本次没成功，不看日志里的历史 PASS）' } else { '' })) 'Yellow' }
 $gapLine = @($keys | Where-Object { $_ -match '体检缺口' }) | Select-Object -First 1
 if ($gapLine) { T ('  ' + $gapLine.Trim()) }
 
@@ -129,15 +136,22 @@ if ($gen2ok) {
   }
   T '  下一步（按顺序，不用输命令）：' 'Yellow'
   T '   a) 完全关机再开机一次（开始菜单→关机，不是重启！这一步就是为了清掉 WinRing0 停在 STOP_PENDING 的残留），再双击本文件跑一次；' 'Yellow'
-  T '   b) 若还是失败：把桌面上的这两个文件发回来 —— 40HX-Gen2修复结果-*.txt 和 retrain-inpout.log' 'Yellow'
+  T '   b) 若还是失败：把桌面上的这两个文件发回来 —— 40HX-Gen2修复结果-*.txt 和 retrain 完整日志' 'Yellow'
 }
 # 日志与汇总落盘到桌面
 try {
-  if (Test-Path $rlog) { Copy-Item -LiteralPath $rlog -Destination (Join-Path $desk 'retrain-inpout.log') -Force }
+  if (Test-Path $rlog) { Copy-Item -LiteralPath $rlog -Destination (Join-Path $desk 'retrain-last.log') -Force }
   T ''
   T ('  汇总已存: ' + $sum) 'Cyan'
-  T '  （桌面上还会有 retrain-inpout.log 完整日志）' 'Cyan'
+  T '  （桌面上还会有 retrain-last.log 完整日志）' 'Cyan'
 } catch { T ('  [!!] 写桌面失败: ' + $_.Exception.Message) 'Yellow' }
 $out | Out-File -Encoding utf8 $sum
+# 2026-10-02（第三方审查 H）：没修好必须以**非 0**退出 —— 否则 .cmd 会打印 [OK] 修复脚本跑完了（退出码 0），
+#   客户会以为修好了（工具返回 10/11/12/13/3 时以前就是这么骗人的）。
+if (-not $gen2ok) {
+  Write-Host ''
+  Write-Host '没修好：退出码 = 1（上面是失败原因）' -ForegroundColor Yellow
+  exit 1
+}
 Write-Host ''
 Write-Host '============================================================' -ForegroundColor Cyan

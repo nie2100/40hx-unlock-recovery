@@ -34,7 +34,10 @@ if not exist "%SMI%" (
 
 "%SMI%" --query-gpu=name,driver_version,memory.total,temperature.gpu,power.draw,power.limit,driver_model.current,driver_model.pending,pcie.link.width.current,pcie.link.width.max --format=csv > "%TMPQ%" 2>nul
 if not exist "%TMPQ%" goto :nosmi
-for /f "skip=1 tokens=1-10 delims=," %%a in ("%TMPQ%") do (
+rem 2026-10-02 修 BUG：这里以前写成 in ("%TMPQ%") —— 带引号的单个 token 会被 for /f 当成**字符串**
+rem   而不是文件名（配合 skip=1 就一行都不解析），结果 GPU/驱动/链路宽度全是空值 → 结论永远"存在异常"。
+rem   正确写法 = usebackq + 引号（既能当文件读，又能容忍路径里有空格）。
+for /f "usebackq skip=1 tokens=1-10 delims=," %%a in ("%TMPQ%") do (
   for /f "tokens=* delims= " %%x in ("%%a") do set "GPU=%%x"
   for /f "tokens=* delims= " %%x in ("%%b") do set "DRV=%%x"
   for /f "tokens=* delims= " %%x in ("%%c") do set "VMEM=%%x"
@@ -218,10 +221,12 @@ if exist "%TMPY%" del "%TMPY%" >nul 2>&1
 if exist "%TMPO%" del "%TMPO%" >nul 2>&1
 certutil -f -decode "%TMPB%" "%TMPY%" >nul 2>&1
 if not exist "%TMPY%" goto :nopython
-"%PY%" "%TMPY%" > "%TMPO%" 2>>"%TMPO%"
-rem 注：2>> 而不是 2>nul —— 让错误信息留在文件里（下面"Python 原始输出"会回显）
+"%PY%" "%TMPY%" > "%TMPO%" 2>&1
+rem 注：2>&1 而不是 2>nul —— 让错误信息留在同一个文件里（下面"Python 原始输出"会回显）。
+rem   2026-10-02 修 BUG：以前写 2>>"%TMPO%"（同一个文件开两个句柄）→ cmd 直接报
+rem   「另一个程序正在使用此文件，进程无法访问。」而且 Python 的报错其实没进去。
 if not exist "%TMPO%" goto :nopython
-for /f "tokens=1,2 delims= " %%a in ("%TMPO%") do (
+for /f "usebackq tokens=1,2 delims= " %%a in ("%TMPO%") do (
   if /I "%%a"=="H2D" set "H2DT=%%b"
   if /I "%%a"=="D2H" set "D2HT=%%b"
   if /I "%%a"=="VERDICT" set "VERD=%%b"

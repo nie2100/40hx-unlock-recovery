@@ -8,10 +8,14 @@
 #             it waited the full 120s and exited 12 on every boot. -GpuBdf/-RootBdf override (hex like 0x0200).
 $ErrorActionPreference='Continue'
 # 工具版本号：必须在使用点之前定义（2026-10-01 修正：原先定义在文件后半段，banner 里的 ver= 一直是空的）
-$TOOL_VER = '20261001c-audit'
-$LOGAPP='C:\ProgramData\CMP40HXGen2\windows\logs\retrain-inpout.log'
+$TOOL_VER = '20261002-quiet'
+# 2026-10-02（用户要求：解锁状态正常了就别再堆日志）：完整读数写 retrain-last.log —— **每次运行覆盖**，
+#   不再像老版那样每开机往 retrain-inpout.log 追加一份（那个文件只增不减，一个月长到 200+ KB）。
+#   要留档请在覆盖前拷走；开机任务会把失败那次的全量日志另存到 logs\failures\。
+$LOGAPP='C:\ProgramData\CMP40HXGen2\windows\logs\retrain-last.log'
 $out='C:\Temp\40hx-retrain-tool.txt'
 Remove-Item $out -ErrorAction SilentlyContinue
+Remove-Item $LOGAPP -ErrorAction SilentlyContinue
 function W($s){ $line=[string]$s; Add-Content -Path $out -Value $line -Encoding utf8; Add-Content -Path $LOGAPP -Value $line -Encoding utf8; Write-Host $line }
 function U32([string]$hex){ return [Convert]::ToUInt32($hex,16) }
 
@@ -599,7 +603,7 @@ $gcap=FindPcieCap $GPU; $rcap=FindPcieCap $ROOT
 W("  PCIe cap: GPU@0x" + $(if($gcap -eq $null){'NOT FOUND'}else{$gcap.ToString('X2')}) + "  ROOT@0x" + $(if($rcap -eq $null){'NOT FOUND'}else{$rcap.ToString('X2')}))
 if($gcap -eq $null -or $rcap -eq $null){ Fatal 11 ">>> PCIe capability not found" }
 
-$TOOL_VER = '20261001c-audit'  # 与本文件顶部的定义保持一致；改动这个标记要同步 一键修复Gen2.ps1 里的 $wantVer
+$TOOL_VER = '20261002-quiet'  # 与本文件顶部的定义保持一致；改动这个标记要同步 一键修复Gen2.ps1 里的 $wantVer
 $GUARD_OFF=0x0;   $GUARD_EXP=U32 '166000A1'
 # 2026-09-30（客户机 VBIOS 90.06.67.00.06 驱动）：基线不能写死常量，要按**位**判定。
 # 实测两处 Gen2 位（同一张卡 .04 => .06 只差跳线位）：

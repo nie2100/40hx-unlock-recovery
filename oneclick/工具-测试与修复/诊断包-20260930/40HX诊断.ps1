@@ -6,7 +6,7 @@
   ★ 只读：不改注册表、不写 ESP/NVRAM、不 create/start 任何驱动或服务、不停/起反作弊、
          不读写 GPU 寄存器。可以放心在任何机器上跑（需要管理员才能读全）。
   产出：桌面 40HX诊断报告-<机器名>-<时间>.txt   （GBK 编码，微信/记事本都能直接看）
-        桌面 40HX诊断-<时间>\  原始日志副本（40hx_log.txt / postbind.log / retrain-inpout.log …）
+        桌面 40HX诊断-<时间>\  原始日志副本（40hx_log.txt / postbind.log / retrain-last.log …）
   用法：双击同目录 一键诊断.cmd（自动提权）
         或管理员 PowerShell: powershell -ExecutionPolicy Bypass -File 40HX诊断.ps1
 #>
@@ -224,9 +224,11 @@ Sec '0. 速判（自动判定，先看这里）' {
   Ln ''
   Ln '[判据 D] 开机任务（Gen2 落地）'
   # retrain 工具的判定行（Gen2 为什么没落地，看这里最快）
-  $rtLog2 = "$env:ProgramData\CMP40HXGen2\windows\logs\retrain-inpout.log"
+  # 2026-10-02：新版写 retrain-last.log（每次覆盖）；老机器上是 retrain-inpout.log
+  $rtLog2 = "$env:ProgramData\CMP40HXGen2\windows\logs\retrain-last.log"
+  if (-not (Test-Path $rtLog2)) { $rtLegacy = "$env:ProgramData\CMP40HXGen2\windows\logs\retrain-inpout.log"; if (Test-Path $rtLegacy) { $rtLog2 = $rtLegacy } }
   if (Test-Path $rtLog2) {
-    Ln '  --- retrain-inpout.log 最近的判定行 ---'
+    Ln '  --- retrain 完整读数（retrain-last.log）最近的判定行 ---'
     foreach ($l in (@(Get-Content -LiteralPath $rtLog2 -ErrorAction SilentlyContinue) | Select-Object -Last 120 | Where-Object { $_ -match 'vbios/driver|VulnerableDriver|detect:|GPU candidate|ROOT candidate|using GPU|pre-state|start type|BAR0 \(validated\)|BOOT0 |LINK_CONFIG_0 = |PRIV_MISC_1   = |GUARD|plan  :|final|FATAL|cleanup' } | Select-Object -Last 22)) { Ln ('    ' + $l.Trim()) }
   }
   $task = Get-ScheduledTask -TaskName 'CMP40HX Gen2 PostBind' -ErrorAction SilentlyContinue
@@ -418,12 +420,20 @@ Sec '6. 一键包日志（判定"哪条路跑了、跑成什么样"）' {
   Step '日志'
   $logDir = "$env:ProgramData\CMP40HXGen2\windows\logs"
   if (Test-Path $logDir) {
-    foreach ($f in @(Get-ChildItem $logDir -File -ErrorAction SilentlyContinue)) {
-      Ln ('  - ' + $f.Name + '  ' + $f.Length + ' B  ' + $f.LastWriteTime)
-      try { Copy-Item -LiteralPath $f.FullName -Destination $script:RawDir -Force -ErrorAction SilentlyContinue } catch { }
+    # 2026-10-02（第三方审查）：原来只列顶层文件 → logs\failures\（失败留档）与其它子目录收不进报告。
+    #   改成递归，并按相对路径还原目录结构（同名文件不会互相覆盖）。
+    foreach ($f in @(Get-ChildItem $logDir -Recurse -File -ErrorAction SilentlyContinue)) {
+      $rel = $f.FullName.Substring($logDir.Length).TrimStart('\')
+      Ln ('  - ' + $rel + '  ' + $f.Length + ' B  ' + $f.LastWriteTime)
+      try {
+        $dst = Join-Path $script:RawDir $rel
+        $dstDir = Split-Path -Parent $dst
+        if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Force -Path $dstDir | Out-Null }
+        Copy-Item -LiteralPath $f.FullName -Destination $dst -Force -ErrorAction SilentlyContinue
+      } catch { }
     }
     Ln ''
-    foreach ($nm in @('postbind.log', 'retrain-inpout.log', 'last.log', 'previous.log', 'ace-state.json')) {
+    foreach ($nm in @('postbind.log', 'retrain-last.log', 'retrain-inpout.log', 'last.log', 'previous.log', 'ace-state.json')) {
       $p = Join-Path $logDir $nm
       if (Test-Path $p) {
         Ln ('  ---- ' + $nm + ' 末 60 行 ----')

@@ -1,4 +1,4 @@
-============================================================
+﻿============================================================
  40HX 一键解锁包 —— 本次更新说明（2026-10-01 第二次更新）
 ============================================================
 
@@ -24,12 +24,12 @@
 
 【如果还是不对：把这两个日志发回来（微信直接发文件即可）】
  - C:\ProgramData\CMP40HXGen2\windows\logs\postbind.log
- - C:\ProgramData\CMP40HXGen2\windows\logs\retrain-inpout.log
+ - C:\ProgramData\CMP40HXGen2\windows\logs\retrain-last.log
  以及双击 `状态自检.bat` 后它给你的那段结论（截图或复制文字都行）。
 
  日志里 `---- NewPath EXIT=` 后面那个数字就是原因：
    0  = 成功（附近会有 PASS: Gen2 reached on the new path）
-   3  = WinRing0 与 ECAM 都不可用（多半是这台机器的 ECAM 也拿不到基址，需要看 retrain-inpout.log 的 MCFG/ECAM 两行）
+   3  = WinRing0 与 ECAM 都不可用（多半是这台机器的 ECAM 也拿不到基址，需要看 retrain-last.log 的 MCFG/ECAM 两行）
    13 = inpoutx64 驱动加载被拦（把 C:\Windows\System32\drivers\inpoutx64.sys 和 C:\ProgramData\CMP40HXGen2 加进杀软信任区）
    12 = 开机太早、显卡驱动 120 秒内没就绪（登录后补跑任务会兜住，看到这条不影响使用）
    11 = VBIOS 基线不认（把 nvidia-smi --query-gpu=vbios_version --format=csv 的输出发回来）
