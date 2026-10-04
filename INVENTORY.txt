@@ -44,7 +44,7 @@ d2f8f43def04ae97bade7ce89955528e      1012  evidence/inpout-20260929/00-diag-fai
 67c1e5c504865dcc4dc46540a8159a8e     10970  evidence/下一步.md
 014ac1e5bd011b010934c7782de365e7       320  .gitattributes
 058efbd7b65af7be2252fc48c53279c0       803  oneclick/GSP体检.cmd
-99a3b57ef1cdfb85e9fda0894a530bdb    148959  oneclick/Install-40HXUnlock.ps1
+1416bdc46ac5501ac4200eb7657eb8d7    155604  oneclick/Install-40HXUnlock.ps1
 8598c45c61f04e9ce2145628adcfe28b    134522  oneclick/payload/drivers/inpoutx64.dll.b64
 59f7f4409873dae9abb7eba851d958bc     20540  oneclick/payload/drivers/inpoutx64.sys.b64
 87ac9051ad8dcef59f0f474252875361     68718  oneclick/payload/drivers/ThrottleStop.sys.b64
@@ -59,7 +59,7 @@ dd38d4d86ea1326e8c01266c4de2ab6c     19984  oneclick/payload/windows/ACE-Toggle.
 6e3f7dbd75d2e59fd824c195b7278477       735  oneclick/payload/windows/Status.cmd
 2a44b95ea3797a1dcffe4cf5fe4fb08f      1017  oneclick/payload/windows/Uninstall_Auto.cmd
 8dc1be522a6c4b1c644050895508f065      6581  oneclick/payload/windows/Unpack-Drivers.ps1
-df5c90bb88a4a3681a97c79f4f28b215     10536  oneclick/README.md
+b636bffa6768013f1794135d9a568863     10833  oneclick/README.md
 a9c1709bb86f1fc866a7eb8c4b336e03      2970  oneclick/THIRD_PARTY.md
 088014ab950be8358e27f0d97deca4ff       604  oneclick/一键修复Gen2.cmd
 afd08c9703c3a0fdcd2278b7495174cf     13095  oneclick/一键修复Gen2.ps1
@@ -107,7 +107,7 @@ bd4c1fe281fc9374017178f17821f7fb      2694  oneclick/归档-旧版本/hotfix-202
 2d4de87d0c33cecb05879875230ad59e       418  oneclick/归档-旧版本/就地更新并跑一次.cmd
 56ba5437d011d1fe85462509eda34085      4117  oneclick/归档-旧版本/就地更新并跑一次.ps1
 909d8d0175c2e2508dc7522f965576a8      3617  oneclick/归档-旧版本/给客户-操作指引-20260930d.txt
-d81807b12b526a0d68bf5dd4bddedfe2     49186  oneclick/排查指引.md
+122244d418fb6eff7b120d0b30e24eb5     49548  oneclick/排查指引.md
 a07d64f71d3c755e52160637a8d614eb     25604  oneclick/文档/使用说明-详细.md
 1850026059651ff54df6edba269b903f      5189  oneclick/文档/给客户-ACE报错处理指引-20261004.txt
 6fb85ad44c58899fbdf0e2782dce20ff      3270  oneclick/文档/给客户-操作指引-20261001.txt

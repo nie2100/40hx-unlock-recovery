@@ -1443,6 +1443,7 @@ function Install-Task {
 function Install-Gsp {
   # 2026-09-30 修：①不再把 nvidia-smi 的 "N/A" 当"已开启" ②开关写进显示类子键（设备真正读的那一个）
   $g = Get-GspState
+  $script:GspStateBeforeInstall = $g   # 2026-10-04（审查 L5）：注意这是**写 EnableGpuFirmware 之前**读到的状态；供后面的按需体检复用，别再跑一遍 nvidia-smi
   if ($g.State -eq 'on') { Ok ('GSP 已开启 (' + $g.Value + ')'); return }
   # 设备权威子键（Enum\<实例>\Driver）
   $authIdx = ''
@@ -1486,8 +1487,8 @@ function Install-Gsp {
     # 值本来就是 1、GSP 却是 N/A → 几乎都是"驱动没真正重新加载过"（快速启动/混合关机）或驱动包装不全
     Warn '注意：GSP 开关本来就是 1，但 nvidia-smi 显示 N/A —— 说明驱动从来没在开机时重新初始化过'
     Info '常见原因：① 快速启动开着（"关机"=混合关机，驱动不重载）② 装完驱动后没真正冷启动过'
-    Info '本脚本已把快速启动关掉（见上面的"快速启动"行）；请【完全关机】再开机后复核；若仍是 N/A，请跑 诊断包-20260930\一键诊断.cmd 把报告发回来'
-    Add-Action 'GSP 开关本来就是 1 但状态仍是 N/A：完全关机（不是重启）再开机 → 跑 -Mode Verify 复核；仍 N/A 就跑 诊断包-20260930\一键诊断.cmd 把报告发回来'
+    Info '本脚本已把快速启动关掉（见上面的"快速启动"行）；请【完全关机】再开机后复核；若仍是 N/A，请跑 工具-测试与修复\查GSP.cmd（或包根 GSP体检.cmd）把报告发回来'
+    Add-Action 'GSP 开关本来就是 1 但状态仍是 N/A：完全关机（不是重启）再开机 → 跑 -Mode Verify 复核；仍 N/A 就跑 工具-测试与修复\查GSP.cmd（包根 GSP体检.cmd）把报告发回来'
   }
   # 兼容冗余：老位置也写一份（无害，万一某版驱动读那里）
   $legacyKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\nvlddmkm\Parameters'
@@ -1522,6 +1523,75 @@ function Install-Power {
     Add-Action '关快速启动失败：手动到 控制面板→电源选项→选择电源按钮的功能→更改当前不可用的设置→取消勾选"启用快速启动"'
   }
 }
+
+# ================================================================ GSP 体检（并入安装流程，只读）
+function Invoke-GspHealthCheck {
+  # 2026-10-04 新增（用户要求：**按需触发**）：装完只在 GSP 没启用时才跑这一次体检。
+  #   只读 = 不写系统；副作用只有"落一份报告"（桌面 + 包内 logs 各一份）。
+  #   绝不改变安装结论：不动 $script:FailCount / $script:WarnCount / 退出码，异常一律 Info。
+  Head 'GSP 体检（只读，不写系统；报告落桌面）'
+  $tool = Join-Path $script:PkgRoot '工具-测试与修复\查GSP.ps1'
+  if (-not (Test-Path -LiteralPath $tool)) { Info '包内没有 工具-测试与修复\查GSP.ps1 → 跳过（不影响安装）'; return }
+  $desk = [Environment]::GetFolderPath('Desktop')
+  if (-not $desk) { $desk = Join-Path $env:USERPROFILE 'Desktop' }
+  $out = Join-Path $desk ('40HX-GSP体检-' + $env:COMPUTERNAME + '-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.txt')
+  $psExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+  # 2026-10-04（第 22 轮审查 H1）：体检脚本结尾在"非 NO_PAUSE"时会弹记事本 + Read-Host 等回车 ——
+  #   在一键安装里那等于**卡死安装**（提示还被吞掉，用户只看到界面停住）。临时传 NO_PAUSE=1，try/finally 还原。
+  $oldNoPause = $env:NO_PAUSE
+  try { $env:NO_PAUSE = '1' } catch { }
+  $tmpOut = Join-Path $env:TEMP ('gsp-check-out-' + [Guid]::NewGuid().ToString('N').Substring(0,8) + '.txt')
+  $tmpErr = $tmpOut + '.err'
+  try {
+    $argList = @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"' + $tool + '"'),'-NoElevate','-OutFile',('"' + $out + '"'))
+    $finished = $false
+    $proc = $null
+    # 2026-10-04（第 23 轮审查 中-1）：**抑制子进程 stdout/stderr** —— 报告只落桌面（+包内 logs），
+    #   控制台保留安装器自己的"结论/报告"两行；否则整份报告会刷进一键安装界面。
+    try {
+      $proc = Start-Process -FilePath $psExe -ArgumentList $argList -NoNewWindow -PassThru -RedirectStandardOutput $tmpOut -RedirectStandardError $tmpErr -ErrorAction Stop
+    } catch { $proc = $null }   # 2026-10-04（审查 低-2）：try 只包 Start-Process，回退不会重复跑一次体检
+    if ($proc) {
+      # 2026-10-04（审查 M2）：整体超时 120 秒，绝不让安装无限等待
+      if ($proc.WaitForExit(120000)) { $finished = $true }
+      else {
+        try { $proc.Kill(); $null = $proc.WaitForExit(5000) } catch { }   # 2026-10-04（审查 低-5）：Kill 后等它收尾再读报告
+        Info 'GSP 体检超过 120 秒已被终止（不影响安装）；需要时手动跑 工具-测试与修复\查GSP.cmd'
+      }
+    } else {
+      # 回退路径（某些宿主 -NoNewWindow 不可用）。2026-10-04（审查 低-1）：必须走 Invoke-Native ——
+      #   本脚本硬规则：PS 5.1 下外部程序往 stderr 写字即使 2>&1|Out-Null 也会终止脚本；且此处是全包最后的保险，别绕过它。
+      Info 'GSP 体检改用同步调用（Start-Process 不可用）'
+      try { Invoke-Native { & $psExe -NoProfile -ExecutionPolicy Bypass -File $tool -NoElevate -OutFile $out } | Out-Null } catch { }
+      $finished = $true
+    }
+    if (Test-Path -LiteralPath $out) {
+      $verdict = @(Get-Content -LiteralPath $out -Encoding UTF8 -ErrorAction SilentlyContinue | Where-Object { $_ -match '^\s*\[(OK|!!|X)\]' } | Select-Object -First 1)
+      if ($verdict.Count -gt 0) { Info ('结论：' + $verdict[0].Trim()) }
+      else { Info '报告里没有 [OK]/[!!]/[X] 结论行 —— 请人工看一眼（不影响安装）' }   # 审查 L3
+      Info ('报告：' + $out)
+      if ($verdict.Count -gt 0 -and $verdict[0] -match '\[OK\]') { Ok 'GSP 体检通过（GSP 已启用 —— 不会因为 GSP 出代码 43）' }
+      # 审查 L4：包内 logs 也留一份（防 UAC 用另一管理员账户提权时报告只落在别人桌面）；
+      #   2026-10-04（审查 低-4）：只保留最近 5 份，别让 logs 无限长大（它不在 run-*.log 瘦身策略内）。
+      try {
+        $logDir = Split-Path -Parent $script:LogPath
+        if ($logDir -and (Test-Path -LiteralPath $logDir)) {
+          Copy-Item -LiteralPath $out -Destination $logDir -Force -ErrorAction SilentlyContinue
+          $old = @(Get-ChildItem -LiteralPath $logDir -Filter '40HX-GSP体检-*.txt' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -Skip 5)
+          foreach ($f in $old) { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue }
+        }
+      } catch { }
+    } elseif ($finished) {
+      Info 'GSP 体检没有生成报告（不影响安装）；需要时手动跑 工具-测试与修复\查GSP.cmd'   # 审查 L1：Info 而非 Warn，保持"体检不改变任何计数"
+    }
+  } catch { Info ('GSP 体检执行异常（不影响安装）: ' + $_.Exception.Message) }
+  finally {
+    try { $env:NO_PAUSE = $oldNoPause } catch { }
+    Remove-Item -LiteralPath $tmpOut, $tmpErr -Force -ErrorAction SilentlyContinue
+  }
+}
+
+
 
 # ================================================================ 自检（NVRAM/ESP 往返）
 function Invoke-SelfTest {
@@ -2082,6 +2152,20 @@ if ($Mode -eq 'Install') {
   Install-BootEntry -BackupDir $bk -BootMode $BootMode
 } else { Info 'Repair 模式：跳过 ESP 固件与固件启动项' }
 Install-Task
+# 2026-10-04（用户要求：**按需触发**）：只有在 GSP 没启用（off / unknown）时才跑体检 ——
+#   状态正常（已启用）就保持安静，不多花时间、不刷屏；判断用安装器自己的 Get-GspState（与 Install-Gsp 同一判据）。
+if ($Mode -eq 'Install' -or $Mode -eq 'Repair') {
+  # 2026-10-04（审查 L5）：复用 Install-Gsp 刚取到的状态，避免同一次安装里把 nvidia-smi -q 跑第三遍
+  $gspNow = if ($script:GspStateBeforeInstall) { $script:GspStateBeforeInstall } else { Get-GspState }
+  if ($gspNow.State -ne 'on') {
+    Info ('GSP 当前状态 = ' + $gspNow.State + $(if ($gspNow.Line) { '（' + $gspNow.Line + '）' } else { '' }) + ' → 跑一次只读体检帮助定位')
+    # 2026-10-04（审查 M1）：先说清预期 —— 本次刚写入开关时，冷启动前这里必然显示未启用，属正常
+    Info '（若本次刚写入开关：冷启动前体检必然显示"未启用" —— 这是正常的；先完全关机再开机，开机后跑 -Mode Verify 复核即可）'
+    Invoke-GspHealthCheck
+  } else {
+    Info ('GSP 已启用（' + $gspNow.Value + '）→ 跳过 GSP 体检（保持安静）')
+  }
+}
 
 if ($RunNow) {
   Head '立刻跑一次开机任务（验证端到端）'
