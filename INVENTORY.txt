@@ -110,7 +110,7 @@ a07d64f71d3c755e52160637a8d614eb     25604  oneclick/文档/使用说明-详细.
 1850026059651ff54df6edba269b903f      5189  oneclick/文档/给客户-ACE报错处理指引-20261004.txt
 6fb85ad44c58899fbdf0e2782dce20ff      3270  oneclick/文档/给客户-操作指引-20261001.txt
 1b7d2079bafc41c6a58f3bc4c7356103     13948  oneclick/文档/风险与恢复.md
-f3334c2287665a81cf774a28abc23d68    109613  oneclick/文档/验证记录.md
+9a3933a31f5f51c50da07c8607948a94    112630  oneclick/文档/验证记录.md
 d094d3d8f42685ee61bddc9b9aa33474     31563  oneclick/状态自检.bat
 82c7fceede927d3101aab34768fd70d6      1686  payload/drivers/README.md
 8cf6ba0b9577f2362758c486e2f23d76      2146  payload/drivers/RESTORE-DRIVERS.ps1
