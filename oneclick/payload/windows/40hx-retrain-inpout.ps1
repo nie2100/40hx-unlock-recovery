@@ -8,7 +8,7 @@
 #             it waited the full 120s and exited 12 on every boot. -GpuBdf/-RootBdf override (hex like 0x0200).
 $ErrorActionPreference='Continue'
 # 工具版本号：必须在使用点之前定义（2026-10-01 修正：原先定义在文件后半段，banner 里的 ver= 一直是空的）
-$TOOL_VER = '20261004b'
+$TOOL_VER = '20261004c'
 # 2026-10-02（用户要求：解锁状态正常了就别再堆日志）：完整读数写 retrain-last.log —— **每次运行覆盖**，
 #   不再像老版那样每开机往 retrain-inpout.log 追加一份（那个文件只增不减，一个月长到 200+ KB）。
 #   要留档请在覆盖前拷走；开机任务会把失败那次的全量日志另存到 logs\failures\。
@@ -440,12 +440,32 @@ $ioDevLive=DevOpenInpout
 W("  设备 \\.\inpoutx64 可打开=" + $ioDevLive + "（true = 内核里已有一份实例 → 直接复用，不再新建）")
 if($ioDevLive){
   $ioWas=$true
+  # 2026-10-04c（第三方审查 F1）：设备能打开，但占用它的**可能是本工具上次留下的 inpoutx64T**
+  #   （客户按 Ctrl+C、断电、直接关窗都会留下已加载的服务）。这种情况必须当成"自己的"实例，
+  #   收尾时正常 stop+delete；否则一份可读写任意物理内存的内核驱动会被永远留在客户机上。
+  $own=@($existing | Where-Object { $_.Name -eq 'inpoutx64T' -and $_.ImagePath -match 'inpoutx64\.sys' } | Select-Object -First 1)
   $runSvc=@($existing | Where-Object { $_.State -eq 'RUNNING' } | Select-Object -First 1)
-  if($runSvc){ $script:ioSvc=$runSvc.Name }
-  W("  复用已在运行的实例（服务 " + $script:ioSvc + "）：不新建临时服务 —— 同款驱动同一时刻只能有一份，重复实例必然 183")
-  W("  （这条是正常的、不用管；以前在这里失败过的机器，靠这条就能过）")
+  if($own){
+    $script:ioSvc=$own.Name; $script:ioCreated=$true
+    W("  设备 \\.\inpoutx64 已可打开，占用它的是**本工具自己上次留下的 " + $own.Name + "**（上次没清干净）")
+    W("  → 本次按自己的实例处理，收尾会正常停+删（原来会误判成「别人的实例」而永不清停）")
+  } else {
+    if($runSvc){ $script:ioSvc=$runSvc.Name }
+    W("  复用已在运行的实例（服务 " + $script:ioSvc + "）：不新建临时服务 —— 同款驱动同一时刻只能有一份，重复实例必然 183")
+    W("  （这条是正常的、不用管；以前在这里失败过的机器，靠这条就能过）")
+    # 2026-10-04c（审查 F2 的可诊断部分）：把被复用实例的来源打出来 —— 若后面落到 Fatal 11，
+    #   先看这里，多半是复用了不兼容的实例（而不是文档里写的"基线/VBIOS 问题"）。
+    if($runSvc){ W("  被复用实例的镜像: " + $runSvc.ImagePath + "   start=" + $runSvc.Start) }
+  }
 } else {
-  if(-not (Test-Path $SYS)){ W(">>> inpoutx64.sys missing in System32\drivers and no source available"); exit 13 }
+  if(-not (Test-Path $SYS)){
+    W(">>> inpoutx64.sys missing in System32\drivers and no source available")
+    # 2026-10-04c（审查 F3）：这条路原来直接 exit 13、不附现场，而文档与 wrapper 都承诺"真失败会附现场"。
+    #   缺文件恰是最常见的真失败之一 → 先取证再退。
+    try { Dump-LoadFail } catch { W("  (取证段异常，已跳过: " + $_.Exception.Message + ")") }
+    W(">>> 说明：这条路上不会出现 'inpoutx64T start try' 行（驱动文件根本不在，没走到建服务那一步）")
+    exit 13
+  }
   $binPaths=@('\SystemRoot\System32\drivers\inpoutx64.sys', ('\??\' + $SYS))
   W("  没有现成实例 → 建临时服务 inpoutx64T 并启动（最多 2 种路径写法 x 2 次尝试；")
   W("  重试期间会有 10~20 秒一行都不动，那是在等驱动落定，不是卡死，别关窗口）")
@@ -483,6 +503,9 @@ if($ioDevLive){
   if(-not $reuseNow -and (SvcState 'inpoutx64T') -ne 'MISSING'){ $script:ioCreated=$true }
 }
 # 而 ECAM 的基址**只**来自 ACPI MCFG / 系统已分配资源（见 TryEcam 顶部说明：绝不盲扫物理地址）。
+# 2026-10-04c（审查 F4）：恢复 $hw 初始化 —— Fatal 13 路径下 CleanupDrivers 会读它。
+#   原来靠 `$null -ne $hw` 短路侥幸无害，但不该依赖未定义变量。
+$hw=[IntPtr]::Zero
 $script:ecam = $null
 $script:EcamGpuBdf = $null
 # ============================================================================

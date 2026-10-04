@@ -49,8 +49,8 @@ d2f8f43def04ae97bade7ce89955528e      1012  evidence/inpout-20260929/00-diag-fai
 87ac9051ad8dcef59f0f474252875361     68718  oneclick/payload/drivers/ThrottleStop.sys.b64
 988ad312105384fd7997718b4157b556     19904  oneclick/payload/drivers/WinRing0x64.sys.b64
 aedc410f05ed43e5833543a0dc849242    590868  oneclick/payload/EFI/40HXUNLK.EFI
-ba68814f838565a6494a33c1d0ac5ac2       981  oneclick/payload/sha256.txt
-4248e1c67f3c10be6af94420ed1910f9     72020  oneclick/payload/windows/40hx-retrain-inpout.ps1
+80fe09464ef95c06b26bbdae2555bac2       998  oneclick/payload/sha256.txt
+78f2a949c1b404546bfc0ae9f57557c6     73920  oneclick/payload/windows/40hx-retrain-inpout.ps1
 dd38d4d86ea1326e8c01266c4de2ab6c     19984  oneclick/payload/windows/ACE-Toggle.ps1
 0021c1978b749ee7e55834e2aa7ef59a      1551  oneclick/payload/windows/AutoRetrain.cmd
 1490de9bd90105e6ebc73e50abecc5cf     23040  oneclick/payload/windows/CMP40HXGen2.exe
@@ -61,7 +61,7 @@ dd38d4d86ea1326e8c01266c4de2ab6c     19984  oneclick/payload/windows/ACE-Toggle.
 e700896fba78c0742164082976bea155     10407  oneclick/README.md
 a9c1709bb86f1fc866a7eb8c4b336e03      2970  oneclick/THIRD_PARTY.md
 088014ab950be8358e27f0d97deca4ff       604  oneclick/一键修复Gen2.cmd
-323f1dd51c845bb2e974e6f792aa8e6d     13105  oneclick/一键修复Gen2.ps1
+afd08c9703c3a0fdcd2278b7495174cf     13095  oneclick/一键修复Gen2.ps1
 7dee3300fd0c1d77b9dd81cc6de30c3e      1998  oneclick/一键安装.cmd
 c616715ca4a3f2e88043a8d2620ac13d       827  oneclick/工具-测试与修复/ACE修复.cmd
 ab06ce5a911dac4fc3b8b9fae02560dd     49084  oneclick/工具-测试与修复/ACE修复.ps1
@@ -105,12 +105,12 @@ bd4c1fe281fc9374017178f17821f7fb      2694  oneclick/归档-旧版本/hotfix-202
 2d4de87d0c33cecb05879875230ad59e       418  oneclick/归档-旧版本/就地更新并跑一次.cmd
 56ba5437d011d1fe85462509eda34085      4117  oneclick/归档-旧版本/就地更新并跑一次.ps1
 909d8d0175c2e2508dc7522f965576a8      3617  oneclick/归档-旧版本/给客户-操作指引-20260930d.txt
-fca114a4fa97a1c5ab715c126d12fc1d     48424  oneclick/排查指引.md
+d81807b12b526a0d68bf5dd4bddedfe2     49186  oneclick/排查指引.md
 a07d64f71d3c755e52160637a8d614eb     25604  oneclick/文档/使用说明-详细.md
 1850026059651ff54df6edba269b903f      5189  oneclick/文档/给客户-ACE报错处理指引-20261004.txt
 6fb85ad44c58899fbdf0e2782dce20ff      3270  oneclick/文档/给客户-操作指引-20261001.txt
-1b7d2079bafc41c6a58f3bc4c7356103     13948  oneclick/文档/风险与恢复.md
-9a3933a31f5f51c50da07c8607948a94    112630  oneclick/文档/验证记录.md
+38f8bb69b979de15f4340ebc79ce0e88     13948  oneclick/文档/风险与恢复.md
+02ae06c131c84974cacba947253f0a41    116063  oneclick/文档/验证记录.md
 d094d3d8f42685ee61bddc9b9aa33474     31563  oneclick/状态自检.bat
 82c7fceede927d3101aab34768fd70d6      1686  payload/drivers/README.md
 8cf6ba0b9577f2362758c486e2f23d76      2146  payload/drivers/RESTORE-DRIVERS.ps1

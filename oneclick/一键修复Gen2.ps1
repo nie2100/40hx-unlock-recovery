@@ -31,7 +31,7 @@ $dst  = "$env:ProgramData\CMP40HXGen2\windows\40hx-retrain-inpout.ps1"
 # 2026-10-02：新工具把完整读数写 retrain-last.log（每次覆盖，不再无限增长）；老机器上可能还有老的追加日志
 $rlog = "$env:ProgramData\CMP40HXGen2\windows\logs\retrain-last.log"
 $rlogOld = "$env:ProgramData\CMP40HXGen2\windows\logs\retrain-inpout.log"
-$wantVer = '20261004b'  # 必须与 payload 里工具的 TOOL_VER 一致（2026-10-04b：修 inpoutx64 加载失败 183/N + 日志目录不存在 + 失败现场取证）
+$wantVer = '20261004c'  # 必须与 payload 里工具的 TOOL_VER 一致（2026-10-04c：审查 F1 自留实例判定 + F3 缺文件也取证 + F4 初始化）
 $desk = [Environment]::GetFolderPath('Desktop')
 if (-not $desk) { $desk = 'C:\Users\Public\Desktop' }
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
