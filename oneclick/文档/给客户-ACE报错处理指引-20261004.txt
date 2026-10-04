@@ -1,0 +1,74 @@
+﻿============================================================
+ 40HX 一键解锁包 —— ACE（腾讯反作弊）报错处理指引   2026-10-04
+ 适用：客户机 %COMPUTERNAME%，体检报告 40HX-ACE体检-20261004-142459.txt
+============================================================
+
+【两个入口别搞混】
+  工具-测试与修复\ACE修复.cmd   = **只读**体检（双击即体检，不输命令、不改系统）
+  工具-测试与修复\修复ACE.cmd   = **会改系统**（= ACE修复.cmd /fix：恢复 ACE-BOOT / ThrottleStop 退场 / 清自启项）
+
+【体检读出来的两件事】
+
+1) 每轮开机都走了「旧回退路径」—— 新路径的驱动加载被拦住了：
+     ---- NewPath EXIT=13 - falling back to the legacy ACE path
+   EXIT=13 = inpoutx64 驱动没能加载（几乎都是杀软/火绒/360 拦的）。
+   旧回退路径必须「停 ACE-BOOT → 重训 → 恢复」；而 ACE 认定“被停过 = 预启动模式
+   没有在操作系统启动阶段加载” → 游戏就弹「需要开启预启动模式 / 请重启电脑后再试」。
+   （体检还抓到 14:23:01 停过 ACE-BOOT 而当时没有恢复记录 —— 取报告时那一轮很可能还没收尾。）
+
+2) ThrottleStop.sys（旧解锁方案的驱动）还在盘上，今天 13:59 又被写了一份：
+   ACE 会弹「检测到与游戏可能存在兼容问题的软件程序加载: ...ThrottleStop.sys」。
+   新的新路径根本不需要它 → 修复工具会**只停 + 把它的启动类型设为 disabled**（不动文件）：
+   ACE 拦的是“驱动映像加载”，不加载就不会弹；文件留着还能保住厂商 legacy 回退路径（新路径还不通的机器靠它兜底）。
+
+【怎么修：3 步，都不用输命令】
+
+第1步  给杀软放行（这一步是 EXIT=13 的正解）
+   在 火绒 / 360 / Defender 的信任区（白名单）里加入：
+     C:\Windows\System32\drivers\inpoutx64.sys
+     C:\Windows\System32\drivers\WinRing0x64.sys
+     C:\ProgramData\CMP40HXGen2
+     C:\ProgramData\40HXUnlock
+   火绒第一次还会弹一次 Exploit/Vulndriver.ad 拦截 —— 那是这几个驱动属 BYOVD 类，属预期，点“信任/恢复”。
+   顺手确认这两个文件在不在（不在的话用**安装器 Repair 一次**从 ESP 兜底源补齐 —— /fix 本身只处理 ThrottleStop，不补这两个驱动）：
+     C:\Windows\System32\drivers\inpoutx64.sys
+     C:\ProgramData\CMP40HXGen2\drivers\inpoutx64.dll
+
+第2步  跑一次修复（自动提权，会弹 UAC 点“是”）
+   双击 工具-测试与修复\修复ACE.cmd
+   （等价写法：在该文件夹的地址栏输入 cmd 回车，然后执行  ACE修复.cmd /fix ）
+   它会做四件事：① 把 ACE-BOOT 恢复成运行 ② ThrottleStop **只停 + 置 disabled（不动文件）**
+   ③ 把开机任务脚本升级到新版 ④ 清掉会重新装 ThrottleStop 的自启项（留档可还原）。
+
+第3步  重启一次（预启动模式在启动阶段加载，**重启就会重载**；进桌面后等 2 分钟）
+   只有同时要清 GPU/PCIe 链路状态（例如 Gen2 没落地）时，才改用「完全关机再开机」，那种场景**不是重启**：开始 → 关机
+   （登录后补跑任务会自己再跑一次 Gen2 修复）
+
+【顺序提醒（重要）】
+   先把新路径修通（信任区加好，日志里出现 ---- NewPath EXIT=0 ---- + PASS），再考虑 ThrottleStop 彻底退役：
+   彻底退役会把 ThrottleStop.sys 挪走并删掉它的服务 → 厂商 legacy Gen2 回退路径就没了，
+   而这台机器新路径此前一直是 EXIT=13（唯一兜底就是 legacy）。
+   真要彻底退役：在该文件夹执行  ACE修复.cmd /fix -retirefile
+   （可还原：备份在 C:\ProgramData\CMP40HXGen2\drivers-disabled\，把文件移回原处即可）
+
+【结果怎么确认】
+   双击 状态自检.bat      → 期望「全绿 -- WDDM + PCIe Gen2 + 算力满血」
+   双击 工具-测试与修复\ACE修复.cmd（只读体检）期望看到：
+     第 1 节   ACE-BOOT   System   Running
+     第 4 节   NewPath EXIT=0 + PASS: Gen2 reached on the new path - ACE-BOOT was never stopped
+     第 6b 节  部署的开机脚本: 新版   判据: 无条件恢复=True  开场自愈=True  条件恢复(旧缺陷)=False
+   然后进游戏，ACE 应该不再弹「需要开启预启动模式」。
+
+【还是不行：把这三个文件发回来】
+   C:\ProgramData\CMP40HXGen2\windows\logs\postbind.log
+   C:\ProgramData\CMP40HXGen2\windows\logs\retrain-last.log
+   桌面 40HX-ACE体检-*.txt（修完新跑的那份）
+
+【临时兜底，如果游戏急着要玩】
+   双击 工具-测试与修复\ACE修复.cmd 所在的文件夹里执行  ACE修复.cmd /acefirst on
+   → 开机任务永不停止 ACE-BOOT（代价：新路径不通时这一轮 Gen2 不落地，游戏先能进）。
+   想恢复默认就 /acefirst off。
+
+【不要做的事】
+   不要用任何第三方「过 ACE / 破解反作弊」工具 —— 有封号风险，本包不做这件事。
+============================================================

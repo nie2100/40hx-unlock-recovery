@@ -5,8 +5,9 @@
 主流程（安装 / 修 Gen2 / 状态自检）在包根目录，日常不用进这里。
 
 【日常自检】
-  根目录 状态自检.bat                 —— 6 步体检：驱动模式 / PCIe 宽度 / 带宽+算力(需 Python) / 开机任务 / 状态文件
-                                        （本机没装 Python 也能跑，算力那节会标"跳过"，不代表故障）
+  根目录 状态自检.bat                 —— 6 步体检：驱动模式 / PCIe 宽度 / 带宽+算力(免 Python) / 开机任务 / 状态文件
+                                        （带宽+算力用 Windows 自带的 csc.exe 现场编译内置 C# 实测程序，装不装 Python 都行；
+                                          若 csc 被精简系统删掉或被安全软件拦截，那节会标"跳过"，不代表故障）
 
 【Gen2 上不去排查】
   判断延长线.cmd                      —— 只读四判据：是延长线/信号问题还是寄存器/固件问题
@@ -15,7 +16,9 @@
 
 【游戏/反作弊】
   ACE修复.cmd                         —— 只读体检：ACE 组件、自启项、开机脚本版本、ThrottleStop 溯源
-  ACE修复.cmd /fix                    —— 修复：升级开机任务脚本、ThrottleStop 彻底退场、清 40HX 自启项(留档)、恢复 ACE
+  ACE修复.cmd /fix                    —— 修复：升级开机任务脚本、ThrottleStop **只停+置 disabled（不动文件）**、清 40HX 自启项(留档)、恢复 ACE-BOOT/托盘
+                                          （默认不挪文件：ACE 拦的是"映像加载"，不加载就够；文件留着保住厂商 legacy 回退）
+  ACE修复.cmd /fix -retirefile        —— 同上，另把 ThrottleStop 彻底退役（删掉指向它的服务 + .sys 挪进 drivers-disabled\）；此后厂商 legacy 回退不可用
   ACE修复.cmd /acefirst on|off        —— ACE 优先模式：开机任务永不停止 ACE-BOOT（代价：新路径不通时本轮不落地 Gen2）
 
 【桌面/系统异常】

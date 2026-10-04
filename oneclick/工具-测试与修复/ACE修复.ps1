@@ -5,13 +5,17 @@
 #    一旦某一轮重训失败，ACE-BOOT 就永久停在 STOPPED → 游戏里 ACE 起不来。
 #  用法：
 #    ACE修复.cmd                  → 只读体检（不需要管理员），桌面出报告
-#    ACE修复.cmd /fix             → 修复（自动提权）：恢复 ACE-BOOT + 拉起 ACE 托盘
+#    ACE修复.cmd /fix             → 修复（自动提权）：恢复 ACE-BOOT/托盘、ThrottleStop **只停+禁用（不动文件）**、
+#                                    清 40HX 自启项、升级开机任务脚本
+#    ACE修复.cmd /fix -retirefile → 同上，另把 ThrottleStop 彻底退役（删掉指向它的服务 + 把 .sys 挪进备份目录）；
+#                                    此后厂商 legacy Gen2 回退路径不可用 —— 只在新路径已通了才这么做
 #    ACE修复.cmd /acefirst on     → 打开「ACE 优先模式」：开机任务永不停止 ACE-BOOT
 #    ACE修复.cmd /acefirst off    → 关闭该模式（恢复默认：新路径不通才回落旧路径）
 # ============================================================
 param(
   [switch]$Fix,
-  [string]$AceFirst = ''
+  [string]$AceFirst = '',
+  [switch]$RetireFile   # 2026-10-04：默认只停+禁用、不动文件；要彻底退役（删服务+挪 .sys）才加这个
 )
 $ErrorActionPreference='Continue'
 $here = if($PSScriptRoot){ $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
@@ -27,6 +31,8 @@ if(-not (Test-Path (Join-Path $here 'payload\windows'))){
 }
 $desk=[Environment]::GetFolderPath('Desktop'); if(-not $desk){ $desk='C:\Users\Public\Desktop' }
 $stamp=Get-Date -Format 'yyyyMMdd-HHmmss'
+# 2026-10-04: 报告要能自证是哪一版工具产出的（远程诊断先认版本指纹）
+$TOOLVER='2026-10-04c'
 $out=Join-Path $desk ('40HX-ACE体检-' + $stamp + '.txt')
 $sb=New-Object System.Text.StringBuilder
 function W  { param([string]$s='') [void]$sb.AppendLine($s) }
@@ -52,14 +58,32 @@ function Get-SvcByPath {
   # 好处：能发现**任何名字**的服务（含别人换了名字指向同一个 .sys 的），这正是 ACE 弹窗的排查要点。
   param([string]$Pattern)
   $out = @()
-  foreach($k in @(Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Services' -ErrorAction SilentlyContinue)){
+  # 2026-10-04 本机实测（关键）：PowerShell 的注册表 provider 在某个服务键 ACL 破损时会**静默跳过**那个键
+  #   —— 本机 829 个里没有 ThrottleStop，而 .NET Registry 枚举有 830 个且含它。只用 Get-ChildItem 会漏掉
+  #   「ACL 被改过的、指向我们驱动的服务」→ 退场动作什么都没做却报成功。改用 .NET Registry 枚举 + sc.exe 兜底。
+  $regNames = @()
+  try {
+    $root = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SYSTEM\CurrentControlSet\Services', $false)
+    if ($root) { $regNames = @($root.GetSubKeyNames()); $root.Close() }
+  } catch {}
+  foreach($nm in $regNames){
+    $ip = $null
     try {
-      $ip = (Get-ItemProperty -LiteralPath $k.PSPath -Name ImagePath -ErrorAction Stop).ImagePath
-      if('' + $ip -match $Pattern){
-        $pr = Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction SilentlyContinue
-        $out += [pscustomobject]@{ Name = $k.PSChildName; ImagePath = $ip; Start = $pr.Start; Type = $pr.Type }
-      }
+      $sk = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey(('SYSTEM\CurrentControlSet\Services\' + $nm), $false)
+      if ($sk) { $ip = $sk.GetValue('ImagePath'); $sk.Close() }
     } catch {}
+    if(-not $ip){
+      # 读不到就走 SCM（SCM 读自己的库，不受服务键 ACL 影响）
+      $qq = (& sc.exe qc $nm 2>&1 | Out-String)
+      $mm = [regex]::Match($qq, 'BINARY_PATH_NAME\s*:\s*(.+)')
+      if($mm.Success){ $ip = $mm.Groups[1].Value.Trim().Trim('"') }
+    }
+    if('' + $ip -match $Pattern){
+      $sq = (& sc.exe qc $nm 2>&1 | Out-String)
+      $st = [regex]::Match($sq, 'START_TYPE\s*:\s*(\d+)').Groups[1].Value
+      $ty = [regex]::Match($sq, 'TYPE\s*:\s*(\d+)').Groups[1].Value
+      $out += [pscustomobject]@{ Name = $nm; ImagePath = $ip; Start = $st; Type = $ty }
+    }
   }
   # 2026-10-01b（实测回归，同 ACE修复 的 Get-AceComponents）：**不要**用 `,@($out)` 包 ——
   #   调用方写的是 `@(Get-SvcByPath ...)`，外层 @() 会把"单元素数组"当成一个元素收下，
@@ -79,18 +103,36 @@ function Get-AceComponents {
   $names = @($wmi | ForEach-Object { $_.Name })
   $extra = @()
   try {
-    foreach ($k in @(Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Services' -ErrorAction SilentlyContinue)) {
-      if ($names -contains $k.PSChildName) { continue }
-      $ip = (Get-ItemProperty -LiteralPath $k.PSPath -Name ImagePath -ErrorAction SilentlyContinue).ImagePath
+    # 2026-10-04：同 Get-SvcByPath —— PS 的 Get-ChildItem 会跳过 ACL 破损的服务键（本机实测 829 vs .NET 830）
+    #   → 这里也改用 .NET Registry 枚举，读不到就 sc.exe 兜底，避免漏检内核驱动服务。
+    $regNames = @()
+    try {
+      $root = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SYSTEM\CurrentControlSet\Services', $false)
+      if ($root) { $regNames = @($root.GetSubKeyNames()); $root.Close() }
+    } catch {}
+    foreach ($nm in $regNames) {
+      if ($names -contains $nm) { continue }
+      $ip = $null; $startV = -1; $objName = ''
+      try {
+        $sk = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey(('SYSTEM\CurrentControlSet\Services\' + $nm), $false)
+        if ($sk) { $ip = $sk.GetValue('ImagePath'); $startV = $sk.GetValue('Start'); $objName = $sk.GetValue('ObjectName'); $sk.Close() }
+      } catch {}
+      if (-not $ip) {
+        $qq = (& sc.exe qc $nm 2>&1 | Out-String)
+        $mm = [regex]::Match($qq, 'BINARY_PATH_NAME\s*:\s*(.+)')
+        if ($mm.Success) { $ip = $mm.Groups[1].Value.Trim().Trim('"') }
+        $ms = [regex]::Match($qq, 'START_TYPE\s*:\s*(\d+)')
+        if ($ms.Success) { $startV = [int]$ms.Groups[1].Value }
+      }
       if (-not $ip) { continue }
-      if ($ip -match 'AntiCheatExpert|ACE-BOOT|ACE-GAME|ACE-SVC|ACE-Guard|SGuard' -or $k.PSChildName -match '^(ACE-BOOT|ACE-GAME|ACE-SVC|ACE-ADVT|ACE-Guard|AntiCheatExpert)') {
-        $props = Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction SilentlyContinue
-        $startV = $props.Start
+      if ($null -eq $startV -or [int]$startV -lt 0) { $startV = -1 }   # 2026-10-04（审查发现）: 原来是 -not $startV —— Start=0(Boot) 时 -not 0 为真，会被改 -1 导致启动方式显示空白
+      if ($ip -match 'AntiCheatExpert|ACE-BOOT|ACE-GAME|ACE-SVC|ACE-Guard|SGuard' -or $nm -match '^(ACE-BOOT|ACE-GAME|ACE-SVC|ACE-ADVT|ACE-Guard|AntiCheatExpert)') {
+        $startV = [int]$startV
         $mode = switch ([int]$startV) { 0 { 'Boot' } 1 { 'System' } 2 { 'Automatic' } 3 { 'Manual' } 4 { 'Disabled' } default { '' } }
         # 2026-10-01b（第三方审查）：State 不能留空！留空会让下面所有 "State -ne 'Running'" 的判定恒为真，
         #   把一个**正在运行**的 ACE-BOOT 报成"根因/需要恢复"，甚至进硬兜底去改它的启动类型（会动到预启动反作弊时序）。
         #   这里用 sc.exe query 取真实状态。
-        $qtext = (sc.exe query $k.PSChildName 2>&1 | Out-String)
+        $qtext = (& sc.exe query $nm 2>&1 | Out-String)
         # 2026-10-01b（第三方审查 N1）：读不到时必须是**未知**，不能默认成 'Stopped' ——
         #   默认 Stopped 会让下面"状态读不到就不动手"的保护分支永远不可达（形同虚设）。
         $state = 'Unknown'
@@ -99,7 +141,7 @@ function Get-AceComponents {
         elseif ($qtext -match 'STOP_PENDING')  { $state = 'Stop Pending' }
         elseif ($qtext -match 'PAUSED')        { $state = 'Paused' }
         elseif ($qtext -match 'STOPPED')       { $state = 'Stopped' }
-        $extra += [pscustomobject]@{ Name = $k.PSChildName; PathName = $ip; State = $state; Start = $startV; StartMode = $mode; StartName = $props.ObjectName; Type = ''; DisplayName = '(内核驱动，来自注册表)' }
+        $extra += [pscustomobject]@{ Name = $nm; PathName = $ip; State = $state; Start = $startV; StartMode = $mode; StartName = $objName; Type = ''; DisplayName = '(内核驱动，来自注册表)' }
       }
     }
   } catch { }
@@ -110,7 +152,7 @@ function Get-AceComponents {
 }
 
 WB '============================================================'
-WB ' 40HX：腾讯 ACE 反作弊体检（只读）'
+WB (' 40HX：腾讯 ACE 反作弊体检（只读）   工具版 ' + $TOOLVER)
 WB (' 时间: ' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '   机器: ' + $env:COMPUTERNAME + '   管理员: ' + (Is-Admin))
 WB '============================================================'
 WB ''
@@ -150,7 +192,20 @@ if(Test-Path $StateFile){
     WB ('  记录的原始启动类型: ' + $st.Name + ' start=' + $st.StartMode + ' (' + $st.StartKeyword + ')')
     WB ('  停过: ' + $st.Stopped + '   停止时刻: ' + $st.Time + '   恢复时刻: ' + $(if($st.ResumedAt){$st.ResumedAt}else{'(无)'}) + '   恢复结果: ' + $(if($st.Resumed){$st.Resumed}else{'未记录/失败'}))
     if($st.Stopped -eq $true -and -not $st.Resumed){
-      WB '  ★ 有一次停机**没有恢复成功**的记录 —— 这正是 ACE 起不来的典型原因'
+      # 2026-10-04（客户机实测）：只看到「停过没恢复」还不够 —— 体检常被在开机任务跑完之前执行，
+      #   那一轮可能还在 heal / 重训里（正常要几十秒~2 分钟）。必须带上「距今多久」，
+      #   否则会把「回合进行中」当成「永久停机」下错结论。
+      # 2026-10-04（第三方审查 低-2）：[int] 会银行家舍入（未来时刻 -0.4 分钟 → 0 → 误报"距今 0 分钟"）；
+      #   改成 Floor，并把"未来时刻/解析失败"统一显示为读不出（-2），不当成"刚停过"。
+      $mins = -2
+      try { $mins = [math]::Floor(((Get-Date) - [datetime]::Parse($st.Time)).TotalMinutes); if($mins -lt 0){ $mins = -2 } } catch { $mins = -2 }
+      WB ('  ★ 有一次停机**没有恢复成功**的记录（停止时刻距今 ' + $(if($mins -ge 0){ '' + $mins + ' 分钟' } else { '读不出（时间格式异常 / 时钟不同步）' }) + '）')
+      if($mins -ge 0 -and $mins -lt 10){
+        WB '     ！停止发生在 10 分钟以内 —— 若刚跑过开机任务，那一轮很可能**还在重训 / 自愈里**（本工具不等待）'
+        WB '       请等 5 分钟后再跑一次体检：仍显示未恢复，才是真的停在停机态。'
+      }
+      WB '     确认真停在停机态时：跑 ACE修复.cmd /fix（无条件恢复、幂等）→ 再**重启**一次（预启动模式在启动阶段加载，重启即会重载）。'
+      WB '       注：只有要清 GPU/PCIe 链路状态时才需要"完全关机再开机（不是重启）"；本条只需重启。'
     }
   } catch { WB ('  读取失败: ' + $_.Exception.Message) }
 } else { WB '  （没有记录文件 —— 说明本机从未被我们停过 ACE）' }
@@ -159,11 +214,28 @@ if(Test-Path $StateFile){
 WB ''
 WB '==== 4) 开机任务日志（postbind.log 末尾关键行）===='
 if(Test-Path $PostLog){
-  $lines = @(Get-Content -LiteralPath $PostLog -Tail 60 -Encoding UTF8 -ErrorAction SilentlyContinue)
+  # 2026-10-04（第三方审查 低-5）：postbind.log 由 cmd 写出，是 ANSI(GBK)，按 UTF8 读会让中文行变乱码 → 改 Default。
+  $lines = @(Get-Content -LiteralPath $PostLog -Tail 60 -Encoding Default -ErrorAction SilentlyContinue)
   foreach($l in $lines){
     if($l -match 'NewPath EXIT|PostBind EXIT|PASS:|FAIL:|ACE|falling back|ACE-PRIORITY|heal|attempt|NewPath start'){
       WB ('  ' + ($l -replace '\s+',' ').Trim())
     }
+  }
+  # 2026-10-04（客户机实测）：日志停在「ACE-BOOT 已停止」而后面没有 attempt/恢复行 = 那一轮卡在停 ACE 之后。
+  #   只报「有停机记录」会把「任务卡死」误判成「恢复逻辑没写」——分开判。
+  # 低-1：窗口 400 行可能漏掉最后一轮（一轮失败日志很长时）→ 放大到 2000。
+  $tail = @(Get-Content -LiteralPath $PostLog -Tail 2000 -Encoding Default -ErrorAction SilentlyContinue)
+  $lastStart = -1; $lastExit = -1
+  for($i=0; $i -lt $tail.Count; $i++){
+    if($tail[$i] -match 'PostBind start'){ $lastStart = $i }
+    if($tail[$i] -match 'PostBind EXIT='){ $lastExit = $i }
+  }
+  if($lastStart -ge 0 -and $lastExit -lt $lastStart){
+    WB '  ★ 最后一次开机任务**没有跑到收尾行**（有 ==== PostBind start ==== 却始终没有 ==== PostBind EXIT= ====）'
+    WB '     → 那一轮卡住/被中断了。它若卡在停 ACE-BOOT 之后，ACE-BOOT 就会一直停在停机态（游戏进不去）。'
+    WB '     请把整个 logs\postbind.log 与 logs\retrain-last.log（失败轮另有 logs\failures\newpath-*-exit*.out）发回。'
+  } elseif($lastStart -ge 0){
+    WB '  最后一次开机任务有收尾行（出现 ==== PostBind EXIT= ====）'
   }
 } else { WB ('  （没有 ' + $PostLog + '）') }
 
@@ -195,7 +267,10 @@ foreach($s in @('ThrottleStop','WinRing0_1_2_0','WinRing0_40HX')){
   } else { WB ('  ' + $s + '  （不存在）') }
 }
 $task = @(Get-ScheduledTask -TaskName '*CMP40HX*' -ErrorAction SilentlyContinue)
-if($task.Count){ foreach($t in $task){ WB ('  开机任务: ' + $t.TaskName + '  ' + $t.State) } } else { WB '  开机任务:（未找到）' }
+if($task.Count){ foreach($t in $task){ WB ('  开机任务: ' + $t.TaskName + '  ' + $t.State) } }
+elseif(-not (Is-Admin)){ WB '  开机任务: 读不到（本次体检不是管理员 —— SYSTEM 任务对普通用户不可见，**不等于不存在**）' }
+else { WB '  开机任务:（未找到）' }
+if(-not (Is-Admin) -and $task.Count){ WB '  （非管理员：这里只列出当前用户可见的任务；SYSTEM 任务读不到 —— 列表可能不完整）' }
 WB ('  ACE 优先模式: ' + $(if(Test-Path $Marker){'已开启（开机任务永不停止 ACE-BOOT）'}else{'未开启（默认：新路径不通才回落旧路径）'}))
 WB ('  脚本: ' + $(if(Test-Path $toggle){$toggle}else{'（找不到 ACE-Toggle.ps1）'}))
 
@@ -208,8 +283,8 @@ else { foreach($s in $tsSvc){ WB ('  ★ 服务 ' + $s.Name + '  Start=' + $s.St
 $tsFile='C:\Windows\System32\drivers\ThrottleStop.sys'
 if(Test-Path $tsFile){ WB ('  驱动文件: 存在  ' + (Get-Item $tsFile).Length + ' B  修改于 ' + (Get-Item $tsFile).LastWriteTime) } else { WB '  驱动文件: 不存在（已退场）' }
 $tsTasks = @(Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $a = ($_.Actions | ForEach-Object { ('' + $_.Execute) + ' ' + ('' + $_.Arguments) }) -join ' '; $a -match 'ThrottleStop|40HX|AutoRetrain|RunPostBind|CMP40HX' } | Where-Object { $_ })
-if($tsTasks.Count -eq 0){ WB '  相关计划任务: 无' }
-else { foreach($t in $tsTasks){ $a=($t.Actions | ForEach-Object { ('' + $_.Execute) + ' ' + ('' + $_.Arguments) }) -join ' | '; WB ('  任务 ' + $t.TaskName + '  ' + $t.State + '  → ' + $a) } }
+if($tsTasks.Count -eq 0){ WB $(if(Is-Admin){'  相关计划任务: 无'}else{'  相关计划任务: 读不到（需要管理员；不等于没有）'}) }
+else { foreach($t in $tsTasks){ $a=($t.Actions | ForEach-Object { ('' + $_.Execute) + ' ' + ('' + $_.Arguments) }) -join ' | '; WB ('  任务 ' + $t.TaskName + '  ' + $t.State + '  → ' + $a) }; if(-not (Is-Admin)){ WB '  （非管理员：SYSTEM 任务读不到 —— 上面的列表可能不完整）' } }
 $script:foundAutorun = $false
 foreach($rk in @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run','HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run','HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run')){
   try {
@@ -224,19 +299,38 @@ foreach($rk in @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run','HKCU:\SO
     }
   } catch {}
 }
-# 部署的开机任务脚本是新版还是旧版？（决定性判据）
+# 部署的开机任务脚本是新版还是旧版？（判据必须用**当前脚本里真实存在**的字符串 —— 2026-10-04 修正）
+#   旧判据（'ThrottleStop 退场' / 'heal: create service ThrottleStop'）在 2026-10-01s 之后的包里已被改写/删掉，
+#   于是**任何**机器（含本机最新版）都会被误报「★ 旧版」——2026-10-04 在本机实测复现过。别再靠那两个字符串。
 $dep = Join-Path $ProgDataWin 'RunPostBind.cmd'
 if(Test-Path $dep){
+  try {
+  $fi  = Get-Item -LiteralPath $dep
   $raw = Get-Content -LiteralPath $dep -Raw -Encoding UTF8
-  $isNew = $raw -match 'ThrottleStop 退场'
-  $hasOldCreate = $raw -match 'heal: create service ThrottleStop'
-  WB ('  部署的开机脚本: ' + $(if($isNew){'新版（含 ThrottleStop 退场）'}else{'★ 旧版！还在每轮创建 ThrottleStop'}))
-  if($hasOldCreate){ WB '    ★ 仍含 heal: create service ThrottleStop（旧逻辑残留）' }
+  $hasCondGate  = $raw -match 'if "!RC!"=="0" if "!ACE_STOPPED!"=="1"'   # <=2026-10-01j：只在 Gen2 成功时才恢复 ACE "
+  $hasOldCreate = $raw -match 'heal: create service ThrottleStop'        # <=2026-10-01k：每轮重建 ThrottleStop
+  $hasUncond    = $raw -match 'restore ACE UNCONDITIONALLY'              # >=2026-10-01k：收尾无条件恢复 ACE
+  $hasStartHeal = ($raw -match 'call :ace_toggle on') -and ($raw -match 'ACE heal \(unconditional\)')  # 开场无条件自愈（铁律 5）
+  $hasRetire    = $raw -match 'start= disabled'                          # ThrottleStop 退场
+  # 中-4：旧特征命中不再直接判「旧版」—— 新版脚本的注释/留档里也可能留着旧串（-match 是整个文件、大小写不敏感）。
+  #   只有"旧特征命中 且 新逻辑特征缺失"才是真旧版；两者同时命中时报"疑似残留"请人工确认，避免误导客户去跑会改系统的 /fix。
+  $verdict = if($hasCondGate -or $hasOldCreate){
+    if($hasUncond -and $hasStartHeal){ '疑似旧版残留（旧串还在、但新版逻辑也在）—— 请把该文件发回人工确认' } else { '★ 旧版（含已知缺陷）' }
+  } elseif($hasUncond -and $hasStartHeal){ '新版' } else { '判不出（请把该文件发回）' }
+  WB ('  部署的开机脚本: ' + $verdict)
+  WB ('    判据: 无条件恢复=' + $hasUncond + '  开场自愈=' + $hasStartHeal + '  条件恢复(旧缺陷)=' + $hasCondGate + '  旧heal重建ThrottleStop=' + $hasOldCreate + '  ThrottleStop退场(仅参考)=' + $hasRetire)
+  # 中-6：Get-FileHash 失败时 $null.Substring 会抛异常 → 整个只读体检中断、桌面报告都不落盘。加容错。
+  $depHash = ''
+  try { $depHash = (Get-FileHash -LiteralPath $dep -Algorithm SHA256 -ErrorAction Stop).Hash } catch { $depHash = '' }
+  WB ('    文件: ' + $fi.Length + ' B   改于 ' + $fi.LastWriteTime + '   sha256=' + $(if($depHash){ $depHash.Substring(0,16) } else { '(读不出)' }))
+  if($hasCondGate){ WB '    ！条件恢复的旧版：某轮失败后 ACE-BOOT 会永久停在 STOPPED（游戏反作弊起不来）→ 跑 ACE修复.cmd /fix 就地升级' }
+  if($hasOldCreate){ WB '    ！旧逻辑仍会每轮重建 ThrottleStop 服务 → ACE 会弹「加载了 ThrottleStop.sys」→ 跑 ACE修复.cmd /fix' }
   WB ('    备份文件: ' + ((@(Get-ChildItem $ProgDataWin -Filter 'RunPostBind.cmd.bak-*' -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) -join ', ')))
+  } catch { WB ('  部署的开机脚本: 读取失败: ' + $_.Exception.Message) }
 } else { WB ('  部署的开机脚本: 没找到 ' + $dep) }
 # 最近一次开机的 postbind 关键行里有没有 throttle / legacy 回落
 if(Test-Path $PostLog){
-  $tl = @(Get-Content -LiteralPath $PostLog -Tail 80 -Encoding UTF8 -ErrorAction SilentlyContinue) | Where-Object { $_ -match 'throttle|legacy|falling back|create service ThrottleStop|NewPath EXIT|ACE-PRIORITY' }
+  $tl = @(Get-Content -LiteralPath $PostLog -Tail 80 -Encoding Default -ErrorAction SilentlyContinue) | Where-Object { $_ -match 'throttle|legacy|falling back|create service ThrottleStop|NewPath EXIT|ACE-PRIORITY' }
   if($tl){ WB '  最近开机里与 ThrottleStop / 回落相关的行:'; foreach($l in $tl){ WB ('    ' + ($l -replace '\s+',' ').Trim()) } }
   else { WB '  最近开机日志里没有 throttle / legacy 回落痕迹 → 说明不是我们脚本在加载它' }
 }
@@ -249,7 +343,7 @@ $vTasks = @(Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {
   $a = ($_.Actions | ForEach-Object { ('' + $_.Execute) + ' ' + ('' + $_.Arguments) }) -join ' '
   ($_.TaskName -match $vPat) -or ($a -match $vPat)
 } | Where-Object { $_ -and $_.TaskName -notmatch 'CMP40HX Gen2 PostBind' })
-if($vTasks.Count -eq 0){ WB '  任务: 无（干净）' }
+if($vTasks.Count -eq 0){ WB $(if(Is-Admin){'  任务: 无（干净）'}else{'  任务: 读不到（需要管理员；不等于没有）'}) }
 else {
   $script:vendorTasks = @($vTasks | ForEach-Object { $_.TaskName })
   foreach($t in $vTasks){
@@ -301,16 +395,24 @@ WB ''
 # ---------- 动作 ----------
 if($AceFirst -ne ''){
   if($AceFirst -notin @('on','off')){ WB ('  用法错误: -AceFirst 只能是 on / off'); Save; exit 1 }
+  # 2026-10-04（第三方审查 低-3）：与 -Fix 一致 —— 非管理员先自提权；提权失败/取消时以非 0 退出（原来只打一行提示且仍 exit 0）。
+  if(-not (Is-Admin)){
+    WB '  -AceFirst 需要管理员权限（它会写 C:\ProgramData）→ 正在请求提权（会弹 UAC，请点“是”）...'
+    Save
+    try { Start-Process powershell -Verb RunAs -Wait -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$PSCommandPath,'-AceFirst',$AceFirst); exit 0 }
+    catch { WB ('  提权失败或被取消: ' + $_.Exception.Message); Save; exit 1 }
+  }
   $dir=Split-Path -Parent $Marker
   if($AceFirst -eq 'on'){
-    if(Is-Admin){ if(-not (Test-Path $dir)){ New-Item -ItemType Directory -Force -Path $dir | Out-Null }; Set-Content -LiteralPath $Marker -Value ('ACE priority mode enabled ' + (Get-Date -Format 's')) -Encoding UTF8 -Force; WB ('  [OK] 已开启 ACE 优先模式: ' + $Marker) }
-    else { WB '  [X] 需要管理员权限（它会写 C:\ProgramData）' }
+    if(-not (Test-Path $dir)){ New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    Set-Content -LiteralPath $Marker -Value ('ACE priority mode enabled ' + (Get-Date -Format 's')) -Encoding UTF8 -Force
+    WB ('  [OK] 已开启 ACE 优先模式: ' + $Marker)
   } else {
-    if(Is-Admin){ if(Test-Path $Marker){ Remove-Item -LiteralPath $Marker -Force }; WB '  [OK] 已关闭 ACE 优先模式' }
-    else { WB '  [X] 需要管理员权限' }
+    if(Test-Path $Marker){ Remove-Item -LiteralPath $Marker -Force }
+    WB '  [OK] 已关闭 ACE 优先模式'
   }
   WB '  注意：该模式由开机任务脚本 RunPostBind.cmd 读取 —— 请先用安装器 Repair 一次，把新版 RunPostBind.cmd 铺到 C:\ProgramData\CMP40HXGen2\windows\'
-  Save; if(-not $env:NO_PAUSE){ if($Host.Name -eq 'ConsoleHost'){ Write-Host ''; Read-Host '按回车退出' } }; exit 0
+  Save; if($env:NO_PAUSE -ne '1'){ if($Host.Name -eq 'ConsoleHost'){ Write-Host ''; Read-Host '按回车退出' } }; exit 0
 }
 
 if($Fix){
@@ -319,7 +421,12 @@ if($Fix){
     WB '  -Fix 需要管理员权限 → 正在请求提权（会弹 UAC，请点“是”）...'
     Save
     try {
-      Start-Process powershell -Verb RunAs -Wait -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$PSCommandPath,'-Fix')
+      # 2026-10-04：提权时必须**把开关一起转发**，否则 /fix -retirefile 的 -RetireFile 会丢，
+      #   子进程按默认（不动文件）跑 —— 客户会以为做了彻底退役其实没做（本机实测踩到）。
+      $extraArgs = @()
+      if($RetireFile){ $extraArgs += '-RetireFile' }
+      if($AceFirst -ne ''){ $extraArgs += @('-AceFirst', $AceFirst) }
+      Start-Process powershell -Verb RunAs -Wait -ArgumentList (@('-NoProfile','-ExecutionPolicy','Bypass','-File',$PSCommandPath,'-Fix') + $extraArgs)
       WB '  提权窗口已结束 —— 请看它生成的报告（桌面 40HX-ACE体检-*.txt）'
     } catch { WB ('  [X] 提权失败: ' + $_.Exception.Message) }
     Save; exit 0
@@ -329,7 +436,7 @@ if($Fix){
 
   # ---- 9.0) 先把「开机任务脚本」升级到包内新版 -------------------------------------
   # 新版修了两件事：① ACE 的恢复不再依赖 Gen2 是否成功（旧版漏了 RC!=0 路径，
-  # 会把 ACE-BOOT 永久停在 STOPPED）；② ThrottleStop 退场（它加载着会让腾讯 ACE-BOOT 报
+  # 会把 ACE-BOOT 永久停在 STOPPED）；② ThrottleStop 退场（默认只停+置 disabled、**不动文件** —— 见 9.1 说明）
   # 「检测到与游戏可能存在兼容问题的软件程序加载: ThrottleStop.sys」）。
   $pkgCmd = Join-Path $here 'payload\windows\RunPostBind.cmd'
   $deployedCmd = Join-Path $ProgDataWin 'RunPostBind.cmd'
@@ -407,65 +514,77 @@ if($Fix){
   WB ''
 
   # ---- 9.1) ThrottleStop 退场（ACE 报的就是它）----
-  WB '  [1] ThrottleStop 退场（新路径不需要它；加载在内核里会被 ACE-BOOT 判为兼容性问题）'
-  $ts = (sc.exe qc ThrottleStop 2>&1 | Out-String)
-  if($ts -match 'SERVICE_NAME'){
-    $tq = (sc.exe query ThrottleStop 2>&1 | Out-String)
-    WB ('      当前: ' + (([regex]::Match($tq,'STATE\s*:\s*\d+\s+\S+').Value)) + '  ' + (([regex]::Match($ts,'START_TYPE\s*:\s*\d+\s+\S+').Value)))
-    if($tq -match 'RUNNING'){
-      WB '      正在运行 → 停止（卸下内核映像）'
-      & sc.exe stop ThrottleStop 2>&1 | ForEach-Object { WB ('        ' + $_) }
-      Start-Sleep -Seconds 2
-    }
-    if($ts -notmatch 'DISABLED'){
-      WB '      设为 disabled（不再随开机加载）'
-      & sc.exe config ThrottleStop start= disabled 2>&1 | ForEach-Object { WB ('        ' + $_) }
-    }
-    $tq2 = (sc.exe query ThrottleStop 2>&1 | Out-String)
-    WB ('      现在: ' + (([regex]::Match($tq2,'STATE\s*:\s*\d+\s+\S+').Value)))
-  } else { WB '      （本机没有 ThrottleStop 服务 —— 无需处理）' }
-  # 1b) 彻底退场：把 ThrottleStop.sys 挪走 —— 只要文件还在，**任何**东西（含别的服务名/厂商自启）
-  #     都可能去加载它，ACE-BOOT 就会在开机时弹「检测到与游戏可能存在兼容问题的软件程序加载」。
-  #     新路径（ECAM + inpoutx64 / WinRing0）完全不需要它，所以挪走最彻底；备份保留可人工还原。
-  WB '  [1b] ThrottleStop 彻底退场（把 .sys 挪到备份目录，杜绝任何组件再加载它）'
-  try {
-    $bkDir = 'C:\ProgramData\CMP40HXGen2\drivers-disabled'
-    if(-not (Test-Path $bkDir)){ New-Item -ItemType Directory -Force -Path $bkDir | Out-Null }
-    # 先把所有指向它的服务停掉并删除（名字不限）
-    $svcs = Get-SvcByPath 'ThrottleStop'
-    foreach($sv in $svcs){
-      WB ('      服务 ' + $sv.Name + '（Start=' + $sv.Start + '）→ 停止并删除')
-      & sc.exe stop $sv.Name 2>&1 | Out-Null
-      Start-Sleep -Milliseconds 800
-      & sc.exe delete $sv.Name 2>&1 | Out-Null
-    }
-    if($svcs.Count -eq 0){ WB '      指向它的服务: 无' }
-    # 再挪走所有副本（System32 + 两个 heal 源目录）
-    $stamp2 = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $moved = 0
-    foreach($f in @('C:\Windows\System32\drivers\ThrottleStop.sys','C:\ProgramData\CMP40HXGen2\drivers\ThrottleStop.sys','C:\ProgramData\40HXUnlock\drivers\ThrottleStop.sys')){
-      if(Test-Path $f){
-        $sub = switch -Wildcard ($f) {
-          '*System32\drivers*'  { 'system32-drivers' }
-          '*CMP40HXGen2*'        { 'progdata-cmp40hxgen2' }
-          '*40HXUnlock*'         { 'progdata-40hxunlock' }
-          default                { 'other' }
-        }
-        $dstDir = Join-Path $bkDir $sub
-        if(-not (Test-Path $dstDir)){ New-Item -ItemType Directory -Force -Path $dstDir | Out-Null }
-        $dst = Join-Path $dstDir ((Split-Path -Leaf $f) + '.disabled-' + $stamp2)
-        Move-Item -LiteralPath $f -Destination $dst -Force -ErrorAction Stop
-        WB ('      已挪走: ' + $f + '  →  ' + $dst)
-        $moved++
+  # 2026-10-04（用户决定）：**默认只停 + 置 disabled，不动磁盘上的 .sys**。
+  #   ① ACE-BOOT 拦的是「驱动映像加载」，不加载就足够（本机实测：文件在盘上、服务从未加载，近 30 天 0 条弹窗事件）；
+  #   ② 文件留着才能保住厂商 legacy Gen2 回退路径（厂商 AutoRetrain 需要 ThrottleStop）—— 新路径还不通的机器靠它兜底；
+  #   ③ 服务键保留 → 可逆：要用回 legacy 只要 sc config <服务> start= demand 再 sc start。
+  #   要彻底退役（删掉指向它的服务 + 把 .sys 挪进备份目录）请显式加 -RetireFile。
+  WB '  [1] ThrottleStop 退场（默认：只停 + 置 disabled，**不动文件**）'
+  $tsSvcs = @(Get-SvcByPath 'ThrottleStop' | Where-Object { $_ })
+  if($tsSvcs.Count -eq 0){ WB '      （本机没有指向 ThrottleStop.sys 的服务 —— 无需处理）' }
+  else {
+    foreach($sv in $tsSvcs){
+      $tq = (& sc.exe query $sv.Name 2>&1 | Out-String)
+      $tqc = (& sc.exe qc $sv.Name 2>&1 | Out-String)
+      WB ('      服务 ' + $sv.Name + '   ' + ([regex]::Match($tqc,'START_TYPE\s*:\s*\d+\s+\S+').Value) + '   ' + ([regex]::Match($tq,'STATE\s*:\s*\d+\s+\S+').Value))
+      if($tq -match 'RUNNING'){
+        WB '        正在运行 → 停止（卸下内核映像；ACE 拦的就是这一步）'
+        & sc.exe stop $sv.Name 2>&1 | ForEach-Object { WB ('        ' + $_) }
+        Start-Sleep -Seconds 2
       }
+      if($tqc -notmatch 'DISABLED'){
+        WB '        设为 disabled（不再随开机/按需加载）'
+        & sc.exe config $sv.Name start= disabled 2>&1 | ForEach-Object { WB ('        ' + $_) }
+      }
+      $tq2 = (& sc.exe query $sv.Name 2>&1 | Out-String)
+      WB ('        现在: ' + ([regex]::Match($tq2,'STATE\s*:\s*\d+\s+\S+').Value))
     }
-    if($moved -eq 0){ WB '      （没有可挪的副本 —— 已经退场过了）' }
-    # 复查
-    $left = Get-SvcByPath 'ThrottleStop'
-    WB ('      复查: 指向它的服务 ' + @($left).Count + ' 个；文件存在? ' + (Test-Path 'C:\Windows\System32\drivers\ThrottleStop.sys'))
-    if($moved -gt 0){ WB '      说明：本机 legacy 旧路径（厂商 AutoRetrain）将不再可用，新路径不受影响；还原请把备份文件移回原处' }
-    WB ('      备份目录: ' + $bkDir)
-  } catch { WB ('      [X] 退场失败: ' + $_.Exception.Message) }
+    WB '      服务键保留（没删）→ 以后要用厂商 legacy 回退：sc config <服务名> start= demand 再 sc start <服务名>'
+  }
+  # 1b) 默认**不动文件**；只有显式 -RetireFile 才彻底退役
+  if(-not $RetireFile){
+    WB '  [1b] 跳过「彻底退役」（默认不动文件 —— 有意为之，不是失败）'
+    WB '       ACE 只拦驱动映像加载：不加载就够了，.sys 留在盘上不会触发它（本机实测 30 天 0 条弹窗事件）。'
+    WB '       文件留着还保住厂商 legacy Gen2 回退路径（新路径不通的机器靠它兜底）；服务键也没删，随时能改回来。'
+    WB '       真要彻底退役（删掉所有指向它的服务 + 把 .sys 挪进备份目录）请跑：ACE修复.cmd /fix -retirefile'
+  } else {
+    WB '  [1b] 彻底退役（-RetireFile）：停并删除所有指向它的服务，再把 .sys 挪进备份目录'
+    try {
+      $bkDir = 'C:\ProgramData\CMP40HXGen2\drivers-disabled'
+      if(-not (Test-Path $bkDir)){ New-Item -ItemType Directory -Force -Path $bkDir | Out-Null }
+      $svcs = Get-SvcByPath 'ThrottleStop'
+      foreach($sv in $svcs){
+        WB ('      服务 ' + $sv.Name + '（Start=' + $sv.Start + '）→ 停止并删除')
+        & sc.exe stop $sv.Name 2>&1 | Out-Null
+        Start-Sleep -Milliseconds 800
+        & sc.exe delete $sv.Name 2>&1 | Out-Null
+      }
+      if($svcs.Count -eq 0){ WB '      指向它的服务: 无' }
+      $stamp2 = Get-Date -Format 'yyyyMMdd-HHmmss'
+      $moved = 0
+      foreach($f in @('C:\Windows\System32\drivers\ThrottleStop.sys','C:\ProgramData\CMP40HXGen2\drivers\ThrottleStop.sys','C:\ProgramData\40HXUnlock\drivers\ThrottleStop.sys')){
+        if(Test-Path $f){
+          $sub = switch -Wildcard ($f) {
+            '*System32\drivers*'  { 'system32-drivers' }
+            '*CMP40HXGen2*'        { 'progdata-cmp40hxgen2' }
+            '*40HXUnlock*'         { 'progdata-40hxunlock' }
+            default                { 'other' }
+          }
+          $dstDir = Join-Path $bkDir $sub
+          if(-not (Test-Path $dstDir)){ New-Item -ItemType Directory -Force -Path $dstDir | Out-Null }
+          $dst = Join-Path $dstDir ((Split-Path -Leaf $f) + '.disabled-' + $stamp2)
+          Move-Item -LiteralPath $f -Destination $dst -Force -ErrorAction Stop
+          WB ('      已挪走: ' + $f + '  →  ' + $dst)
+          $moved++
+        }
+      }
+      if($moved -eq 0){ WB '      （没有可挪的副本 —— 已经退场过了）' }
+      $left = Get-SvcByPath 'ThrottleStop'
+      WB ('      复查: 指向它的服务 ' + @($left).Count + ' 个；文件存在? ' + (Test-Path 'C:\Windows\System32\drivers\ThrottleStop.sys'))
+      if($moved -gt 0){ WB '      说明：本机 legacy 旧路径（厂商 AutoRetrain）将不再可用，新路径不受影响；还原请把备份文件移回原处' }
+      WB ('      备份目录: ' + $bkDir)
+    } catch { WB ('      [X] 退役失败: ' + $_.Exception.Message) }
+  }
   WB ''
 
   if(Test-Path $toggle){
@@ -497,7 +616,9 @@ if($Fix){
   }
   if($rmCount -eq 0){ WB '      （Run 键里没有需要清理的 40HX 自启项）' }
   else { WB ('      共清理 ' + $rmCount + ' 项，留档: ' + $bkLog) }
-  # 1c-2) 顺手把散落在厂商目录里的 ThrottleStop.sys 副本也挪走（否则厂商安装器一跑就装回来）
+  # 1c-2) 彻底退役时才顺手把散落在厂商目录里的 ThrottleStop.sys 副本也挪走（否则厂商安装器一跑就装回来）
+  #   2026-10-04：默认不动文件 → 这一段也只在 -RetireFile 时执行
+  if($RetireFile){
   $stray = 0
   foreach($vd in ($vendorDirs | Select-Object -Unique)){
     $top = $vd
@@ -518,6 +639,7 @@ if($Fix){
     }
   }
   if($stray -eq 0){ WB '      （厂商目录里没发现 ThrottleStop.sys 副本）' }
+  } else { WB '  [1c-2] 跳过厂商目录副本清理（默认不动文件；要彻底退役用 /fix -retirefile）' }
   WB ''
   WB '  [2] 调 ACE-Toggle -Action On（按记录恢复原始启动类型并启动）'
     & powershell -NoProfile -ExecutionPolicy Bypass -File $toggle -Action On *>&1 | ForEach-Object { WB ('      ' + $_) }
@@ -552,11 +674,11 @@ if($Fix){
   }
   WB ''
   WB '  修复动作完成。建议：'
-  WB '   ① 重启一次（让预启动反作弊与游戏重新握手）'
+  WB '   ① 重启一次（让预启动反作弊与游戏重新握手；重启就会重载预启动模式，不需要"完全关机"）'
   WB '   ② 重启后若游戏仍报错，把这份报告 + 游戏报错原文发回'
   WB '   ③ 若报「环境异常」，考虑 ACE修复.cmd /acefirst on'
 }
 Save
 WB ''
 WB ('报告已存: ' + $out)
-if(-not $env:NO_PAUSE){ if($Host.Name -eq 'ConsoleHost'){ Write-Host ''; Read-Host '按回车退出' } }
+if($env:NO_PAUSE -ne '1'){ if($Host.Name -eq 'ConsoleHost'){ Write-Host ''; Read-Host '按回车退出' } }
