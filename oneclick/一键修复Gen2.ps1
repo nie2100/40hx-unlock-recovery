@@ -31,7 +31,7 @@ $dst  = "$env:ProgramData\CMP40HXGen2\windows\40hx-retrain-inpout.ps1"
 # 2026-10-02：新工具把完整读数写 retrain-last.log（每次覆盖，不再无限增长）；老机器上可能还有老的追加日志
 $rlog = "$env:ProgramData\CMP40HXGen2\windows\logs\retrain-last.log"
 $rlogOld = "$env:ProgramData\CMP40HXGen2\windows\logs\retrain-inpout.log"
-$wantVer = '20261002-quiet'  # 必须与 payload 里工具的 TOOL_VER 一致（2026-10-02：完整读数写 retrain-last.log，正常状态不再堆日志）
+$wantVer = '20261004b'  # 必须与 payload 里工具的 TOOL_VER 一致（2026-10-04b：修 inpoutx64 加载失败 183/N + 日志目录不存在 + 失败现场取证）
 $desk = [Environment]::GetFolderPath('Desktop')
 if (-not $desk) { $desk = 'C:\Users\Public\Desktop' }
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -83,6 +83,8 @@ T '  （ACE-BOOT 全程不停；显卡不会被复位，显存/算力不受影�
 $st = (sc.exe query WinRing0_1_2_0 2>&1 | Out-String)
 T ('  运行前 WinRing0 状态: ' + ([regex]::Match($st, 'STATE\s*:\s*\d+\s+\S+').Value))
 T '  （下面会实时刷日志；最多 2~3 分钟。若超过 3 分钟一行都不动，按 Ctrl+C 关掉，然后完全关机再开机再来一次）'
+T '  提示：驱动那几步在“等驱动落定/重试”时会有 10~20 秒一行都不动，那是正常的，别关窗口。' 'Gray'
+T '        日志里出现「复用已在运行的实例」= 机器上本来就有一份同款驱动，工具直接拿它用（更省事，不是报错）。' 'Gray'
 $rawLog = Join-Path $env:TEMP ('40hx-gen2-run-' + $stamp + '.txt')
 # 用 Tee 边跑边显示：旧写法把子进程输出全缓冲了，客户会以为卡死
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $dst -Apply 2>&1 | Tee-Object -FilePath $rawLog | ForEach-Object {
@@ -91,7 +93,7 @@ $rawLog = Join-Path $env:TEMP ('40hx-gen2-run-' + $stamp + '.txt')
 }
 $rc = $LASTEXITCODE
 $runOut = if (Test-Path $rawLog) { (Get-Content -LiteralPath $rawLog -Raw -ErrorAction SilentlyContinue) } else { '' }
-T ('  工具返回码: ' + $rc + '   （0=Gen2 到位  10=链路没到 Gen2  11=基线不认识  3=WinRing0 起不来  12=驱动没就绪）')
+T ('  工具返回码: ' + $rc + '   （0=Gen2 到位  10=链路没到 Gen2  11=基线不认识  3=WinRing0 起不来  12=驱动没就绪  13=inpoutx64 驱动没加载起来）')
 
 # ---------- 3) 汇总 ----------
 T ''
@@ -133,6 +135,20 @@ if ($gen2ok) {
   if ($rc -eq 3) {
     T '  原因：WinRing0 用不了（驱动文件被杀软/“易受攻击驱动”策略清理，或服务卡在 STOP_PENDING）' 'Yellow'
     T '        本版工具会自动回落到 ECAM（不需要 WinRing0）；两条路都不可用时日志里会有一行 backend: ...' 'Yellow'
+  }
+  if ($rc -eq 13) {
+    T '  原因：inpoutx64 驱动（新路径用来写显卡寄存器的那一个）这次没能加载起来。' 'Yellow'
+    T '        新版工具对常见的三种情况会自己处理：① 机器上已经有一份同款实例 → 直接复用（日志里是「复用已在运行的实例」）' 'Yellow'
+    T '        ② 上一次没卸干净（STOP_PENDING）→ 自动等它落定再重试  ③ 真被拦 → 日志末尾会打印「驱动加载失败现场」' 'Yellow'
+    T '  怎么处理（按顺序）：' 'Yellow'
+    T '   1) 看桌面 retrain-last.log 里那行“inpoutx64T start try … : [SC] StartService 失败 N”：' 'Yellow'
+    T '        577 = 签名/内核隔离（内存完整性）拦 → 关掉“内核隔离”后【完全关机】再开机；' 'Yellow'
+    T '        5   = 杀软主动拦 → 把 C:\Windows\System32\drivers\inpoutx64.sys、inpoutx64.dll，' 'Yellow'
+    T '              以及 C:\ProgramData\CMP40HXGen2、C:\ProgramData\40HXUnlock 两个目录加进杀软信任区；' 'Yellow'
+    T '        183 = 已有同款实例（新版会自动复用；若还报这个，完全关机再开机）；' 'Yellow'
+    T '        2   = 驱动文件被杀软删了 → 用包里的“一键安装.cmd -Mode Repair”补文件。' 'Yellow'
+    T '   2) 完全关机再开机（不是重启），再双击本文件跑一次；' 'Yellow'
+    T '   3) 还不行：把 40HX-Gen2修复结果-*.txt + 桌面 retrain-last.log 一起发回（末尾“驱动加载失败现场”里有事件日志/杀软/文件哈希）。' 'Yellow'
   }
   T '  下一步（按顺序，不用输命令）：' 'Yellow'
   T '   a) 完全关机再开机一次（开始菜单→关机，不是重启！这一步就是为了清掉 WinRing0 停在 STOP_PENDING 的残留），再双击本文件跑一次；' 'Yellow'

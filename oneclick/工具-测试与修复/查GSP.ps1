@@ -14,7 +14,7 @@ param(
   [string]$ClassRoot = ''
 )
 $ErrorActionPreference = 'Continue'
-$VER = '2026-10-04b'
+$VER = '2026-10-04c'
 
 $desk = [Environment]::GetFolderPath('Desktop')
 if (-not $desk) { $desk = 'C:\Users\Public\Desktop' }
@@ -32,10 +32,11 @@ function Is-Admin {
 # ---------- 提权：把所有调用者给的开关都转过去（否则 -DryRun/-ClassRoot 会丢）----------
 if (-not $NoElevate -and -not (Is-Admin)) {
   Write-Output '  需要管理员权限（读 DriverStore / 事件日志 / 写 GSP 开关）→ 正在请求提权（会弹 UAC，请点“是”）...'
-  $a = @('-NoProfile','-ExecutionPolicy','Bypass','-File',$PSCommandPath,'-NoElevate','-OutFile',$out)
+  # 2026-10-04c（审查发现）：-ArgumentList 原样拼命令行，含空格的路径必须自带引号，否则提权子进程参数会被拆断
+  $a = @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"' + $PSCommandPath + '"'),'-NoElevate','-OutFile',('"' + $out + '"'))
   if ($Fix)       { $a += '-Fix' }
   if ($DryRun)    { $a += '-DryRun' }
-  if ($ClassRoot) { $a += @('-ClassRoot',$ClassRoot) }
+  if ($ClassRoot) { $a += @('-ClassRoot',('"' + $ClassRoot + '"')) }
   try { Start-Process powershell -Verb RunAs -Wait -ArgumentList $a; exit 0 }
   catch { Write-Output ('  提权失败或被取消: ' + $_.Exception.Message); exit 1 }
 }
@@ -90,11 +91,14 @@ if (Test-Path $smi) {
   } catch { $smiErr = 'nvidia-smi 启动失败: ' + $_.Exception.Message }
   $m = [regex]::Match($smiText, 'GSP Firmware Version\s*:\s*(\S.*?)\s*(\r?\n|$)')
   if ($m.Success) { $gspLine = $m.Groups[1].Value.Trim() }
-  if (-not $smiErr -and $smiText -match 'Failed to initialize NVML|No devices were found|Unable to determine') {
+  # 2026-10-04c（第21轮审查发现）：原关键字漏了"驱动通信失败"那类典型输出，会让 $smiOK 误为真、
+  #   打印"nvidia-smi: 可用"，把客户引去写 GSP 开关 —— 而真实病因是驱动没通。
+  if (-not $smiErr -and $smiText -match "Failed to initialize NVML|No devices were found|Unable to determine|couldn.t communicate with the NVIDIA driver|NVIDIA-SMI has failed") {
     $mm = [regex]::Match($smiText, '(Failed to initialize NVML[^\r\n]*|No devices were found|Unable to determine the device handle[^\r\n]*)')
     $smiErr = if ($mm.Success) { $mm.Groups[1].Value.Trim() } else { 'nvidia-smi 未返回设备信息' }
   }
-  $smiOK = ($smiText -and -not $smiErr)
+  # 2026-10-04c："可用"必须以能解析到 Driver Version 为准，异常输出不算可用
+  $smiOK = [bool]($smiText -and -not $smiErr -and ($smiText -match 'Driver Version\s*:\s*\S+'))
   $dv = [regex]::Match($smiText, 'Driver Version\s*:\s*(\S+)')
   $vb = [regex]::Match($smiText, 'VBIOS Version\s*:\s*(\S+)')
   if ($dv.Success) { W ('  驱动版本: ' + $dv.Groups[1].Value) }
@@ -186,7 +190,7 @@ W ''
 if ($Fix) {
   W '==== 5) 修复动作 ===='
   if (-not $target) { W '  [X] 没有可写的权威子键 —— 先解决驱动问题（见第 4 节），本次不写任何东西。' }
-  elseif ($regOn -and $gspOn) { W '  [--] 开关已是 1 且 GSP 已启用 —— 幂等跳过。' }
+  elseif ($regOn) { W '  [--] 开关 EnableGpuFirmware 已经是 1 —— 幂等跳过（重复写没有意义；先完全关机再开机）。' }   # 2026-10-04c：原来要 $regOn -and $gspOn 才跳过，导致"开关=1 但没启用"时又备份又重写，与自己第 4 节的建议矛盾
   else {
     $keyPath = $target.PSPath.Replace('Microsoft.PowerShell.Core\Registry::','') -replace '^HKEY_LOCAL_MACHINE','HKLM' -replace '^HKEY_CURRENT_USER','HKCU'
     $bk = Join-Path $desk ('40HX-GSP备份-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.reg')

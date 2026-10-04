@@ -8,15 +8,26 @@
 #             it waited the full 120s and exited 12 on every boot. -GpuBdf/-RootBdf override (hex like 0x0200).
 $ErrorActionPreference='Continue'
 # 工具版本号：必须在使用点之前定义（2026-10-01 修正：原先定义在文件后半段，banner 里的 ver= 一直是空的）
-$TOOL_VER = '20261002-quiet'
+$TOOL_VER = '20261004b'
 # 2026-10-02（用户要求：解锁状态正常了就别再堆日志）：完整读数写 retrain-last.log —— **每次运行覆盖**，
 #   不再像老版那样每开机往 retrain-inpout.log 追加一份（那个文件只增不减，一个月长到 200+ KB）。
 #   要留档请在覆盖前拷走；开机任务会把失败那次的全量日志另存到 logs\failures\。
 $LOGAPP='C:\ProgramData\CMP40HXGen2\windows\logs\retrain-last.log'
 $out='C:\Temp\40hx-retrain-tool.txt'
+# 2026-10-04b 客户机实测：那台机器**没有** C:\Temp 目录 → 下面每个 Add-Content 都报
+#   "未能找到路径 C:\Temp\40hx-retrain-tool.txt 的一部分"，把现场日志刷满、真错误全被埋掉 → 先建目录。
+$outDir=Split-Path -Parent $out
+if(-not (Test-Path -LiteralPath $outDir)){ try { New-Item -ItemType Directory -Force -Path $outDir | Out-Null } catch { } }
+$logDir=Split-Path -Parent $LOGAPP
+if(-not (Test-Path -LiteralPath $logDir)){ try { New-Item -ItemType Directory -Force -Path $logDir | Out-Null } catch { } }
 Remove-Item $out -ErrorAction SilentlyContinue
 Remove-Item $LOGAPP -ErrorAction SilentlyContinue
 function W($s){ $line=[string]$s; Add-Content -Path $out -Value $line -Encoding utf8; Add-Content -Path $LOGAPP -Value $line -Encoding utf8; Write-Host $line }
+# 2026-10-04b：驱动服务状态（Cleanup-* 只允许动**本工具自己建**的那一个服务，绝不碰别人的实例）
+$script:ioSvc = 'inpoutx64T'
+$script:ioCreated = $false
+$script:ioWas = $false
+function Flat1([string]$s){ return (([string]$s) -replace "`r?`n",' | ').Trim() }
 function U32([string]$hex){ return [Convert]::ToUInt32($hex,16) }
 
 # ---- deploy / heal the driver files (AV quarantines .sys after load) ----
@@ -61,13 +72,14 @@ $WR_PCI=U32 '9C40A148'
 #   更糟的是下一次运行看到 inpoutx64T 已在跑（$ioWas=true）会走"不是我起的就不动"，永远清不掉。
 # 规则：本工具自己创建的 inpoutx64T 必须在任何退出路径上停掉+删掉。
 function Cleanup-EarlyExit {
+  # 2026-10-04b：只清**本工具自己创建**的那一个服务；复用别人的实例时绝不 stop/delete
   try {
-    $q=(sc.exe query inpoutx64T 2>&1 | Out-String)
-    if($q -match '1060'){ return }
-    sc.exe stop inpoutx64T 2>&1 | Out-Null
-    for($k=1; $k -le 12; $k++){ $qq=(sc.exe query inpoutx64T 2>&1 | Out-String); if(($qq -match '1060') -or ($qq -match 'STOPPED')){ break }; Start-Sleep -Milliseconds 500 }
-    sc.exe delete inpoutx64T 2>&1 | Out-Null
-    W("  cleanup(early-exit): inpoutx64T=" + (((sc.exe query inpoutx64T 2>&1) | Out-String).Trim()))
+    if(-not $script:ioCreated){ W("  cleanup(early-exit): 本次没建临时服务（复用/或还没走到）→ 不动任何服务") ; return }
+    $n=$script:ioSvc
+    sc.exe stop $n 2>&1 | Out-Null
+    for($k=1; $k -le 50; $k++){ $qq=(sc.exe query $n 2>&1 | Out-String); if(($qq -match '1060') -or ($qq -match 'STOPPED\s*$') -or ($qq -match 'STATE\s*:\s*1\s')){ break }; Start-Sleep -Milliseconds 500 }
+    sc.exe delete $n 2>&1 | Out-Null
+    W("  cleanup(early-exit): " + $n + "=" + (Flat1 ((sc.exe query $n 2>&1) | Out-String)))
   } catch { }
 }
 
@@ -337,19 +349,139 @@ function WaitSvcState([string]$n,[string[]]$want,[int]$sec){
   }
   return $false
 }
-
-# ---- drivers ----
-$ioWas=[bool]((sc.exe query inpoutx64T 2>&1 | Out-String) -match 'RUNNING')
-if(-not $ioWas){
-  if(-not (Test-Path $SYS)){ W(">>> inpoutx64.sys missing in System32\drivers and no source available"); exit 13 }
-  sc.exe delete inpoutx64T 2>&1 | Out-Null
-  for($k=1; $k -le 10; $k++){ if(((sc.exe query inpoutx64T 2>&1 | Out-String) -match '1060')){ break }; Start-Sleep -Milliseconds 500 }
-  $c=(& sc.exe create inpoutx64T type= kernel start= demand binPath= '\SystemRoot\System32\drivers\inpoutx64.sys' 2>&1 | Out-String).Trim()
-  $s=(& sc.exe start inpoutx64T 2>&1 | Out-String).Trim()
-  Start-Sleep -Milliseconds 1000
-  W("  inpoutx64T create/start: " + ($c -replace "`r?`n"," | ") + " ==> " + (($s -split "`n" | Select-String 'STATE' | Out-String).Trim()))
+function SvcStartType([string]$n){
+  $q=(sc.exe qc $n 2>&1 | Out-String)
+  if($q -match 'START_TYPE\s*:\s*\d+\s+(\S+)'){ return $Matches[1] }
+  return 'UNKNOWN'
 }
-# 2026-09-30：默认先走 WinRing0（老路、现场验证最多）；只有 WinRing0 起不来时才尝试 ECAM，
+
+# ---- drivers (2026-10-04b 重写) ----
+# 本机实测（同款驱动、管理员）三条铁事实；客户机 2026-10-04 的 exit 13 就是栽在第①②条：
+#   ① inpoutx64 **固定**创建 \Device\inpoutx64（设备名跟服务名/文件名都无关）→ 同一时刻**只能有一份实例**；
+#      再建一个（哪怕换个服务名）`sc start` 一定失败 183「当文件已存在时，无法创建该文件」（本机复现：183 + 0xb7）。
+#   ② 机器上只要**已经**有一份实例（厂商包/别的工具/上次没清干净），直接**复用**它就行 ——
+#      DLL 打开的就是 \\.\inpoutx64，谁起的都认（本机验证：只有 inpoutx64Z 在跑时 \\.\inpoutx64 可打开、MapPhysToLin 正常、Gen2 PASS）。
+#   ③ 驱动卸载慢：`sc stop` 之后常见 10~20s 的 STOP_PENDING（本工具那个 DLL 把设备句柄缓存到进程退出）→ 这期间设备还在，照样能复用。
+#   ④ 老版把 `sc start` 输出过滤成只留 STATE 行 → 183/577 这些**真错误被吞掉**，现场只能看到"没到 RUNNING"。
+#      现在一律打印 sc 全文；start 失败但设备已能打开时**当场复用**（客户机那种 183 就直接变 PASS）。
+function DevOpenInpout {
+  # 设备能不能打开 = 内核里到底有没有实例（sc query 只认服务名，认不出"别人起的"那份）
+  try {
+    $h=[P]::CreateFileA("\\.\inpoutx64",[uint32]3221225472,3,[IntPtr]::Zero,3,0,[IntPtr]::Zero)
+    if([int64]$h -ne -1){ [void][P]::CloseHandle($h); return $true }
+    return $false
+  } catch { return $false }
+}
+function Get-InpoutServices {
+  # .NET 注册表枚举（PS 的 Get-ChildItem 会静默跳过 ACL 破损的服务键 —— 2026-10-04 本机实测）
+  $names=@()
+  try {
+    $root=[Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SYSTEM\CurrentControlSet\Services',$false)
+    if($root){ $names=@($root.GetSubKeyNames()); $root.Close() }
+  } catch { }
+  $res=@()
+  foreach($n in $names){
+    $ip=$null
+    try { $k=[Microsoft.Win32.Registry]::LocalMachine.OpenSubKey(('SYSTEM\CurrentControlSet\Services\'+$n),$false); if($k){ $ip=[string]$k.GetValue('ImagePath'); $k.Close() } } catch { }
+    if(($ip -and ($ip -match '(?i)inpout')) -or ($n -match '(?i)^inpout')){
+      $res += [pscustomobject]@{ Name=$n; ImagePath=$(if($ip){$ip}else{'<读不到>'}); State=(SvcState $n); Start=(SvcStartType $n) }
+    }
+  }
+  return @($res | Sort-Object Name)
+}
+function Dump-LoadFail {
+  W("  ---- 驱动加载失败现场（把这一段发回即可）----")
+  W("  sc qc inpoutx64T: " + (Flat1 ((sc.exe qc inpoutx64T 2>&1) | Out-String)))
+  W("  sc query inpoutx64T: " + (Flat1 ((sc.exe query inpoutx64T 2>&1) | Out-String)))
+  W("  设备 \\.\inpoutx64 现在可打开=" + (DevOpenInpout) + "  （true = 内核里已经有一份实例：这正是老版 183 失败的原因）")
+  foreach($e in @(Get-InpoutServices)){ W("  同款服务: " + $e.Name + "  state=" + $e.State + "  start=" + $e.Start + "  path=" + $e.ImagePath) }
+  foreach($f in @($SYS,$DLL,'C:\ProgramData\CMP40HXGen2\drivers\inpoutx64.sys','C:\ProgramData\40HXUnlock\drivers\inpoutx64.sys')){
+    if(Test-Path -LiteralPath $f){
+      $h=(Get-FileHash -LiteralPath $f -Algorithm SHA256 -ErrorAction SilentlyContinue)
+      W("  文件 " + $f + "  大小=" + (Get-Item -LiteralPath $f).Length + "  sha256=" + $(if($h){$h.Hash.ToLower()}else{'<算不出>'}))
+    } else { W("  文件 " + $f + "  <不存在>") }
+  }
+  W("  本包期望 sha256: inpoutx64.sys=f8965fdce668692c3785afa3559159f9a18287bc0d53abb21902895a8ecf221b")
+  W("                    inpoutx64.dll=5f27ed4d5cd58a1ee23deeb802e09e73f3a1d884ce2135f6e827f67b171269e7")
+  try { $bl=[string](Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Config' -Name 'VulnerableDriverBlocklistEnable' -ErrorAction SilentlyContinue).VulnerableDriverBlocklistEnable; W("  VulnerableDriverBlocklistEnable=" + $(if($bl -eq ''){'<未设置>'}else{$bl})) } catch { }
+  try { $hv=[string](Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity' -Name 'Enabled' -ErrorAction SilentlyContinue).Enabled; W("  内核隔离(内存完整性) Enabled=" + $(if($hv -eq ''){'<未设置>'}else{$hv})) } catch { }
+  try {
+    $dg=Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard -ErrorAction SilentlyContinue
+    if($dg){ W("  DeviceGuard: VBS=" + $dg.VirtualizationBasedSecurityStatus + "  CI策略状态=" + $dg.CodeIntegrityPolicyEnforcementStatus + "  已运行的安全服务=" + ((@($dg.SecurityServicesRunning)) -join ',')) }
+  } catch { }
+  try {
+    $av=@(Get-CimInstance -Namespace root\SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction SilentlyContinue)
+    if($av.Count){ foreach($a in $av){ W("  杀软: " + $a.displayName + "  productState=0x" + ([int]$a.productState).ToString('X')) } } else { W("  杀软(SecurityCenter2): 读不到记录") }
+  } catch { W("  杀软读取失败: " + $_.Exception.Message) }
+  try {
+    $kw=@('Hips','usysdiag','Huorong','360','ZhuDong','MsMpEng','QQPCRTP','kxetray','KSafe','BaiduSd','Kingsoft','McAfee','Symantec','ESET')
+    $run=@(Get-Process -ErrorAction SilentlyContinue | ForEach-Object { $pn=$_.ProcessName; foreach($k in $kw){ if($pn -like ('*'+$k+'*')){ $pn; break } } } | Select-Object -Unique)
+    W("  运行中的杀软/防护进程: " + $(if($run.Count){ $run -join ', ' } else { '（没发现常见杀软进程）' }))
+  } catch { }
+  try {
+    $ev=@(Get-WinEvent -FilterHashtable @{ LogName='System'; StartTime=(Get-Date).AddDays(-2) } -ErrorAction SilentlyContinue | Where-Object { $_.Id -in @(7000,7001,7011,7026,7045) } | Select-Object -First 12)
+    if($ev.Count){
+      W("  System 事件（服务/驱动加载，最近 " + $ev.Count + " 条）:")
+      foreach($e in $ev){ $m=[regex]::Replace([string]$e.Message,'\s+',' '); if($m.Length -gt 170){ $m=$m.Substring(0,170) }; W("    [" + $e.TimeCreated.ToString('MM-dd HH:mm:ss') + "] " + $e.Id + " :: " + $m) }
+    } else { W("  System 事件: 最近 2 天没有 7000/7011/7026 记录") }
+  } catch { W("  事件日志读取失败: " + $_.Exception.Message) }
+  try {
+    $ci=@(Get-WinEvent -LogName 'Microsoft-Windows-CodeIntegrity/Operational' -MaxEvents 12 -ErrorAction SilentlyContinue)
+    if($ci.Count){ W("  CodeIntegrity 日志（最近 " + $ci.Count + " 条）:"); foreach($e in $ci){ W("    [" + $e.TimeCreated.ToString('MM-dd HH:mm:ss') + "] " + $e.Id + " " + $e.LevelDisplayName) } } else { W("  CodeIntegrity 日志: 空（没有代码完整性拦截记录）") }
+  } catch { W("  CodeIntegrity 日志: 读不到（日志可能没启用）") }
+  W("  ---- 现场取证结束 ----")
+}
+
+if(-not $script:ioCreated){ $script:ioSvc='inpoutx64T' }
+$existing=@(Get-InpoutServices)
+if($existing.Count){ foreach($e in $existing){ W("  inpoutx64 同款服务: " + $e.Name + "  state=" + $e.State + "  start=" + $e.Start + "  path=" + $e.ImagePath) } }
+else { W("  inpoutx64 同款服务: 无（机器上没有别的服务指向 inpout*.sys）") }
+$ioDevLive=DevOpenInpout
+W("  设备 \\.\inpoutx64 可打开=" + $ioDevLive + "（true = 内核里已有一份实例 → 直接复用，不再新建）")
+if($ioDevLive){
+  $ioWas=$true
+  $runSvc=@($existing | Where-Object { $_.State -eq 'RUNNING' } | Select-Object -First 1)
+  if($runSvc){ $script:ioSvc=$runSvc.Name }
+  W("  复用已在运行的实例（服务 " + $script:ioSvc + "）：不新建临时服务 —— 同款驱动同一时刻只能有一份，重复实例必然 183")
+  W("  （这条是正常的、不用管；以前在这里失败过的机器，靠这条就能过）")
+} else {
+  if(-not (Test-Path $SYS)){ W(">>> inpoutx64.sys missing in System32\drivers and no source available"); exit 13 }
+  $binPaths=@('\SystemRoot\System32\drivers\inpoutx64.sys', ('\??\' + $SYS))
+  W("  没有现成实例 → 建临时服务 inpoutx64T 并启动（最多 2 种路径写法 x 2 次尝试；")
+  W("  重试期间会有 10~20 秒一行都不动，那是在等驱动落定，不是卡死，别关窗口）")
+  $reuseNow=$false
+  foreach($bp in $binPaths){
+    if($reuseNow){ break }
+    sc.exe stop inpoutx64T 2>&1 | Out-Null
+    for($k=1; $k -le 40; $k++){ $q=(sc.exe query inpoutx64T 2>&1 | Out-String); if(($q -match '1060') -or ($q -match 'STOPPED\s*$') -or ($q -match 'STATE\s*:\s*1\s')){ break }; Start-Sleep -Milliseconds 500 }
+    sc.exe delete inpoutx64T 2>&1 | Out-Null
+    for($k=1; $k -le 40; $k++){ if(((sc.exe query inpoutx64T 2>&1) | Out-String) -match '1060'){ break }; Start-Sleep -Milliseconds 500 }
+    $c=(& sc.exe create inpoutx64T type= kernel start= demand binPath= $bp 2>&1 | Out-String)
+    W("  inpoutx64T create (binPath=" + $bp + ") rc=" + $LASTEXITCODE + " : " + (Flat1 $c))
+    for($t=1; $t -le 2; $t++){
+      W("  inpoutx64T 启动尝试 " + $t + "/2 ……")
+      $s=(& sc.exe start inpoutx64T 2>&1 | Out-String)
+      W("  inpoutx64T start try " + $t + " rc=" + $LASTEXITCODE + " : " + (Flat1 $s))
+      for($k=1; $k -le 20; $k++){ if((SvcState 'inpoutx64T') -eq 'RUNNING'){ break }; Start-Sleep -Milliseconds 500 }
+      if((SvcState 'inpoutx64T') -eq 'RUNNING'){ break }
+      if(DevOpenInpout){
+        W(">>> 启动报错（见上面那行 sc 全文），但设备 \\.\inpoutx64 已经能打开 = 内核里**另有一份实例**（别的工具/厂商包起的）")
+        W(">>> → 直接复用它，不在这里白等（老版就是在这儿死等到 exit 13）")
+        $reuseNow=$true; $ioWas=$true; $script:ioCreated=$false
+        sc.exe delete inpoutx64T 2>&1 | Out-Null
+        break
+      }
+      if($s -match '183'){ W("    183 = 内核里已有同款实例，等它落定（10 秒）再试") ; [void](WaitSvcState 'inpoutx64T' @('RUNNING') 10) }
+      Start-Sleep -Seconds 2
+    }
+    if($reuseNow){ break }
+    if((SvcState 'inpoutx64T') -eq 'RUNNING'){ $script:ioCreated=$true; break }
+    W("  这种 binPath 没起来（state=" + (SvcState 'inpoutx64T') + "），换一种写法再试一次")
+  }
+  if($reuseNow){ W("  本次走复用路径：内核里那份实例就是我们要用的 inpoutx64 驱动") }
+  # 服务只要还在（哪怕没起来）就是我们的（这个名字只有本工具用）→ 收尾时删掉，避免越积越多
+  if(-not $reuseNow -and (SvcState 'inpoutx64T') -ne 'MISSING'){ $script:ioCreated=$true }
+}
 # 而 ECAM 的基址**只**来自 ACPI MCFG / 系统已分配资源（见 TryEcam 顶部说明：绝不盲扫物理地址）。
 $script:ecam = $null
 $script:EcamGpuBdf = $null
@@ -472,12 +604,13 @@ if(-not $wrRunning){
   exit 3
 }
 function CleanupDrivers(){
-  if(-not $ioWas){
-    sc.exe stop inpoutx64T 2>&1 | Out-Null
-    # 2026-10-01：原来只等 6 秒，实测驱动卸载要 10~20 秒（日志里常见停在 STOP_PENDING 且服务删不掉、残留到下次开机）
-    for($k=1; $k -le 40; $k++){ $q=(sc.exe query inpoutx64T 2>&1 | Out-String); if(($q -match '1060') -or ($q -match 'STOPPED')){ break }; Start-Sleep -Milliseconds 500 }
-    if((sc.exe query inpoutx64T 2>&1 | Out-String) -match 'STOPPED'){ sc.exe delete inpoutx64T 2>&1 | Out-Null }
-  }
+  if($script:ioCreated){
+    # 只清自己建的（复用别人实例时 $ioCreated=$false，什么都不做 —— 否则会把别人的驱动停掉/删掉）
+    sc.exe stop $script:ioSvc 2>&1 | Out-Null
+    for($k=1; $k -le 50; $k++){ $q=(sc.exe query $script:ioSvc 2>&1 | Out-String); if(($q -match '1060') -or ($q -match 'STOPPED\s*$') -or ($q -match 'STATE\s*:\s*1\s')){ break }; Start-Sleep -Milliseconds 500 }
+    sc.exe delete $script:ioSvc 2>&1 | Out-Null
+    W("  cleanup: " + $script:ioSvc + "=" + (SvcState $script:ioSvc) + "（本进程退出后驱动才真正卸载，STOP_PENDING 属正常；下次运行若设备还在会直接复用）")
+  } elseif($script:ioWas){ W("  cleanup: " + $script:ioSvc + " 是复用别人的实例 → 不停不删（保持原样）") }
   if($script:ecam -eq $null -and -not $wrWas){
     # 先关掉自己开着的 WinRing0 句柄：句柄不关，驱动卸不下去 → 服务会停在 STOP_PENDING（客户机见过这个状态）
     if($hw -ne $null -and [int64]$hw -ne -1){ try { [void][P]::CloseHandle($hw); $hw=[IntPtr]::Zero; W("  cleanup: closed WinRing0 handle") } catch { } }
@@ -493,18 +626,20 @@ function CleanupDrivers(){
 }
 function Fatal($code,$msg){
   W($msg)
+  if($code -eq 13){ Dump-LoadFail }
   CleanupDrivers
   W("  >>> FATAL exit=$code ; drivers cleaned ; ACE-BOOT=" + ((sc.exe query ACE-BOOT | Select-String 'STATE' | Out-String).Trim()))
   exit $code
 }
 
-$ioNow=[bool]((sc.exe query inpoutx64T 2>&1 | Out-String) -match 'RUNNING')
+$ioNow=(SvcState $script:ioSvc) -eq 'RUNNING'
+if((SvcState 'inpoutx64T') -eq 'RUNNING'){ $ioNow=$true }
+$ioDev=DevOpenInpout
+if($ioDev -and -not $ioNow){ $ioNow=$true }   # 设备能打开 = 内核里有一份实例，够用了
 $wrNow=[bool]((sc.exe query WinRing0_1_2_0 2>&1 | Out-String) -match 'RUNNING')
-W("  inpoutx64T RUNNING=$ioNow   WinRing0 RUNNING=$wrNow   ACE-BOOT=" + ((sc.exe query ACE-BOOT | Select-String 'STATE' | Out-String).Trim()))
+W("  inpoutx64 服务=" + $script:ioSvc + " RUNNING=$ioNow  设备可打开=$ioDev  这次由本工具创建=" + $script:ioCreated + "   WinRing0 RUNNING=$wrNow   ACE-BOOT=" + ((sc.exe query ACE-BOOT | Select-String 'STATE' | Out-String).Trim()))
 W("  ACE-Tray PIDs " + ((@(Get-Process ACE-Tray -ErrorAction SilentlyContinue)|ForEach-Object{$_.Id}) -join ',') + "   ThrottleStop=" + ((sc.exe query ThrottleStop | Select-String 'STATE' | Out-String).Trim()))
-if(-not $ioNow){ Fatal 13 ">>> inpoutx64T did not reach RUNNING" }
-
-$hw=[IntPtr]::Zero
+if(-not $ioNow){ Fatal 13 ">>> inpoutx64 没起来（服务 $script:ioSvc）—— 看上面的 sc 全文：183=内核里已有一份实例(新版会自动复用) / 577=签名或内核隔离(内存完整性)拦 / 5=权限被拒(杀软) / 2=文件被清" }
 if($script:ecam -ne $null){
   # 2026-09-30：走 ECAM 时**不需要** WinRing0 设备（客户机上 WinRing0x64.sys 被策略封了，开不了）
   W("  PCI 访问走 ECAM（不打开 WinRing0 设备）")
@@ -603,7 +738,6 @@ $gcap=FindPcieCap $GPU; $rcap=FindPcieCap $ROOT
 W("  PCIe cap: GPU@0x" + $(if($gcap -eq $null){'NOT FOUND'}else{$gcap.ToString('X2')}) + "  ROOT@0x" + $(if($rcap -eq $null){'NOT FOUND'}else{$rcap.ToString('X2')}))
 if($gcap -eq $null -or $rcap -eq $null){ Fatal 11 ">>> PCIe capability not found" }
 
-$TOOL_VER = '20261002-quiet'  # 与本文件顶部的定义保持一致；改动这个标记要同步 一键修复Gen2.ps1 里的 $wantVer
 $GUARD_OFF=0x0;   $GUARD_EXP=U32 '166000A1'
 # 2026-09-30（客户机 VBIOS 90.06.67.00.06 驱动）：基线不能写死常量，要按**位**判定。
 # 实测两处 Gen2 位（同一张卡 .04 => .06 只差跳线位）：
@@ -882,7 +1016,7 @@ W("  GPU final : Gen" + ($gf -band 0xF) + " x" + (($gf -shr 4) -band 0x3F) + " L
 W("  ROOT final: Gen" + ($rf -band 0xF) + " x" + (($rf -shr 4) -band 0x3F) + " LNKSTA=0x" + $rf.ToString('X4'))
 
 CleanupDrivers
-W("  after cleanup: inpoutx64T=" + (((sc.exe query inpoutx64T 2>&1 | Out-String) -replace "`r?`n"," | ").Trim()) )
+W("  after cleanup: " + $script:ioSvc + "=" + (Flat1 ((sc.exe query $script:ioSvc 2>&1) | Out-String)) + "   设备可打开=" + (DevOpenInpout) + "  本次由本工具创建=" + $script:ioCreated)
 W("  ACE-BOOT=" + ((sc.exe query ACE-BOOT | Select-String 'STATE' | Out-String).Trim()) + "   ACE-Tray PIDs " + ((@(Get-Process ACE-Tray -ErrorAction SilentlyContinue)|ForEach-Object{$_.Id}) -join ','))
 W("  GPU PnP=" + ((Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'CMP 40HX' } | Select-Object -First 1).Status))
 if($reach){ W("  >>> PASS: physical Gen2 x16 reached, the anti-cheat was never stopped"); W("==== end $(Get-Date -Format 'HH:mm:ss') ===="); exit 0 }

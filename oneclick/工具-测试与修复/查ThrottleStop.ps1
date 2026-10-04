@@ -16,7 +16,6 @@ if (-not $desk) { $desk = 'C:\Users\Public\Desktop' }
 # 父进程提权时把路径传给子进程，避免生成两份报告（一份只有 2 行的空壳）
 $out = if ($OutFile) { $OutFile } else { Join-Path $desk ('40HX-ThrottleStop体检-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.txt') }
 $sb = New-Object System.Text.StringBuilder
-function W  { param([string]$s = '') [void]$sb.AppendLine($s) }
 function WB { param([string]$s = '') Write-Host $s; [void]$sb.AppendLine($s) }
 function Save { try { $sb.ToString() | Out-File -Encoding utf8 $out } catch { } }
 function Is-Admin {
@@ -54,7 +53,7 @@ if ((-not (Is-Admin)) -and (-not $NoElevate)) {
   Write-Host '  本工具要读服务注册表与内核模块列表 → 需要管理员，正在提权（会弹 UAC，请点"是"）...'
   Write-Host ('  完整报告将写到: ' + $out)
   try {
-    Start-Process powershell -Verb RunAs -Wait -ArgumentList (@('-NoProfile','-ExecutionPolicy','Bypass','-File',$PSCommandPath,'-NoElevate','-OutFile',$out) + $(if ($Deep) { @('-Deep') } else { @() }))   # 2026-10-04（审查发现）: 提权时必须转发 -Deep，否则用户以为扫了 ESP，其实没扫
+    Start-Process powershell -Verb RunAs -Wait -ArgumentList (@('-NoProfile','-ExecutionPolicy','Bypass','-File',('"' + $PSCommandPath + '"'),'-NoElevate','-OutFile',('"' + $out + '"')) + $(if ($Deep) { @('-Deep') } else { @() }))   # 2026-10-04（审查发现）: 提权时必须转发 -Deep，否则用户以为扫了 ESP，其实没扫
     Write-Host '  提权窗口已结束 —— 请看上面那个报告文件'
   } catch { Write-Host ('  [X] 提权失败: ' + $_.Exception.Message) }
   # 2026-10-04: 父进程**不再写报告** —— 否则会用这份两行的空壳把子进程的完整报告覆盖掉
@@ -127,10 +126,9 @@ if ($deniedKeys.Count) {
   WB ('  ★ 读不到 ImagePath 的服务键 ' + $deniedKeys.Count + ' 个（ACL 破损）—— 已逐个用 sc.exe qc 兜底，不漏检：')
   WB ('      ' + (($deniedKeys | Select-Object -First 12) -join ', '))
 }
-$risk = @($svcNames | Where-Object { $_ -match 'Throttle|WinRing|inpout|40HX|Gen2|ACE|SGuard|iGame' })
 $risk = @($svcNames | Where-Object { $_ -match '^(ACE|SGuard|ThrottleStop|WinRing0|inpout|40HX|Gen2|iGame)' })
 if ($risk.Count) { WB ('  与 40HX 方案相关的服务名（锚定匹配；含正在运行的其它工具，供人工核对）：' + ($risk -join ', ')) }
-if ($denied.Count) { WB ('  注意：' + $denied.Count + ' 个服务键连管理员都读不到（ACL 异常，已改用 sc.exe 兜底）：' + (($denied | Select-Object -First 8) -join ', ')) }
+# 2026-10-04c（审查发现）：原这里用未定义的 $denied（恒假、永不输出），且与上面 126-129 的提示重复 -> 删除死逻辑
 WB '  说明：内核驱动**正在运行** = 它的映像已加载进内核，此时腾讯 ACE-BOOT 会在映像加载阶段拦它并弹'
 WB '        「检测到与游戏可能存在兼容问题的软件程序加载: ThrottleStop.sys」。所以状态是 STOPPED/DISABLED 才安全。'
 
