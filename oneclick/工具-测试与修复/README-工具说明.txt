@@ -43,3 +43,14 @@
                                         末节给「直接删掉安不安全」。加 `-deep` 连 ESP 兜底副本一起扫（会临时挂 EFI 分区）
 
 全部脚本的报告位置：桌面 40HX-*.txt（桌面出不来时同时写 C:\40HX-*.txt）
+
+【补写Gen2预埋.cmd / 补写Gen2预埋-dry.cmd（2026-10-05 新增）】
+  用途：解锁固件（EFI 阶段）本该把 Gen2 前提值写进 GPU 内部寄存器，但某些机器/批次它自己 abort 了
+        （ESP 日志里 [efi-b] abort: baseline mismatch）→ 显卡只报 Gen1 能力 → Gen2 永远到不了。
+        本工具在 Windows 侧把这几个值补上（XVE_OVR=6 / CYA_0 / PL_LINK_RATE / 两端 TLS=2）后重训校验。
+  安全：先 dry-run（不写任何 GPU 寄存器，只生成原值备份文件）给你看；确认后才真写；写前原值落盘 C:\Temp\40hx-prime-backup.txt（可按说明回写）。
+        这些寄存器是易失的（关机失效）→ 报告要发回来改固件。极小概率花屏/不亮 → 完全关机即恢复。
+  只读版：补写Gen2预埋-dry.cmd（只 dry-run，绝不写）。
+  2026-10-05 晚补充：这台机器回执证明"只写 XVE_OVR=6 就能让显卡自己把 VSEC/LNKCAP/LNKCAP2/TLS 全部翻到 Gen2 档"
+  （详见 文档\验证记录.md 第 15 轮）；因为寄存器易失，补写已挂进开机任务（RunPostBind.cmd 新路径 -AllowPrime），
+  客户不用再手动跑本工具。手动跑仍然可用（排查/复现都用它），两个 .cmd 跑完窗口会停住等按键。

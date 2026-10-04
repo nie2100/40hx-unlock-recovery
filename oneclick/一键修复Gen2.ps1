@@ -2,8 +2,8 @@
 #  40HX 一键修复 Gen2（双击 一键修复Gen2.cmd 即可，不需要输任何命令）
 #  做四件事：
 #   1) 把新版 Gen2 工具就地更新到 C:\ProgramData\CMP40HXGen2\windows（按哈希比对，一样就跳过）
-#   2) 跑一次：只读体检 → 若发现“解锁固件该预埋的 Gen2 前提值没预埋”则自动补写官方目标值
-#      → 写 LINK_CONFIG_0 / PRIV_MISC_1 → 根端口重训 x2 → GPU 侧兜底重训 x2 → 复读校验
+#   2) 跑一次：只读体检 → 写 LINK_CONFIG_0 / PRIV_MISC_1 → 根端口重训 x2 → GPU 侧兜底重训 x2 → 复读校验
+#      注意：**不会**自动补写“解锁固件该预埋的 Gen2 前提值”（要显式 -AllowPrime，见 工具-测试与修复\补写Gen2预埋.cmd）
 #   3) 把关键结果 + 完整日志复制到桌面，方便直接发回
 #   4) 屏幕上给出结论（成功/失败 + 下一步）
 #  全程不停 ACE-BOOT、不复位显卡、不写 ESP/固件。
@@ -31,7 +31,7 @@ $dst  = "$env:ProgramData\CMP40HXGen2\windows\40hx-retrain-inpout.ps1"
 # 2026-10-02：新工具把完整读数写 retrain-last.log（每次覆盖，不再无限增长）；老机器上可能还有老的追加日志
 $rlog = "$env:ProgramData\CMP40HXGen2\windows\logs\retrain-last.log"
 $rlogOld = "$env:ProgramData\CMP40HXGen2\windows\logs\retrain-inpout.log"
-$wantVer = '20261004c'  # 必须与 payload 里工具的 TOOL_VER 一致（2026-10-04c：审查 F1 自留实例判定 + F3 缺文件也取证 + F4 初始化）
+$wantVer = '20261004e'  # 必须与 payload 里工具的 TOOL_VER 一致（工具版本门禁 20261004d：LC0 族掩码放宽 + ROOT LNKCAP 读数 + PRIMER_GAPS 标记）
 $desk = [Environment]::GetFolderPath('Desktop')
 if (-not $desk) { $desk = 'C:\Users\Public\Desktop' }
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -78,14 +78,17 @@ else {
 
 # ---------- 2) 跑一次 ----------
 T ''
-T '[2/4] 现在跑一次（体检 + 自动补预埋 + 写策略寄存器 + 重训）' 'Cyan'
-T '  （ACE-BOOT 全程不停；显卡不会被复位，显存/算力不受影响）'
+T '[2/4] 现在跑一次（体检 + 写策略寄存器 + 重训；不会补写 GPU 内部预埋寄存器）' 'Cyan'
+T '  （ACE-BOOT 全程不停；显卡不会被复位，显存/算力不受影响；不写 GPU 内部预埋寄存器）'
 $st = (sc.exe query WinRing0_1_2_0 2>&1 | Out-String)
 T ('  运行前 WinRing0 状态: ' + ([regex]::Match($st, 'STATE\s*:\s*\d+\s+\S+').Value))
 T '  （下面会实时刷日志；最多 2~3 分钟。若超过 3 分钟一行都不动，按 Ctrl+C 关掉，然后完全关机再开机再来一次）'
 T '  提示：驱动那几步在“等驱动落定/重试”时会有 10~20 秒一行都不动，那是正常的，别关窗口。' 'Gray'
 T '        日志里出现「复用已在运行的实例」= 机器上本来就有一份同款驱动，工具直接拿它用（更省事，不是报错）。' 'Gray'
 $rawLog = Join-Path $env:TEMP ('40hx-gen2-run-' + $stamp + '.txt')
+# 2026-10-05（审查 M2）：先删掉旧文件 → 跑完若文件不存在或没有工具 banner，就说明"工具这次根本没跑起来"，
+#   绝不能用 $LASTEXITCODE 的残留 0 + 上次的 retrain-last.log 里的 PASS 报成功（那是假成功）。
+if (Test-Path $rawLog) { Remove-Item -LiteralPath $rawLog -Force -ErrorAction SilentlyContinue }
 # 用 Tee 边跑边显示：旧写法把子进程输出全缓冲了，客户会以为卡死
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $dst -Apply 2>&1 | Tee-Object -FilePath $rawLog | ForEach-Object {
   Write-Host $_
@@ -93,6 +96,8 @@ $rawLog = Join-Path $env:TEMP ('40hx-gen2-run-' + $stamp + '.txt')
 }
 $rc = $LASTEXITCODE
 $runOut = if (Test-Path $rawLog) { (Get-Content -LiteralPath $rawLog -Raw -ErrorAction SilentlyContinue) } else { '' }
+$ranThisRound = (($runOut -match '====\s+40HX Gen2 retrain') -and ($runOut.Length -gt 200))
+if (-not $ranThisRound) { T '  [X] 工具这次没有真正跑起来（控制台没有它的输出）—— 通常是杀软拦了 powershell/脚本，或包不完整；本次不算成功。' 'Red' }
 T ('  工具返回码: ' + $rc + '   （0=Gen2 到位  10=链路没到 Gen2  11=基线不认识  3=WinRing0 起不来  12=驱动没就绪  13=inpoutx64 驱动没加载起来）')
 
 # ---------- 3) 汇总 ----------
@@ -114,10 +119,22 @@ foreach ($l in $show) { Write-Host ('   ' + $l.Trim()); [void]$out.Add('   ' + $
 # 2026-10-02（第三方审查 H + 本机实测踩到）：**必须同时**认工具退出码与日志 PASS。
 #   只认日志会读到"上一次运行留下的 PASS"（工具这次根本没写成/写了一半就退）→ 报假成功。
 #   工具语义：退出码 0 = 本次已验证 Gen2 到位（含幂等 already），非 0 一律不算成功。
-$gen2ok = (($rc -eq 0) -and (($keys -join "`n") -match 'PASS:\s*(already\s+)?physical Gen2 x16'))
+# 2026-10-05（审查 M2/L6）：判据改成"本次输出文件"里的 banner + PASS + 退出码三者同时成立，
+#   不再用 $keys（它可能来自上次运行留下的 retrain-last.log，或被日志瘦身影响）。
+$gen2ok = ($ranThisRound -and ($rc -eq 0) -and ($runOut -match 'PASS:\s*(already\s+)?physical Gen2 x16'))
 if (-not $gen2ok) { T ('  判定依据: 工具返回码=' + $rc + $(if ($rc -ne 0) { '（非 0 = 本次没成功，不看日志里的历史 PASS）' } else { '' })) 'Yellow' }
 $gapLine = @($keys | Where-Object { $_ -match '体检缺口' }) | Select-Object -First 1
-if ($gapLine) { T ('  ' + $gapLine.Trim()) }
+if ($gapLine) {
+  T ('  ' + $gapLine.Trim()) 'Yellow'
+  # 2026-10-05（客户机实测）：缺口 = 解锁固件（EFI）该预埋的 Gen2 前提值没写进去；
+  #   这台机器上再跑多少次本工具都到不了 Gen2，必须补写（显式 -AllowPrime）或让 EFI 重跑预埋。
+  if ($gapLine -notmatch '（无') {
+    T '  >>> 这台机器的 Gen2 前提值没被解锁固件预埋（缺口见上）—— 再跑本工具也不会到 Gen2。' 'Yellow'
+    T '      下一步（二选一）：' 'Yellow'
+    T '       ① 重跑 一键安装.cmd 让解锁固件在 EFI 阶段重新预埋 → 完全关机再开机 → 再跑本工具；' 'Yellow'
+    T '       ② 若开机后缺口还在（固件自己 abort / 换了平台批次）→ 双击 工具-测试与修复\补写Gen2预埋.cmd（先把原值落盘再补写）。' 'Yellow'
+  }
+}
 
 T ''
 T '  当前链路（nvidia-smi 报告值；这类解锁卡常把 current 报成 1，别被它吓到 —— 以工具日志里的 pre/final 寄存器实测为准）:'

@@ -191,36 +191,69 @@ Sec '0. 速判（自动判定，先看这里）' {
 
   # 判据 C/D：解锁固件 + 开机任务
   $boot = (Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue).LastBootUpTime
-  $espLogTime = ''; $unlocked = $false
+  $espLogTime = ''; $unlocked = $false; $espLogSize = $null; $espFree = ''
   try {
     $esp0 = Mount-Esp
     if ($esp0) {
       $lp = Join-Path $esp0 '40hx_log.txt'
       if (Test-Path $lp) {
         $espLogTime = [string](Get-Item $lp).LastWriteTime
+        $espLogSize = (Get-Item $lp).Length
         $txt = Get-Content -LiteralPath $lp -ErrorAction SilentlyContinue
         if ($txt -match 'UNLOCKED') { $unlocked = $true }
       }
+      try {
+        $dl = $esp0.Substring(0,2)
+        $dsk = Get-CimInstance Win32_LogicalDisk -Filter ("DeviceID='" + $dl + "'") -ErrorAction SilentlyContinue
+        if ($dsk -and $dsk.FreeSpace) { $espFree = ('{0:N1} MB' -f ($dsk.FreeSpace/1MB)) }
+      } catch { }
     }
   } catch { }
   $pb = "$env:ProgramData\CMP40HXGen2\windows\logs\postbind.log"
-  $lastPb = ''; $pbVerdict = '<没有 postbind.log>'
+  $lastPb = ''; $pbVerdict = '<没有 postbind.log>'; $falsePass = ''
   if (Test-Path $pb) {
     $lines = @(Get-Content -LiteralPath $pb -ErrorAction SilentlyContinue)
     $lastPb = [string](Get-Item $pb).LastWriteTime
-    $tail = ($lines | Select-Object -Last 40) -join "`n"
-    if ($tail -match 'PASS:\s*Gen2 reached on the new path') { $pbVerdict = '新路径 PASS' }
-    elseif ($tail -match 'PASS:\s*physical Gen2 post-bind step succeeded') { $pbVerdict = '旧路径 PASS' }
-    elseif ($tail -match 'falling back to the legacy ACE path') { $pbVerdict = '新路径失败 → 回落旧路径' }
-    elseif ($tail -match 'FAIL:|EXIT=[^0]') { $pbVerdict = 'FAIL / 非 0 退出' }
-    else { $pbVerdict = '看不出结论（贴全文）' }
+    # 2026-10-05：只看最后 40 行会说"看不出结论"（失败那轮会把全量读数打进来把结论挤出窗口）
+    #   → 改成：取**最后一次 `==== PostBind start`** 之后的全部内容来判定。
+    $tail = "`n" + (($lines | Select-Object -Last 400) -join "`n")
+    $si = $tail.LastIndexOf('==== PostBind start')
+    if ($si -ge 0) { $tail = $tail.Substring($si) }
+    # 2026-10-05（审查 H2）：结论必须走**一条** if/elseif 链。上一版把"并发轮跳过"插成独立 if，
+    #   把原来的链切断 → 新路径成功那一轮会落到 else、被覆盖成"看不出结论"（实测复现）。
+    $verdictBits = @()
+    if ($tail -match 'PASS:\s*Gen2 reached on the new path') { $verdictBits += '新路径 PASS' }
+    elseif ($tail -match 'PASS:\s*physical Gen2 post-bind step succeeded') { $verdictBits += '旧路径 PASS' }
+    elseif ($tail -match 'falling back to the legacy ACE path') { $verdictBits += '新路径失败 → 回落旧路径' }
+    elseif ($tail -match 'FAIL:|EXIT=[^0]') { $verdictBits += 'FAIL / 非 0 退出' }
+    else { $verdictBits += '看不出结论（贴全文）' }
+    if ($tail -match 'PostBind SKIP: another round is already running') { $verdictBits += '另有并发轮被锁跳过（正常）' }
+    $pbVerdict = ($verdictBits -join '；')
+    # 假 PASS 识别（2026-10-05 审查 L4：不再只归因"并发抢文件"—— start/EXIT 同秒也可能是命令没执行/极快失败；
+    #   所以两种判据都打印证据，让人自己判）
+    if ($tail -match 'PASS:\s*Gen2 reached on the new path') {
+      $msx = [regex]::Matches($tail, 'NewPath start:[^\r\n]*?(\d{2}:\d{2}:\d{2})')
+      $mex = [regex]::Matches($tail, 'NewPath EXIT=0[^\r\n]*?(\d{2}:\d{2}:\d{2})')
+      if (($msx.Count -gt 0) -and ($mex.Count -gt 0) -and ($msx[$msx.Count-1].Groups[1].Value -eq $mex[$mex.Count-1].Groups[1].Value)) {
+        $falsePass = '★ 工具的 start 与 EXIT=0 时间戳相同 → 该轮工具很可能**根本没跑**（输出文件写不进去/被占，ERRORLEVEL 残留 0）→ 这是**假 PASS**，不代表 Gen2 到位'
+      } elseif ($tail -match 'GPU final\s*:\s*Gen1') {
+        $falsePass = '★ PASS 行后面跟着 GPU final: Gen1 → 结论自相矛盾，属**假 PASS**'
+      }
+    }
   }
   Ln ''
   Ln '[判据 C] 本次开机解锁固件跑了没有（算力解锁只在开机时由 ESP 固件写入）'
   KV '本次开机时间' $(if ($boot) { [string]$boot } else { '未知' })
-  KV 'ESP 40hx_log.txt' $(if ($espLogTime) { $espLogTime + '  UNLOCKED 行: ' + $unlocked } else { '没找到（ESP 没挂载/固件没跑/不是本包装的）' })
-  if ($espLogTime -and -not $unlocked) { Ln '   → 固件跑了但日志里没有 UNLOCKED = 解锁没成功' }
-  if ($espLogTime -and ($espLogTime -eq '<空>')) { }
+  KV 'ESP 40hx_log.txt' $(if ($espLogTime) { $espLogTime + '   大小: ' + $espLogSize + ' B   UNLOCKED 行: ' + $unlocked } else { '没找到（ESP 没挂载/固件没跑/不是本包装的）' })
+  if ($espFree) { KV 'ESP 剩余空间' $espFree }
+  # 2026-10-05（客户机实测）：日志 0 字节时**不能**判"解锁失败" —— 可能是 ESP 写满/写入失败，
+  #   而 Windows 侧读数（retrain-last.log 的 SS0=0x88888888）说明算力其实是解锁的。旧版这里直接下"解锁没成功"= 误判。
+  if ($espLogTime -and ($espLogSize -eq 0)) {
+    Ln '   → 日志文件是空的（0 字节）：**不能**据此判断解锁成功/失败（可能 ESP 写满/写入失败，或固件只建了文件没写内容）。'
+    Ln '     判解锁以 Windows 侧读数为准：看下面 [判据 D] 里 retrain-last.log 的 SS0 行（0x88888888 = 已解锁）。'
+    if ($espFree) { Ln ('     若 ESP 剩余空间很小（现在 ' + $espFree + '），先清 ESP 垃圾文件，再让解锁固件重跑一次。') }
+  }
+  elseif ($espLogTime -and -not $unlocked) { Ln '   → 固件跑了但日志里没有 UNLOCKED：按"解锁没成功"处理（但先看 [判据 D] 的 SS0：若显示 0x88888888 说明是日志机制问题，不是解锁失败）' }
   Ln ''
   Ln '[判据 D] 开机任务（Gen2 落地）'
   # retrain 工具的判定行（Gen2 为什么没落地，看这里最快）
@@ -238,9 +271,12 @@ Sec '0. 速判（自动判定，先看这里）' {
     KV '上次运行' ([string]$ti.LastRunTime)
     KV '上次结果' ('0x' + ('{0:X}' -f $ti.LastTaskResult))
     KV 'postbind.log 末段' $pbVerdict
+
     KV 'postbind.log 时间' $lastPb
   }
   else { KV '任务' '未注册（Gen2 不会自动落地）' }
+  # 2026-10-05（审查 L4）：假 PASS 提示放在任务判断**之外**打（任务丢了也要报；它是日志结论层面的问题）
+  if ($falsePass) { Ln ('  ' + $falsePass) }
 }
 
 # ------------------------------------------------------------------ 1. 环境

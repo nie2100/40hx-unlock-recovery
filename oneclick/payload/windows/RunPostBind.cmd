@@ -3,6 +3,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 set "LOGDIR=C:\ProgramData\CMP40HXGen2\windows\logs"
 if not exist "%LOGDIR%" md "%LOGDIR%" >nul 2>&1
 set "LOG=%LOGDIR%\postbind.log"
+if exist "C:\ProgramData\CMP40HXGen2\NO_PRIME" >>"%LOG%" echo NO_PRIME marker present: this boot will NOT pre-bake Gen2 (retrain only)
 >>"%LOG%" echo ==== PostBind start !DATE! !TIME! ====
 rem ---- 2026-10-02 (user request: keep the boot log small) ----------------------------------
 rem The full hardware transcript now goes to logs\retrain-last.log (rewritten every boot).
@@ -10,16 +11,37 @@ rem This file keeps only the short verdict lines; trim it when it grows past 64 
 for %%A in ("%LOG%") do set "LOGSZ=%%~zA"
 if not defined LOGSZ set "LOGSZ=0"
 if !LOGSZ! GTR 65536 call :trim
+rem ---- 2026-10-05 FIX (customer machine + review): false PASS / concurrent rounds / ACE left stopped ----
+rem Symptom: two rounds (boot task + logon task) redirected their tool output into the same logs\newpath-last.out.
+rem   The second cmd could not open that file, the command was skipped, ERRORLEVEL kept the previous value (0)
+rem   and the log printed "PASS: Gen2 reached" while GPU final was Gen1. The legacy fallback also died with 255
+rem   (a bracket inside echo text closed an if-block) and left ACE-BOOT stopped.
+rem Fix: (1) per-round private output file, (2) findstr for the tool own PASS line runs UNCONDITIONALLY and is
+rem   required (missing file = failure), (3) rounds are serialized by an atomic lock taken AFTER the ACE heal.
 rem ---- 2026-10-01 FIX BUG: restore ACE UNCONDITIONALLY (customer: unlocked but ACE blocked) ----
 rem old logic: ACE was restored only when Gen2 succeeded (RC==0) -> one failed round left ACE-BOOT
 rem   permanently STOPPED (game cannot start its anti-cheat), and a later new-path success never fixed it.
 rem now: heal ACE first thing on EVERY boot (no-op when there is no stop record).
 set "NOACETOG="
 if exist "C:\ProgramData\CMP40HXGen2\NO_ACE_TOGGLE" set "NOACETOG=1"
-if defined NOACETOG >>"%LOG%" echo ACE-PRIORITY MODE: ACE-BOOT will NOT be stopped this round (cost: no Gen2 this boot if the new path fails)
+if defined NOACETOG >>"%LOG%" echo ACE-PRIORITY MODE: ACE-BOOT will NOT be stopped this round - cost: no Gen2 this boot if the new path fails
 >>"%LOG%" echo ---- ACE heal (unconditional) !DATE! !TIME! ----
 call :ace_toggle on
 call :ace_toggle HealTray
+rem ---- 2026-10-05 (review H3): lock AFTER the heal - a round that skips must have healed ACE first ----
+set "LOCKD=%LOGDIR%\postbind.lock"
+set "LOCKRES="
+set "LOCKED="
+call :lock
+if not "!LOCKED!"=="1" (
+  >>"%LOG%" echo ==== PostBind SKIP: another round is already running - ACE was healed, nothing else changed !DATE! !TIME! ====
+  exit /b 75
+)
+>>"%LOG%" echo round lock taken !DATE! !TIME!
+rem 2026-10-05: an installer run may not have been able to replace a helper file that was in use; it then
+rem   drops <name>.new next to the target. Finish that INSIDE the round lock (review r4 H1: running it before
+rem   the lock let a SKIP round taskkill a helper the winning round was working with) and only when one exists.
+call :swapnew
 
 rem ---- 2026-10-01: TAKEOVER OF VENDOR LEFTOVERS (re-checked EVERY boot) ------------------
 rem Why: vendor v3.x installers drop scheduled tasks / services / Run values that (re)deploy
@@ -27,7 +49,7 @@ rem      ThrottleStop.sys and re-arm their own Gen2 path. Those break the unlock
 rem      Tencent ACE-BOOT pop up "incompatible software loaded" at every logon.
 rem Policy: DISABLE only (never delete) + log every action, so it is fully reversible.
 set "VNDSCAN=1"
-for /f "delims=" %%T in ('schtasks /query /fo csv /nh 2^>nul ^| findstr /I "40HX Gen2 ThrottleStop 40HXUnlock"') do (
+for /f "delims=" %%T in ('schtasks /query /fo csv /nh 2^>nul ^| findstr /I "40HX ThrottleStop 40HXUnlock"') do (
   echo %%T | findstr /I /C:"CMP40HX Gen2 PostBind" >nul 2>&1
   if errorlevel 1 (
     for /f "tokens=1 delims=," %%N in ("%%T") do (
@@ -61,7 +83,7 @@ sc query ThrottleStop >nul 2>&1
 if not errorlevel 1 (
   sc query ThrottleStop | findstr /I "RUNNING" >nul 2>&1
   if not errorlevel 1 (
->>"%LOG%" echo throttle: stop ThrottleStop (ACE-BOOT compatibility)
+>>"%LOG%" echo throttle: stop ThrottleStop - ACE-BOOT compatibility
     sc stop ThrottleStop >>"%LOG%" 2>&1
   )
   sc qc ThrottleStop 2>nul | findstr /I "DISABLED" >nul 2>&1
@@ -81,26 +103,56 @@ call :heal
 rem ---- NEW PATH (2026-09-29): inpoutx64 (MMIO) + WinRing0 (PCI config) retrain; ACE-BOOT is NEVER stopped ----
 rem The tool verifies the baseline, writes only the two driver-clobbered policy registers, retrains the root port
 rem and validates Gen2. It exits 0 only on a verified PASS, otherwise we fall back to the legacy ACE path below.
+rem 2026-10-05 (.06 batch, customer machine): some cards' unlock firmware aborts its Gen2 pre-bake (the ESP log
+rem   says "baseline mismatch"), so XVE_OVR and the whole Gen2 capability block are never written and the link
+rem   can never train to Gen2 no matter how often we retrain. The tool can now do that pre-bake itself with
+rem   -AllowPrime; verified in the field on such a card: XVE_OVR 0 -> 6 made VSEC/LNKCAP/LNKCAP2/TLS flip by
+rem   themselves (PRIMER_GAPS_POST = none) and the link came up Gen2 x16. These registers are volatile, so the
+rem   pre-bake has to run on EVERY boot - that is why it is wired in here. On a healthy card the prime branch
+rem   writes nothing (gaps = none). Escape hatch: create C:\ProgramData\CMP40HXGen2\NO_PRIME to switch it off.
+rem 2026-10-05 (review r3 H1): when NO_PRIME exists the flag must stay a REAL switch, never an empty/unset
+rem   variable - with delayed expansion an UNSET variable expands to the literal text "!PRIMEFLAG!", which the
+rem   tool would bind to its positional -GpuBdf parameter (lost auto-detection -> exit 11 -> legacy path ->
+rem   ACE stopped on every boot). -NoAutoPrime is a real switch of the tool and means "do not pre-bake".
+set "PRIMEFLAG=-AllowPrime"
+if exist "C:\ProgramData\CMP40HXGen2\NO_PRIME" set "PRIMEFLAG=-NoAutoPrime"
 set "NRC=3"
 set "NEWTOOL=C:\ProgramData\CMP40HXGen2\windows\40hx-retrain-inpout.ps1"
-set "NOUT=%LOGDIR%\newpath-last.out"
+set "NOUT=%LOGDIR%\newpath-run-!RANDOM!-!RANDOM!.out"
+set "NOUTOK="
 if exist "%NEWTOOL%" (
-  >>"%LOG%" echo ---- NewPath start: %NEWTOOL% -Apply !DATE! !TIME! ----
+  >>"%LOG%" echo ---- NewPath start: %NEWTOOL% !PRIMEFLAG! -Apply !DATE! !TIME! ----
   rem 2026-10-02: run the tool into its own file. On success only the verdict lines reach this log;
   rem   the full transcript stays in logs\retrain-last.log, which the tool rewrites on every boot.
-  powershell -NoProfile -ExecutionPolicy Bypass -File "%NEWTOOL%" -Apply > "!NOUT!" 2>&1
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%NEWTOOL%" !PRIMEFLAG! -Apply > "!NOUT!" 2>&1
   set "NRC=!ERRORLEVEL!"
   >>"%LOG%" echo ---- NewPath EXIT=!NRC! !DATE! !TIME! ----
+rem 2026-10-05 FIX: exit code 0 alone is not proof - the tool must have printed its own PASS line into
+rem   THIS round private file. A stale/blocked redirect used to produce a false PASS here.
+rem 2026-10-05 (review H1): run findstr UNCONDITIONALLY - with "if exist" a missing output file skipped the check,
+rem   errorlevel kept the previous value (0) and NOUTOK got set -> false PASS. findstr on a missing file = errorlevel 1.
+  findstr /C:"PASS: physical Gen2 x16" "!NOUT!" >nul 2>&1
+  if not errorlevel 1 set "NOUTOK=1"
+  if "!NRC!"=="0" if not defined NOUTOK (
+    >>"%LOG%" echo WARN: tool exit=0 but no PASS line in this round output - false PASS guard tripped
+    set "NRC=90"
+  )
   if "!NRC!"=="0" (
     for /f "usebackq delims=" %%L in (`findstr /C:"GPU final" /C:"ROOT final" /C:"GUARD = " "!NOUT!"`) do >>"%LOG%" echo %%L
     >>"%LOG%" echo ==== PostBind EXIT=0 !DATE! !TIME! ====
     >>"%LOG%" echo PASS: Gen2 reached on the new path - ACE-BOOT was never stopped
     >>"%LOG%" echo OK: full hardware readings are in logs\retrain-last.log
+    copy /y "!NOUT!" "%LOGDIR%\newpath-last.out" >nul 2>&1
+    del "!NOUT!" >nul 2>&1
+    call :unlock
     exit /b 0
   )
   rem failure: keep the whole transcript here AND archive it - a later boot must not wipe the evidence
+  findstr /C:"PRIMER_GAPS" /C:"GUARD = " /C:"GPU final" /C:"ROOT final" "!NOUT!" >>"%LOG%" 2>nul
   type "!NOUT!" >>"%LOG%"
+  copy /y "!NOUT!" "%LOGDIR%\newpath-last.out" >nul 2>&1
   call :keepfail !NRC!
+  del "!NOUT!" >nul 2>&1
   >>"%LOG%" echo NewPath did not PASS - exit=!NRC! - falling back to the legacy ACE path
 ) else (
   >>"%LOG%" echo NewPath: tool not found - using the legacy ACE path
@@ -109,6 +161,7 @@ rem (ascii-only rule)
 if defined NOACETOG (
 >>"%LOG%" echo ACE-PRIORITY: new path failed exit=!NRC! - no legacy fallback - done for this boot
   >>"%LOG%" echo ==== PostBind EXIT=!NRC! !DATE! !TIME! ====
+  call :unlock
   exit /b !NRC!
 )
 
@@ -122,6 +175,7 @@ rem ---- ACE-BOOT (Tencent pre-boot anti-cheat) blocks driver IMAGE LOAD only: s
 rem first ask ACE-Tray to step aside so it can not start inside the ACE-BOOT stop window (that is what pops up)
 if "!ACE_STOPPED!"=="1" call :ace_toggle QuiesceTray
 if "!ACE_STOPPED!"=="1" call :ace_toggle off
+>>"%LOG%" echo legacy: ACE-BOOT off - starting the retrain attempts !DATE! !TIME!
 
 set "RC=99"
 rem 2026-10-01b (audit H1): the retry gate must be "not yet successful", not "== 99".
@@ -132,9 +186,9 @@ for /L %%I in (1,1,3) do (
 rem legacy path needs ThrottleStop: temporarily allow it inside the ACE-off window, retire it right after
     sc query ThrottleStop >nul 2>&1
     if errorlevel 1 (
-      >>"%LOG%" echo throttle(legacy): create service ThrottleStop
+      >>"%LOG%" echo throttle-legacy: create service ThrottleStop
       sc create ThrottleStop type= kernel start= demand binPath= "\SystemRoot\System32\drivers\ThrottleStop.sys" >>"%LOG%" 2>&1
-      if not exist "%SYS%\ThrottleStop.sys" >>"%LOG%" echo throttle(legacy) WARN: ThrottleStop.sys missing
+      if not exist "%SYS%\ThrottleStop.sys" >>"%LOG%" echo throttle-legacy WARN: ThrottleStop.sys missing
     )
     sc config ThrottleStop start= demand >>"%LOG%" 2>&1
     sc start ThrottleStop >>"%LOG%" 2>&1
@@ -154,6 +208,7 @@ rem 2026-10-01: restore UNCONDITIONALLY (regardless of Gen2 result) - never leav
 if "!ACE_STOPPED!"=="1" call :ace_toggle on
 if "!ACE_STOPPED!"=="1" call :ace_toggle HealTray
 if "!ACE_STOPPED!"=="1" ( sc query ACE-BOOT | findstr /I "STATE" >>"%LOG%" 2>&1 )
+call :unlock
 exit /b !RC!
 
 :heal
@@ -228,6 +283,43 @@ rem param %1 = off / on
 rem ACE (Tencent anti-cheat) locate/stop/restore is handled by ACE-Toggle.ps1: it matches on ImagePath
 rem containing AntiCheatExpert, so no hardcoded service name / install dir; original start type is recorded for restore.
 powershell -NoProfile -ExecutionPolicy Bypass -File "C:\ProgramData\CMP40HXGen2\windows\ACE-Toggle.ps1" -Action %1 >>"%LOG%" 2>&1
+exit /b 0
+
+:lock
+rem 2026-10-05: serialize rounds across the boot task / logon task / a manual double click.
+rem A stale lock (older than 30 minutes, e.g. a round killed by a shutdown) is taken over.
+rem Uses PowerShell for the age comparison; if that helper fails we do NOT block the round.
+del "%LOGDIR%\lock-res.txt" >nul 2>&1
+rem 2026-10-05 (review H3+M3): (a) age < 0 (clock rolled back) or >= 30 min = stale -> take over, otherwise one bad
+rem   lock plus an RTC problem would block every boot forever; (b) take it atomically with New-Item WITHOUT -Force,
+    rem   so two rounds starting in the same millisecond cannot both win.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$d='%LOCKD%'; $take=$true; if(Test-Path -LiteralPath $d){ $age=(Get-Date)-(Get-Item -LiteralPath $d).LastWriteTime; if($age.TotalMinutes -ge 0 -and $age.TotalMinutes -lt 30){ $take=$false } }; if($take){ if(Test-Path -LiteralPath $d){ Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }; try { New-Item -ItemType Directory -Path $d -ErrorAction Stop | Out-Null; Set-Content -LiteralPath (Join-Path $d 'started.txt') -Value ((Get-Date).ToString('s') + ' ' + $env:COMPUTERNAME); 'TAKEN' } catch { 'BUSY' } } else { 'BUSY' }" > "%LOGDIR%\lock-res.txt" 2>nul
+if exist "%LOGDIR%\lock-res.txt" set /p LOCKRES=<"%LOGDIR%\lock-res.txt"
+if "!LOCKRES!"=="TAKEN" set "LOCKED=1"
+if not defined LOCKRES set "LOCKED=1"
+exit /b 0
+
+:unlock
+rem 2026-10-05: never leave OUR round lock behind.
+rem 2026-10-05 (review low-3): only delete it when THIS round took it (LOCKRES=TAKEN) - a SKIP round
+rem   must never delete the winner's lock, otherwise the winner and a later round can run at once.
+if not "!LOCKRES!"=="TAKEN" exit /b 0
+if exist "%LOCKD%" rd /s /q "%LOCKD%" >nul 2>&1
+exit /b 0
+
+:swapnew
+rem Best effort, ASCII only, never fatal: move pending *.new over their targets.
+rem 2026-10-05 (review r4 H1): do nothing at all when there is no pending file - never kill a working helper.
+rem 2026-10-05 (review r5 N2): only real FILES count - a directory whose name ends in .new must not arm the taskkill.
+set "HAVENEW="
+for %%F in ("C:\ProgramData\CMP40HXGen2\windows\*.new") do if not exist "%%~fF\" set "HAVENEW=1"
+if not defined HAVENEW exit /b 0
+taskkill /f /im CMP40HXGen2.exe >nul 2>&1
+for %%F in ("C:\ProgramData\CMP40HXGen2\windows\*.new") do (
+  move /y "%%~fF" "%%~dpnF" >nul 2>&1
+  if exist "%%~fF" >>"%LOG%" echo PENDING-SWAP still blocked: %%~nxF
+  if not exist "%%~fF" >>"%LOG%" echo SWAP done: %%~nxF
+)
 exit /b 0
 
 :trim

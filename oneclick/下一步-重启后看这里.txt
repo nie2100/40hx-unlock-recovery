@@ -1,0 +1,18 @@
+﻿CMP 40HX 安装完成 —— 下一步（2026-10-04 20:49:44，模式 Repair）
+
+★ 必须【完全关机】再开机（不是"重启"）：算力解锁靠每次开机的解锁固件生效；
+  "重启"清不掉显卡残留状态，残留状态不对 = 开机黑屏一段时间 + 设备管理器代码 43。
+  做法：开始菜单→关机，最好拔电 10 秒再开机。
+
+开机后确认（三选一，另看一眼设备管理器 40HX 有没有代码 43）：
+  a) 双击本目录的 状态自检.bat   → 看到"全绿 -- WDDM + PCIe Gen2 + 算力满血"即成功
+  b) powershell -ExecutionPolicy Bypass -File "D:\40hx-unlock\40hx-oneclick\Install-40HXUnlock.ps1" -Mode Verify   （会一并复核 GSP / 代码 43）
+  c) 看 ESP 里 40hx_log.txt 的时间戳是不是本次开机（应有 *** UNLOCKED (SS0=0x88888888 SS1=0x8) ***）
+
+重启前请先处理：
+  - 火绒/其它杀软：把 README 第 1.1 节那几项加进信任区（System32\drivers 下 ThrottleStop.sys / WinRing0x64.sys / inpoutx64.sys 全路径 + C:\ProgramData\CMP40HXGen2 + 本包目录），并关掉它的“启动项保护”
+
+本次结果：步骤全部成功；5 条提示
+本次日志：D:\40hx-unlock\40hx-oneclick\logs\run-20261004-204913-Repair.log
+出问题看：D:\40hx-unlock\40hx-oneclick\排查指引.md
+回滚命令：powershell -ExecutionPolicy Bypass -File "D:\40hx-unlock\40hx-oneclick\Install-40HXUnlock.ps1" -Mode Uninstall -Yes

@@ -8,7 +8,7 @@
 #             it waited the full 120s and exited 12 on every boot. -GpuBdf/-RootBdf override (hex like 0x0200).
 $ErrorActionPreference='Continue'
 # 工具版本号：必须在使用点之前定义（2026-10-01 修正：原先定义在文件后半段，banner 里的 ver= 一直是空的）
-$TOOL_VER = '20261004c'
+$TOOL_VER = '20261004e'
 # 2026-10-02（用户要求：解锁状态正常了就别再堆日志）：完整读数写 retrain-last.log —— **每次运行覆盖**，
 #   不再像老版那样每开机往 retrain-inpout.log 追加一份（那个文件只增不减，一个月长到 200+ KB）。
 #   要留档请在覆盖前拷走；开机任务会把失败那次的全量日志另存到 logs\failures\。
@@ -767,7 +767,14 @@ $GUARD_OFF=0x0;   $GUARD_EXP=U32 '166000A1'
 #   LINK_CONFIG_0 : Gen2 位 = bit18(0x00040000)，Gen2 态为 **0**   （0x800C5800 -> 0x80085800）
 #   PRIV_MISC_1   : Gen2 位 = bit13(0x00002000)，Gen2 态为 **1**   （0xE0B40D00 -> 0xE0B42D00）
 #   PRIV_MISC_1 的 bit11(0x800) 是 VBIOS 批次跳线位（.04=0xD00 / .06=0x500）—— 必须原样保留，只动 bit13。
-$LC0_OFF=0x8C040; $LC0_BASE_MASK=U32 'FFFBFFFF'; $LC0_BASE=U32 '80085800'
+$LC0_OFF=0x8C040; $LC0_BASE=U32 '80085800'
+# 2026-10-05 (客户机 Colorful C.H81-DS PRO + VBIOS .06)：
+#   实测该平台/批次读出的 LINK_CONFIG_0 = 0x805C5800（比 0x800C5800 多 bit20/bit22），
+#   旧掩码 FFFBFFFF（只忽略 bit18）直接判"族外"→ exit 11 拒写（假失败）。
+#   现改为：忽略 Gen2 位(bit18) + 实测见过的批次跳线位(bit20/bit22) → 掩码 FFABFFFF，
+#   目标值仍然是厂商 EFI 写入的已知良好值 0x80085800（写回时把那两个位置归一化），
+#   其它任何位不符仍然拒写。写之前会把原值落盘（可回滚）。
+$LC0_BASE_MASK=U32 'FFABFFFF'
 $PM1_OFF=0x8841C; $PM1_BASE_MASK=U32 'FFFFD7FF'; $PM1_BASE=U32 'E0B40500'   # mask 清掉 bit13(Gen2 位) 与 bit11(VBIOS 批次跳线位) 后再比
 function DecideTargets([uint32]$l,[uint32]$p){
   $r=@{ Ok=$false; Lc0=$l; Pm1=$p; Lc0Change=$false; Pm1Change=$false; Reason='' }
@@ -802,8 +809,8 @@ $lc0=MmioRead ([uint64]($bar+$LC0_OFF))
 $pm1=MmioRead ([uint64]($bar+$PM1_OFF))
 $ss0=MmioRead ([uint64]($bar+0x409664))
 W("  BOOT0         = " + $(if($boot0 -eq $null){'READ FAILED'}else{'0x'+$boot0.ToString('X8')}))
-W("  LINK_CONFIG_0 = " + $(if($lc0 -eq $null){'READ FAILED'}else{'0x'+$lc0.ToString('X8')}) + "   (0x800C5800 = clobbered by the driver, 0x80085800 = target)")
-W("  PRIV_MISC_1   = " + $(if($pm1 -eq $null){'READ FAILED'}else{'0x'+$pm1.ToString('X8')}) + "   (0xE0B40D00 = clobbered, 0xE0B42D00 = target)")
+W("  LINK_CONFIG_0 = " + $(if($lc0 -eq $null){'READ FAILED'}else{'0x'+$lc0.ToString('X8')}) + "   (Gen2位=bit18: 1=Gen1态/0=Gen2态; 族基准 0x80085800; bit20/bit22=批次跳线位,写回时归一化)")
+W("  PRIV_MISC_1   = " + $(if($pm1 -eq $null){'READ FAILED'}else{'0x'+$pm1.ToString('X8')}) + "   (Gen2位=bit13: 1=Gen2态; bit11=VBIOS批次跳线位,原样保留; 族基准 0xE0B40500)")
 W("  SS0           = " + $(if($ss0 -eq $null){'READ FAILED'}else{'0x'+$ss0.ToString('X8')}) + "   (0x88888888 = compute unlocked)")
 # ---- 2026-09-30（客户机 VBIOS .06）新增：与 OnlyEFI 官方 Windows helper 的 read_guard() 逐项对齐的**只读体检** ----
 # 官方源码（source/windows/CMP40HXGen2_prod.c）要求以下每一项都成立才肯继续：
@@ -827,6 +834,9 @@ $glcap2=PciRead $GPU ([uint32]($gcap+0x2C)) 4
 # 官方 tls() 读的是 cap+0x30（Link Control 2；cap+0x18 是 Slot Control，读出来会是 0 —— 本工具 2026-09-30 踩过）
 $gtl=PciRead $GPU ([uint32]($gcap+0x30)) 4
 $rtl=PciRead $ROOT ([uint32]($rcap+0x30)) 4
+# 2026-10-05：根端口自报的最大速率（平台/BIOS 是否把插槽锁在 Gen1）。老平台(OEM H81/B85)要查这一条。
+$rlcap=PciRead $ROOT ([uint32]($rcap+0x0C)) 4
+$rlcap2=PciRead $ROOT ([uint32]($rcap+0x2C)) 4
 W("  --- 官方 guard 全量体检（只读；XVE/CYA/PL_LINK_RATE/TLS 由解锁固件预埋）---")
 Chk32 'XVE_OVR'      $xve    '00000006'
 Chk32 'CYA_0'        $cya    '068731B3'
@@ -839,6 +849,7 @@ $gt=$null; $rt=$null
 if($gtl -ne $null){ $gt=[uint32]([uint64]$gtl -band [uint64]0xF) }
 if($rtl -ne $null){ $rt=[uint32]([uint64]$rtl -band [uint64]0xF) }
 W(("  {0,-13} = GPU {1} / ROOT {2}   期望 2 / 2   {3}   (LNKCTL2 原值 GPU=0x{4} ROOT=0x{5})" -f 'TLS(LNKCTL2)', $(if($gt -eq $null){'?'}else{$gt}), $(if($rt -eq $null){'?'}else{$rt}), $(if(($gt -eq 2) -and ($rt -eq 2)){'[OK]'}else{'[!!] 未预埋 = 目标速率还不是 Gen2'}), $(if($gtl -eq $null){'?'}else{Hex32 $gtl}), $(if($rtl -eq $null){'?'}else{Hex32 $rtl})))
+W(("  {0,-13} = 0x{1} (max speed = Gen{2})   LNKCAP2 = 0x{3}   <- 平台侧能到的最高速率; 1 表示 BIOS/插槽锁在 Gen1" -f 'ROOT LNKCAP', $(if($rlcap -eq $null){'?'}else{Hex32 $rlcap}), $(if($rlcap -eq $null){'?'}else{[string]([uint32]([uint64]$rlcap -band [uint64]0xF))}), $(if($rlcap2 -eq $null){'?'}else{Hex32 $rlcap2})))
 $script:GuardDumpGaps = @()
 foreach($it in @(@{N='XVE_OVR';V=$xve;E='00000006'},@{N='CYA_0';V=$cya;E='068731B3'},@{N='PL_LINK_RATE';V=$plr;E='00220036'},@{N='VSEC_DEVICE';V=$vsec;E='00000801'},@{N='SS1';V=$ss1;E='00000008'},@{N='GPU_LNKCAP';V=$glcap;E='00453D02'},@{N='GPU_LNKCAP2';V=$glcap2;E='00000006'})){
   if((Hex32 $it.V) -ne $it.E){ $script:GuardDumpGaps += $it.N }
@@ -846,6 +857,8 @@ foreach($it in @(@{N='XVE_OVR';V=$xve;E='00000006'},@{N='CYA_0';V=$cya;E='068731
 if($gt -ne 2){ $script:GuardDumpGaps += 'TLS_GPU' }
 if($rt -ne 2){ $script:GuardDumpGaps += 'TLS_ROOT' }
 W("  体检缺口 = " + $(if($script:GuardDumpGaps.Count -eq 0){'（无，解锁固件该预埋的都预埋了）'}else{($script:GuardDumpGaps -join ', ') + '  ← 缺项越多，根端口单侧重训越不可能谈到 Gen2'}))
+# 2026-10-05：另打一行纯 ASCII 的缺口标记，给 RunPostBind.cmd / 售后脚本用 findstr 抓（.cmd 是 ASCII-only，不能写中文）
+W("  PRIMER_GAPS = " + $(if($script:GuardDumpGaps.Count -eq 0){'none'}else{($script:GuardDumpGaps -join ',')}))
 
 $dec = DecideTargets ([uint32]$(if($lc0 -eq $null){0}else{$lc0})) ([uint32]$(if($pm1 -eq $null){0}else{$pm1}))
 $guardOk=($boot0 -ne $null -and $boot0 -eq $GUARD_EXP -and $lc0 -ne $null -and $pm1 -ne $null -and $dec.Ok)
@@ -867,7 +880,9 @@ if($script:GuardDumpGaps.Count -gt 0){
       #   正确做法是重新跑 -Mode Install 让解锁固件重跑 EFI 预埋（它本来就会写这几个寄存器）。
       W("  >>> 解锁固件没预埋 Gen2 前提值（缺口: " + ($script:GuardDumpGaps -join ', ') + "）")
       W("      本工具默认 **不** 自动补写 GPU 内部寄存器（写错可能花屏/不亮且无回滚）。")
-      W("      正确做法：重跑 -Mode Install（让解锁固件重跑 EFI 预埋）→ 重启；确认要强写再加 -AllowPrime。")
+      W("      正确做法①：重跑 -Mode Install（让解锁固件重跑 EFI 预埋）→ **完全关机**再开机；") 
+      W("      正确做法②：如果开机后缺口还在（EFI 自己 abort / 换了平台/批次），用 工具-测试与修复\补写Gen2预埋.cmd") 
+      W("                  （先 dry-run 看要写什么，再把原值落盘后补写；本工具直接跑要显式加 -AllowPrime）")
     } else {
       W("  --- 解锁固件 Gen2 预埋缺失（缺口: " + ($script:GuardDumpGaps -join ', ') + "）→ 按 -AllowPrime 显式要求补写官方 EFI 目标值 ---")
       $primeList = @(
@@ -935,6 +950,18 @@ if($script:GuardDumpGaps.Count -gt 0){
           Chk32 'PL_LINK_RATE' (RD32 0x8C1C0) '00220036'
           $gt2 = PciRead $GPU ([uint32]($gcap+0x30)) 4; $rt2 = PciRead $ROOT ([uint32]($rcap+0x30)) 4
           W(("  {0,-13} = GPU {1} / ROOT {2}   期望 2 / 2" -f 'TLS(LNKCTL2)', [string]([uint32]([uint64]$gt2 -band [uint64]15)), [string]([uint32]([uint64]$rt2 -band [uint64]15))))
+          # 2026-10-05（客户机 .06 批次）：补写后把"能力位/标记位"也复读一遍 —— 售后一轮就能判断
+          #   XVE_OVR 写进去后，显卡自己有没有把 LNKCAP/LNKCAP2/VSEC 一起翻成 Gen2 档（决定下一步走 Windows 还是固件）。
+          Chk32 'VSEC_DEVICE' (RD32 0x8860C) '00000801'
+          Chk32 'GPU LNKCAP'  (PciRead $GPU ([uint32]($gcap+0x0C)) 4) '00453D02'
+          Chk32 'GPU LNKCAP2' (PciRead $GPU ([uint32]($gcap+0x2C)) 4) '00000006'
+          $pg2 = @()
+          foreach($it in @(@{N='XVE_OVR';V=(RD32 0x8872C);E='00000006'},@{N='CYA_0';V=(RD32 0x8C2C0);E='068731B3'},@{N='PL_LINK_RATE';V=(RD32 0x8C1C0);E='00220036'},@{N='VSEC_DEVICE';V=(RD32 0x8860C);E='00000801'},@{N='SS1';V=(RD32 0x40966C);E='00000008'},@{N='GPU_LNKCAP';V=(PciRead $GPU ([uint32]($gcap+0x0C)) 4);E='00453D02'},@{N='GPU_LNKCAP2';V=(PciRead $GPU ([uint32]($gcap+0x2C)) 4);E='00000006'})){
+            if((Hex32 $it.V) -ne $it.E){ $pg2 += $it.N }
+          }
+          $gt3 = PciRead $GPU ([uint32]($gcap+0x30)) 4
+          if($gt3 -ne $null){ if(([uint32]([uint64]$gt3 -band [uint64]15)) -ne 2){ $pg2 += 'TLS_GPU' } }
+          W("  PRIMER_GAPS_POST = " + $(if($pg2.Count -eq 0){'none'}else{($pg2 -join ',')}))
         }
 
       }   # end of: if (-not $backupOk) { ... } else { write prime }

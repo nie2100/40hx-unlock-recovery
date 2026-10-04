@@ -1,0 +1,105 @@
+﻿40HX 一键包 —— 这台机器「Gen2 到不了」怎么修（2026-10-05）
+==========================================================
+先说结论：算力是好的（SS0=0x88888888，别担心）；卡住的是 PCIe Gen2 这一步。
+原因不是主板太老、也不是没有 Above 4G Decoding（H81 平台本来就没这项，不需要）。
+真正的原因是：**解锁固件在开机时没有把显卡的 Gen2 前提值写进去**，
+所以显卡自己只报 Gen1 能力（GPU LNKCAP=0x00453D01 / LNKCAP2=2 / XVE_OVR=0 / VSEC=0x800），
+根端口再怎么请求 Gen2 也只能训到 Gen1。这一步只有开机固件能做，Windows 侧默认不写（写错会花屏）。
+
+请按下面顺序做（每步都不用输命令，双击即可）：
+
+第 0 步（可选，但推荐）：把桌面上的 40HX-Gen2修复结果-*.txt 先留着，别删。
+
+第 1 步 让解锁固件再预埋一次
+  · 双击包目录里的 一键安装.cmd（跑完自动结束，不用管提示）
+  · 然后 **完全关机**（开始菜单 → 关机，不是"重启"），等 10 秒再开机
+  · 开机 2 分钟后，双击 一键修复Gen2.cmd
+  · 如果最后一行是 [OK] Gen2 已经到位 → 完事，请把桌面上新的 40HX-Gen2修复结果-*.txt 发回来
+
+第 2 步 如果第 1 步还是 [!!] 没到 Gen2（缺口仍在）—— 用补写工具
+  · 双击 工具-测试与修复\补写Gen2预埋.cmd
+  · 它会先"试跑"（不写任何 GPU 寄存器；只会生成一个原值备份文件），把要写的内容显示出来，然后问你 Y/N
+  · 输入 Y 回车：它会把原值先存到 C:\Temp\40hx-prime-backup.txt（可回写），再补写、再自动重训
+  · 注意：这些寄存器是**易失**的，关机后失效 —— 所以做完请把报告发回来，我们要改固件让它每次开机自动生效
+  · 万一花屏/不亮：**完全关机**（长按电源键 10 秒，拔电源等 30 秒）再开机就恢复，不是坏了
+
+第 3 步 发回这些文件（有问题时）
+  · 桌面 40HX-Gen2修复结果-*.txt
+  · 桌面 40HX-Gen2补写预埋-*.txt
+  · C:\ProgramData\CMP40HXGen2\windows\logs\retrain-last.log
+  · ESP 分区的 40hx_log.txt（不确定怎么拿就直接发前三个）
+
+千万不要做的两件事
+  · 不要跑厂商的自动修复工具（会覆盖 ESP 上的解锁固件、还可能把显卡复位成代码 43）
+  · 不要为了 Gen2 去刷 BIOS / 改 Above 4G（这台机器不需要，且没有这一项）
+
+其它已知现象（不是故障）
+  · nvidia-smi 里 pcie.link.gen.current 空闲时显示 1：这类解锁卡常态，判 Gen2 看工具日志的 GPU final/ROOT final
+  · 开机时如果 ACE 弹"需要预启动模式/重启"：新包已经修了（旧包会停在 ACE 停机态），跑完第 1 步重启一次即可
+
+补记（2026-10-05 晚）：如果双击 补写Gen2预埋-dry.cmd 只是闪一下就没了
+--------------------------------------------------------------
+原因：老包（40hx-oneclick-20261005.zip 以及更早）里那个 .cmd 有一行写错了（悬空的 if），
+cmd 会直接以 255 退出 —— 窗口闪退、什么也没做。**不是你的机器问题。**
+现在两个 .cmd（补写Gen2预埋.cmd / 补写Gen2预埋-dry.cmd）都改成"在当前窗口自己提权 + 跑完停住等你按键"，
+不会再闪；跑完窗口里会直接显示退出码与结论。
+
+备用办法（不想用 .cmd、或包的路径有怪字符时）：管理员 PowerShell 里粘一行
+  先只看不写（dry-run，只生成原值备份，不动寄存器）：
+    powershell -NoProfile -ExecutionPolicy Bypass -File "C:\ProgramData\CMP40HXGen2\windows\40hx-retrain-inpout.ps1" -AllowPrime
+  确认要补写（会写 GPU 内部寄存器，原值先存 C:\Temp\40hx-prime-backup.txt）：
+    powershell -NoProfile -ExecutionPolicy Bypass -File "C:\ProgramData\CMP40HXGen2\windows\40hx-retrain-inpout.ps1" -AllowPrime -Apply
+  （"以管理员身份运行 PowerShell"：开始菜单搜 PowerShell → 右键 → 以管理员身份运行）
+
+关于本机再补一句（2026-10-05 报告里的新读数）
+  · 根端口自报最高速率 = Gen2（ROOT LNKCAP=0x0261AD02）→ **主板/BIOS 没有把插槽锁在 Gen1**，
+    Gen2 是够得着的；唯一卡住的就是显卡侧那份"Gen2 能力"没有被固件预埋（缺 XVE_OVR/VSEC/LNKCAP/LNKCAP2/TLS_GPU）。
+  · 所以别再折腾 BIOS、也别指望反复跑 一键修复Gen2 —— 必须先补预埋（上面那两行）或让固件重跑预埋。
+  · ACE-BOOT 现在可能停在停机态（老包的开机脚本会在 legacy 分支里中途退出）→ 用新包跑一次一键安装 + 重启，
+    新脚本每轮开机都会无条件把 ACE 恢复回来。
+
+==============================================================
+【2026-10-05 晚 更新】这台机器已经确认有效，而且新包改成"每次开机自动补写"了
+--------------------------------------------------------------
+1) 你手动跑的 补写Gen2预埋.cmd 成功了。日志（工具 20261004e）：
+     XVE_OVR       0x00000000 -> 0x00000006   writeOk=True  readback=0x00000006  [OK]
+     --- 补写后复读 ---
+     VSEC_DEVICE = 0x00000801 [OK]   GPU LNKCAP = 0x00453D02 [OK]   GPU LNKCAP2 = 0x00000006 [OK]   TLS = GPU 2 / ROOT 2
+     PRIMER_GAPS_POST = none
+     GPU final : Gen2 x16        ROOT final: Gen2 x16        >>> PASS: physical Gen2 x16 reached
+   也就是说：只要把 XVE_OVR 写成 6，显卡自己就把整套 Gen2 能力位带出来了（不用逐项去写）。
+2) 但这些寄存器是**易失**的：**完全断电**（关机/拔电）后会回到"没预埋"（温暖的"重启"有时还会保留，保留着也没坏处）。所以只跑一次不够，必须每次开机都补。
+3) 新包（40hx-oneclick-20261005f 及以后）已经把补写接进**开机任务**：每次开机自动补写 + 重训，你不用再手动跑。
+   健康机器上**补写分支**不写任何字节（重训本身仍会写根端口的 LNKCTL 目标速率位，这是本包原本就有的动作）；ACE-BOOT 全程不停。
+4) 怎么确认生效：开机进系统后跑一次 一键修复Gen2.cmd，看到 PASS: physical Gen2 x16 / [OK] 就是好了；
+   也可以直接看 C:\ProgramData\CMP40HXGen2\windows\logs\postbind.log 里有没有
+     ---- NewPath start: ...\40hx-retrain-inpout.ps1 -AllowPrime -Apply ...
+   和 PASS: Gen2 reached on the new path - ACE-BOOT was never stopped
+5) 万一花屏/不亮（极小概率，补写动的是显卡内部寄存器）：
+     · 先**完全关机**（不是重启）再开机 —— 寄存器随断电恢复，一般就好；
+     · 如果还想更保险：建一个空文件 C:\ProgramData\CMP40HXGen2\NO_PRIME 就能关掉"开机自动补写"
+       （文件在，开机任务就只重训、不补写），然后完全关机再开机；
+     · 想彻底不要本包：跑 Install-40HXUnlock.ps1 -Mode Uninstall（或删掉那两个计划任务）。
+6) 回滚依据（人工写回用）：
+     C:\Temp\40hx-prime-backup.txt        （XVE_OVR/CYA_0/PL_LINK_RATE 的原值）
+     C:\Temp\40hx-regwrite-backup.txt     （LINK_CONFIG_0 / PRIV_MISC_1 / ROOT LNKCTL 的原值）
+
+==============================================================
+【2026-10-05 深夜补充】逃生开关的正确用法（看完这一段再动手）
+--------------------------------------------------------------
+· 这个开关是"文件存在就生效"：删掉它，下次开机会自动恢复补写（不会有提示）。
+· 想让开机**不要**自动补写：必须以**管理员**身份创建空文件
+      C:\ProgramData\CMP40HXGen2\NO_PRIME
+  （那个目录有权限加固，普通记事本另存会失败。做法：开始菜单搜 PowerShell → 右键"以管理员身份运行" → 粘这一行回车：
+      New-Item -ItemType File -Path 'C:\ProgramData\CMP40HXGen2\NO_PRIME' -Force ）
+· 关掉补写的那一次开机会退回"老路径"重训（ACE-BOOT 会被停一下再自动恢复），这是关补写的代价；想彻底不用本包就
+  跑 Install-40HXUnlock.ps1 -Mode Uninstall。
+· **重要**：完全关机**不是**"永久回滚" —— 它只让显卡内部寄存器复位；只要 NO_PRIME 不在，下次开机就又会自动补写。
+  所以要"永久关掉补写"，顺序必须是：先建 NO_PRIME → 再完全关机。
+· 日志怎么看（C:\ProgramData\CMP40HXGen2\windows\logs\postbind.log）：
+    正常开机：---- NewPath start: ...\40hx-retrain-inpout.ps1 -AllowPrime -Apply ...
+    关了补写：---- NewPath start: ...\40hx-retrain-inpout.ps1 -NoAutoPrime -Apply ...
+               NO_PRIME marker present: this boot will NOT pre-bake Gen2 (retrain only)
+· 另外：如果安装时提示"helper 正被占用"，本版已经会自动处理（临时停任务 + 结束占用进程 + 写 .new 由下次开机替换），
+  不会再因此中断安装；万一是那种情况，跑完安装后**完全关机再开机**一次即可。
+

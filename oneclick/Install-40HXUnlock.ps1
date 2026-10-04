@@ -275,10 +275,93 @@ function Copy-WithVerify {
   return @{ Ok = $true; Hash = $hash }
 }
 
-# 2026-09-30（客户机实测）：驱动文件“正由另一进程使用”时 [IO.File]::WriteAllBytes 抛异常，
-# 而全局 $ErrorActionPreference='Stop' 会把整个安装/修复**直接打断**（客户机 21:48 那次就是死在这里）。
-# 策略：① 目标文件哈希已相同 → 直接跳过写入（最常见：内容本来就一样）② 写失败先 sc stop 再重试一次
-#       ③ 仍失败 → 记一条提示 + 标记待补齐，**不致命**；完全关机再开机后由开机任务从 ESP 兜底源补齐。
+# 2026-10-05（客户机实测 + 审查 r4 H2/Q2）：Windows 侧 helper 守卫（CMP40HXGen2.exe）还在跑时，Copy-Item 会抛
+#   "文件正由另一进程使用"，而全局 $ErrorActionPreference='Stop' 会把**整个安装**打断（客户机 exit=1）。
+#   策略：① 停掉"动作命令行里引用 helper"的计划任务（Execute **和** Arguments 一起匹配 —— 厂商/本包都常用 cmd.exe /c 包装）
+#        ② 停任务前先 Stop-ScheduledTask 运行实例，避免任务立刻把进程再拉起来
+#        ③ 最后才结束占用进程（重试 3 次）。本函数只在"直拷失败"后才调用，不无故强杀正在干活的 helper。
+function Stop-HelperHolders {
+  param([string[]]$TaskMatch = @('CMP40HXGen2|AutoRetrain'), [string[]]$ProcNames = @('CMP40HXGen2'))
+  foreach ($t in @(Get-ScheduledTask -ErrorAction SilentlyContinue)) {
+    if ([string]$t.TaskName -eq $script:TaskName) { continue }
+    if ([string]$t.TaskName -eq $script:TaskNameLogon) { continue }
+    $acts = ((@($t.Actions) | ForEach-Object { ([string]$_.Execute + ' ' + [string]$_.Arguments) }) -join ' ')
+    $hit = $false
+    foreach ($m in $TaskMatch) { if ($acts -match $m) { $hit = $true } }
+    if (-not $hit) { continue }
+    try { Stop-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath -ErrorAction Stop | Out-Null } catch { }
+    if ($t.State -ne 'Disabled') {
+      try { Disable-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath -ErrorAction Stop | Out-Null; Ok ('已停用引用 helper 的计划任务: ' + $t.TaskName) } catch { }
+    }
+  }
+  foreach ($n in $ProcNames) {
+    for ($i = 1; $i -le 3; $i++) {
+      $procs = @(Get-Process -Name $n -ErrorAction SilentlyContinue)
+      if ($procs.Count -eq 0) { break }
+      Info ('结束占用 helper 的进程: ' + $n + ' (PID ' + (($procs | ForEach-Object { $_.Id }) -join ',') + ') 第 ' + $i + ' 次')
+      try { $procs | Stop-Process -Force -ErrorAction Stop } catch { }
+      Start-Sleep -Milliseconds 900
+    }
+  }
+}
+
+# 2026-10-05：拷贝 helper 不允许"被占用"打断安装 —— 重试 3 次，仍失败就写 <名字>.new 留给开机任务替换，只 Warn 不 Failed。
+#   审查 r4 M1 / r5 F1 / r6 M1：**必须有清单里那一行的期望 md5**（参数强制），先验包内源文件；
+#     不符 → 目标不动、不写 .new、不动 helper 进程。
+#   审查 r6 M2a/M2c/L1/L2/L8：哈希与建目录都包 try/catch；tampered 时顺手清掉陈旧 .new（别让未校验旧内容被 swap 换上）；
+#     只有"文件正被其它进程使用"这类错误才去压同名进程（其它失败原因不误杀正在干活的 helper）。
+function Copy-WithVerifyLoose {
+  param([string]$Source, [string]$Target, [Parameter(Mandatory=$true)][string]$ExpectedMd5)
+  if (-not (Test-Path -LiteralPath $Source)) { throw ("源文件不存在: " + $Source) }
+  $base = [IO.Path]::GetFileNameWithoutExtension($Target)
+  $ext = [IO.Path]::GetExtension($Target)
+  try { $srcMd5 = (Get-FileHash -LiteralPath $Source -Algorithm MD5).Hash.ToLower() }
+  catch {
+    Warn ($base + $ext + ' 读不了包内这份文件: ' + $_.Exception.Message + '（杀软拦/权限）—— 本次不写任何文件')
+    return @{ Ok = $false; Kind = 'iofail'; Hash = '' }
+  }
+  if ($srcMd5 -ne $ExpectedMd5.ToLower()) {
+    Warn ($base + $ext + ' 包内这份内容与清单不符（' + $srcMd5 + ' != ' + $ExpectedMd5 + '）—— 重新解压一份包再试；本次不写任何文件、也不动 helper 进程')
+    if (Test-Path -LiteralPath ($Target + '.new')) { try { Remove-Item -LiteralPath ($Target + '.new') -Force -ErrorAction Stop; Info ('已清掉未校验的旧 ' + $base + $ext + '.new') } catch { } }
+    return @{ Ok = $false; Kind = 'tampered'; Where = 'src'; Hash = $srcMd5 }
+  }
+  $dir = Split-Path -Parent $Target
+  if (-not (Test-Path $dir)) {
+    try { New-Item -ItemType Directory -Force -Path $dir -ErrorAction Stop | Out-Null }
+    catch { Warn ('建目录失败 ' + $dir + ': ' + $_.Exception.Message); return @{ Ok = $false; Kind = 'iofail'; Hash = '' } }
+  }
+  $reason = ''
+  for ($try = 1; $try -le 3; $try++) {
+    $sharing = $false
+    try {
+      Copy-Item -LiteralPath $Source -Destination $Target -Force -ErrorAction Stop
+      $md5 = (Get-FileHash -LiteralPath $Target -Algorithm MD5).Hash.ToLower()
+      if ($md5 -eq $ExpectedMd5.ToLower()) {
+        if (Test-Path -LiteralPath ($Target + '.new')) {
+          try { Remove-Item -LiteralPath ($Target + '.new') -Force -ErrorAction Stop; Info ('已清掉陈旧的 ' + $base + $ext + '.new（这次已直接写成功）') } catch { }
+        }
+        if ($try -gt 1) { Info ($base + $ext + ': 第 ' + $try + ' 次拷贝成功') }
+        return @{ Ok = $true; Kind = 'ok'; Hash = $md5 }
+      }
+      Warn ($base + $ext + ' 拷进目标后内容又不一致（' + $md5 + ' != ' + $ExpectedMd5 + '，可能写坏或被别的程序改了）；重跑 -Mode Repair 仍如此请把这条日志发回')
+      return @{ Ok = $false; Kind = 'tampered'; Where = 'dst'; Hash = $md5 }
+    } catch {
+      $reason = $_.Exception.Message
+      $sharing = ($reason -match '正由另一进程使用|being used by another process|另一个程序正在使用|另一个进程')
+    }
+    if ($sharing -and $ext -eq '.exe') { Get-Process -Name $base -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue }
+    Start-Sleep -Milliseconds 800
+  }
+  try {
+    Copy-Item -LiteralPath $Source -Destination ($Target + '.new') -Force -ErrorAction Stop
+    Warn ($base + $ext + ' 被占用写不进去（' + $reason + '）→ 已放到 ' + $base + $ext + '.new（内容已校验），下次开机由开机任务替换')
+    return @{ Ok = $false; Kind = 'locked'; Hash = ''; Pending = ($Target + '.new') }
+  } catch {
+    Warn ($base + $ext + ' 既写不进去也放不了 .new: ' + $_.Exception.Message)
+    return @{ Ok = $false; Kind = 'failed'; Hash = '' }
+  }
+}
+
 function Save-PayloadFile {
   param([string]$Path, [byte[]]$Bytes, [string]$Sha256, [string]$Name, [string]$Service)
   $existing = ''
@@ -1132,39 +1215,154 @@ function Install-DriverFiles {
 function Install-WindowsFiles {
   Head 'Windows 侧 helper'
   $src = Join-Path $script:PayloadDir 'windows'
-  foreach ($f in @('CMP40HXGen2.exe', 'AutoRetrain.cmd', 'Status.cmd', 'Uninstall_Auto.cmd', 'ACE-Toggle.ps1', '40hx-retrain-inpout.ps1', 'Unpack-Drivers.ps1')) {
+  # 2026-10-05（审查 r4 M2 / r6 M1/M2b）：期望 md5 从 payload\sha256.txt 读（该清单内容就是 md5）。
+  #   清单缺失/读不了 → 不再"静默跳过校验"，而是明确告警并跳过 helper 拷贝（完整性校验不能被旁路）。
+  $wantMd5 = @{}
+  $sumFile = Join-Path $script:PayloadDir 'sha256.txt'
+  if (-not (Test-Path -LiteralPath $sumFile)) {
+    Warn '包里没有 payload\sha256.txt —— 无法校验 helper 完整性，本次不拷贝 helper（重新解压一份完整包再装）'
+    Add-Action 'payload\sha256.txt 缺失：重新解压完整包后跑一次 一键安装.cmd'
+  } else {
+    try {
+      foreach ($ln in @(Get-Content -LiteralPath $sumFile -ErrorAction Stop)) {
+        if ($ln -match '^([0-9a-fA-F]{32})\s+\d+\s+(.+)$') { $wantMd5[$matches[2].Trim()] = $matches[1].ToLower() }
+      }
+      Info ('载荷清单: ' + $wantMd5.Count + ' 条')
+      if ($wantMd5.Count -eq 0) {
+        # 2026-10-05（审查 r6 M1）：清单里一条都解析不出来 = 格式被改/被杀软动过 → 明确告警，别静默降级
+        Warn 'payload\sha256.txt 一条都没解析出来（格式不对或被杀软改过）—— 本次不拷贝 helper；重新解压一份完整包'
+        Add-Action 'payload\sha256.txt 解析为 0 条：重新解压完整包后跑 一键安装.cmd'
+      }
+    } catch {
+      Warn ('读不了 payload\sha256.txt: ' + $_.Exception.Message + ' —— 本次不拷贝 helper（无法校验完整性）')
+      Add-Action 'payload\sha256.txt 读不了（杀软/权限）：重新解压后跑 一键安装.cmd'
+      $wantMd5 = @{}
+    }
+  }
+  $helperList = @('CMP40HXGen2.exe', 'AutoRetrain.cmd', 'Status.cmd', 'Uninstall_Auto.cmd', 'ACE-Toggle.ps1', '40hx-retrain-inpout.ps1', 'Unpack-Drivers.ps1')
+  foreach ($f in $helperList) {
     $s = Join-Path $src $f
     if (-not (Test-Path $s)) { Fail ("载荷缺失: " + $s) $script:ExitHash '包不完整 → 重新解压一份完整包（payload 目录必须跟脚本在一起）' }
-    Copy-WithVerify $s (Join-Path $script:ProgDataWin $f) | Out-Null
-    Ok ($f + " → " + $script:ProgDataWin)
   }
-  foreach ($sub in @('logs', 'state')) {
-    $p = Join-Path $script:ProgDataWin $sub
-    if (-not (Test-Path $p)) { New-Item -ItemType Directory -Force -Path $p | Out-Null }
+  # 2026-10-05（审查 r4 Q2-1）：先直接拷 —— 没被占用就别去动 helper 进程；只有真失败才清占用者并重试
+  $failed = @()        # 被占用/写失败 -> 值得停占用者后重试
+  $tamperedSrc = @()   # 包内源文件与清单不符 -> 重新解压包
+  $tamperedDst = @()   # 源没问题、写进目标后内容又变了 -> 重跑 Repair / 发日志（审查 r8 R2）
+  foreach ($f in $helperList) {
+    $key = 'windows/' + $f
+    if (-not $wantMd5.ContainsKey($key)) {
+      Warn ($f + ' 在 payload\sha256.txt 里没有条目 —— 跳过（不写未校验的 helper）；重新解压一份完整包再装')
+      Add-Action ($f + ' 缺清单条目：重新解压完整包后跑 一键安装.cmd')
+      Bad ($f + ' 缺清单条目，未安装')
+      continue
+    }
+    $cp = Copy-WithVerifyLoose (Join-Path $src $f) (Join-Path $script:ProgDataWin $f) $wantMd5[$key]
+    if ($cp.Ok) { Ok ($f + " → " + $script:ProgDataWin) }
+    elseif ($cp.Kind -eq 'tampered') { if ($cp.Where -eq 'src') { $tamperedSrc += $f } else { $tamperedDst += $f } }
+    elseif ($cp.Kind -eq 'iofail') { Bad ($f + ' IO 异常，本次跳过（见上面原因）'); Add-Action ($f + ' IO 异常：处理权限/杀软后跑 -Mode Repair') }
+    else { $failed += $f }
+  }
+  if ($tamperedSrc.Count -gt 0) {
+    Bad ('这些 helper 包内内容与清单不符，已跳过: ' + ($tamperedSrc -join ', ') + ' —— 重新解压一份完整包再装')
+    Add-Action ('helper 载荷校验不符（' + ($tamperedSrc -join ', ') + '）：重新解压一份包再跑 一键安装.cmd')
+  }
+  if ($tamperedDst.Count -gt 0) {
+    Bad ('这些 helper 源文件没问题、写进目标后内容又变了: ' + ($tamperedDst -join ', ') + ' —— 重跑 -Mode Repair；仍如此请把日志发回')
+    Add-Action ('helper 写后内容变化（' + ($tamperedDst -join ', ') + '）：重跑 -Mode Repair；仍如此把日志发回')
+  }
+  if ($failed.Count -gt 0) {
+    Info ('有 ' + $failed.Count + ' 个 helper 文件没写进去 → 停掉引用它们的任务/进程后重试: ' + ($failed -join ', '))
+    Stop-HelperHolders
+    foreach ($f in $failed) {
+      $cp = Copy-WithVerifyLoose (Join-Path $src $f) (Join-Path $script:ProgDataWin $f) $wantMd5[('windows/' + $f)]
+      if ($cp.Ok) { Ok ($f + " → " + $script:ProgDataWin + ' (清占用后成功)') }
+      elseif ($cp.Kind -eq 'tampered') { Bad ($f + ' 内容与清单不符（包完好的话，可能是写下去后被改/写坏）—— 重跑 -Mode Repair 仍如此就把日志发回'); Add-Action ($f + ' 内容与清单不符：先重解压一份包；仍如此请把日志发回') }
+      elseif ($cp.Kind -eq 'locked') { Warn ($f + ' 仍被占用 —— 已放 ' + $f + '.new，完全关机再开机后由开机任务替换（或先手工结束 CMP40HXGen2.exe 再跑 -Mode Repair）'); Add-Action ($f + ' 仍被占用：完全关机再开机 或 手工结束 CMP40HXGen2.exe 后跑 -Mode Repair') }
+      elseif ($cp.Kind -eq 'iofail') { Bad ($f + ' IO 异常 —— 处理权限/杀软后跑 -Mode Repair'); Add-Action ($f + ' IO 异常：处理权限/杀软后跑 -Mode Repair') }
+      else { Bad ($f + ' 写失败（既没写进目标也没放成 .new）—— 跑 -Mode Repair 或看日志'); Add-Action ($f + ' 写失败：看日志后跑 -Mode Repair') }
+    }
+  }
+  # 2026-10-05（审查 r5 F3）：helper 段剩下的裸 IO 也都加保护，别让权限/磁盘异常打断整个安装
+  try {
+    foreach ($sub in @('logs', 'state')) {
+      $p = Join-Path $script:ProgDataWin $sub
+      if (-not (Test-Path $p)) { New-Item -ItemType Directory -Force -Path $p | Out-Null }
+    }
+  } catch {
+    Warn ('logs/state 目录建不出来: ' + $_.Exception.Message)
+    Add-Action 'logs/state 目录没建成功：检查 C:\ProgramData\CMP40HXGen2 的权限后跑 -Mode Repair'
   }
   # RunPostBind.cmd：沿用已验证的逻辑，只把“驱动自愈源列表”换成这台机器的实际路径
   # （原编码原样写回：上游这份是 UTF-8，被当 GBK 读回写会把中文注释改坏）
+  # 2026-10-05（审查 r6 L7）：读模板失败只跳过"重写"这一段，**不要 return** —— 后面还有"新路径工具是否就位"的检查要做
+  # 2026-10-05（审查 r7 F1）：RunPostBind.cmd 也要落到 %ProgramData% 并被 SYSTEM 执行，改写前同样要过清单
+  #   （校验**包内源模板**；写回后的内容因路径替换与源不同，所以清单条目天然只描述源文件）。
   $tplPath = Join-Path $src 'RunPostBind.cmd'
-  $read = Read-TextAutoDetect $tplPath
-  $text = $read.Text
-  Info ('RunPostBind.cmd 模板编码: ' + $read.Encoding.WebName)
-  $sourceList = '"' + $script:ProgDataDrv + '" "' + $script:VendorDrvDir + '"'
-  $newLine = 'for %%S in (' + $sourceList + ') do ('
-  # 注意 CRLF：用 lookahead 匹配行尾，避免把 \r 吃掉（.NET 的 (?m)$ 匹配在 \n 之前）
-  $replaced = $text -replace '(?m)^for %%S in \(.*\) do \((?=\r?$)', $newLine
-  if ($replaced -eq $text) {
-    # 幂等：包里的模板本来就写着本机路径 → 内容没变是正常的。
-    # 只有连“本机路径那一行”都找不到，才算真的没替换成功（旧版在这里一律报失败，会让 -Mode Repair 的退出码变成 1）
-    $alreadyLocal = $text -match ('(?m)^for %%S in \(' + [regex]::Escape($sourceList) + '\) do \(')
-    if ($alreadyLocal) { Ok 'RunPostBind.cmd 驱动自愈源本来就是这个本机路径（无需改动）' }
-    else { Bad 'RunPostBind.cmd 的驱动源行没替换成功（保持原样），请检查载荷是否被改动'; Add-Action 'RunPostBind.cmd 的驱动自愈源没按本机路径重写：把包内 payload\windows\RunPostBind.cmd 手工拷到 C:\ProgramData\CMP40HXGen2\windows\ 并改那行 for %%S' }
+  $tplOk = $true
+  $tplKey = 'windows/RunPostBind.cmd'
+  if (-not $wantMd5.ContainsKey($tplKey)) {
+    Warn 'RunPostBind.cmd 在 payload\sha256.txt 里没有条目 —— 跳过本次重写（不写未校验的文件）；重新解压一份完整包'
+    Add-Action 'RunPostBind.cmd 缺清单条目：重新解压完整包后跑 一键安装.cmd'
+    $tplOk = $false
   }
   else {
-    $chk = ([regex]::Matches($replaced, [regex]::Escape($script:ProgDataDrv))).Count
-    if ($chk -ge 1) { Ok ('RunPostBind.cmd 驱动自愈源已按本机路径重写（含 ' + $script:ProgDataDrv + '）') } else { Bad 'RunPostBind.cmd 重写后没找到本机自愈源路径' }
+    try {
+      $tplMd5 = (Get-FileHash -LiteralPath $tplPath -Algorithm MD5).Hash.ToLower()
+      if ($tplMd5 -ne $wantMd5[$tplKey].ToLower()) {
+        Warn ('RunPostBind.cmd 包内模板与清单不符（' + $tplMd5 + ' != ' + $wantMd5[$tplKey] + '）—— 跳过重写；重新解压一份包')
+        Add-Action 'RunPostBind.cmd 模板与清单不符：重新解压完整包后再装'
+        $tplOk = $false
+      }
+    }
+    catch {
+      Warn ('算不了 RunPostBind.cmd 模板的哈希: ' + $_.Exception.Message + ' —— 跳过重写')
+      Add-Action 'RunPostBind.cmd 模板哈希算不了（权限/杀软）：处理后重装'
+      $tplOk = $false
+    }
   }
-  [IO.File]::WriteAllText((Join-Path $script:ProgDataWin 'RunPostBind.cmd'), $replaced, $read.Encoding)
-  Ok ('RunPostBind.cmd → ' + $script:ProgDataWin + '（首选新路径 + 旧 ACE 路径 fallback + 多源自愈 + 3 次重试）')
+  $read = $null
+  if ($tplOk) {
+    try {
+      $read = Read-TextAutoDetect $tplPath
+      Info ('RunPostBind.cmd 模板编码: ' + $read.Encoding.WebName)
+    }
+    catch {
+      Warn ('读不了包内 RunPostBind.cmd 模板: ' + $_.Exception.Message + ' —— 跳过本次重写，开机任务保持旧版（下面的新路径检查照做）')
+      Add-Action 'RunPostBind.cmd 模板读失败：重新解压一份完整包后跑 -Mode Repair'
+      $read = $null
+    }
+  }
+  # 2026-10-05（审查 r7 F3）：模板不可用（读不到 / 不过清单）时，整段"替换 + 校验 + 写回"都不做 ——
+  #   否则 $text='' 会让"没替换成功"的判断成立、报出误导性的 Bad（还顺手把退出码变成 1）。
+  if ($null -eq $read) {
+    Info '本次跳过 RunPostBind.cmd 重写（模板不可用，详见上面的 Warn/待办）'
+  }
+  else {
+    $text = $read.Text
+    $sourceList = '"' + $script:ProgDataDrv + '" "' + $script:VendorDrvDir + '"'
+    $newLine = 'for %%S in (' + $sourceList + ') do ('
+    # 注意 CRLF：用 lookahead 匹配行尾，避免把 \r 吃掉（.NET 的 (?m)$ 匹配在 \n 之前）
+    $replaced = $text -replace '(?m)^for %%S in \(.*\) do \((?=\r?$)', $newLine
+    if ($replaced -eq $text) {
+      # 幂等：包里的模板本来就写着本机路径 → 内容没变是正常的。
+      # 只有连"本机路径那一行"都找不到，才算真的没替换成功（旧版在这里一律报失败，会让 -Mode Repair 的退出码变成 1）
+      $alreadyLocal = $text -match ('(?m)^for %%S in \(' + [regex]::Escape($sourceList) + '\) do \(')
+      if ($alreadyLocal) { Ok 'RunPostBind.cmd 驱动自愈源本来就是这个本机路径（无需改动）' }
+      else { Bad 'RunPostBind.cmd 的驱动源行没替换成功（保持原样），请检查载荷是否被改动'; Add-Action 'RunPostBind.cmd 的驱动自愈源没按本机路径重写：把包内 payload\windows\RunPostBind.cmd 发回来' }
+    }
+    else {
+      $chk = ([regex]::Matches($replaced, [regex]::Escape($script:ProgDataDrv))).Count
+      if ($chk -ge 1) { Ok ('RunPostBind.cmd 驱动自愈源已按本机路径重写（含 ' + $script:ProgDataDrv + '）') } else { Bad 'RunPostBind.cmd 重写后没找到本机自愈源路径' }
+    }
+    # 2026-10-05（审查 r8 R1）：写回与收尾 Ok 挪进 else —— 模板不可用时既不写、也不再报"写不进去"、更不打假 Ok
+    try {
+      [IO.File]::WriteAllText((Join-Path $script:ProgDataWin 'RunPostBind.cmd'), $replaced, $read.Encoding)
+    } catch {
+      Warn ('RunPostBind.cmd 写不进去: ' + $_.Exception.Message + ' —— 开机任务可能还是旧版；先手工结束 CMP40HXGen2.exe 再跑 -Mode Repair')
+      Add-Action 'RunPostBind.cmd 没更新成功：跑 -Mode Repair 或手工结束 CMP40HXGen2.exe 后重装一次'
+    }
+    Ok ('RunPostBind.cmd → ' + $script:ProgDataWin + '（首选新路径 + 旧 ACE 路径 fallback + 多源自愈 + 3 次重试）')
+  }
   $tnew = Join-Path $script:ProgDataWin '40hx-retrain-inpout.ps1'
   if (Test-Path $tnew) { Ok '40hx-retrain-inpout.ps1 就位 → 开机走新路径（inpoutx64 直写 MMIO，ACE-BOOT 全程不停）' }
   else { Warn '40hx-retrain-inpout.ps1 没铺上 → 开机任务会回落到旧路径（每次开机停一次 ACE-BOOT）'; Add-Action '新路径工具缺失：重新解压完整包后跑一次 -Mode Repair' }
@@ -1410,7 +1608,8 @@ function Install-Task {
     $acts = ((@($t.Actions) | ForEach-Object { ([string]$_.Execute + ' ' + [string]$_.Arguments) }) -join ' ')
     if (([string]$t.TaskName -match '40HX|CMP40HX') -or ($acts -match '40HX|CMP40HX')) {
       if ($t.State -ne 'Disabled') {
-        Disable-ScheduledTask -TaskName $t.TaskName -ErrorAction SilentlyContinue | Out-Null
+        # 2026-10-05（审查 r5 N4）：同族修复 —— 带的 TaskPath，避免同名叶任务分布在不同文件夹时指错对象
+        Disable-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath -ErrorAction SilentlyContinue | Out-Null
         Ok ('已禁用其它 40HX 自启任务: ' + $t.TaskName)
         $dis++
       }
