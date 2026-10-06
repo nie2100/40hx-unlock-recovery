@@ -107,10 +107,24 @@ CMP 40HX 是矿卡：出厂被人为压了算力（寄存器 SS0 锁住），PCI
 |---|---|
 | 引导 | **UEFI + GPT**（MBR 盘要先 `mbr2gpt`） |
 | Secure Boot | **关** |
-| BIOS | **Above 4G Decoding = Enabled**（头号失败原因）、CSM 关、Fast Boot 关 |
+| BIOS | 见下面这张 **BIOS 必改 5 项** 表（头号失败原因是 Above 4G Decoding 没开） |
 | BitLocker | 关或已暂停（否则改引导链会索要恢复密钥） |
 | NVIDIA 驱动 | 已装（GSP 固件要开着；没开脚本会帮你写开关，然后必须**完全关机**才生效） |
 | 杀软 | 火绒/360 加信任区 + 关"启动项保护"（见 `文档\使用说明-详细.md` 第 1.1 节） |
+
+**BIOS 里必须改的 5 项（脚本替你做不了，现场失败绝大多数栽在这里）**：
+
+| # | 改什么（常见叫法） | 设成 | 不改会怎样 |
+|---|---|---|---|
+| 1 | **Above 4G Decoding**（4G 以上解码） | **Enabled** | **头号失败原因**：8 GB 显存要落在 4 GB 以上地址空间；关着 → 认不到卡 / 代码 43 / 黑屏 |
+| 2 | **CSM**（Launch CSM / CSM Support） | **Disabled** | 变成 Legacy 引导 → 判定"固件不是 UEFI 模式"直接中止（前提不满足） |
+| 3 | **Secure Boot**（安全启动） | **Disabled**（老华硕选 `Other OS`） | 解锁固件未签名，开着就不执行 → 算力一直没解锁 |
+| 4 | **Fast Boot**（快速启动） | **Disabled** | 与 Windows 快速启动叠加成"混合关机" → GSP/驱动改动不生效（代码 43 根因之一） |
+| 5 | 该 x16 槽的 **PCIe 速率** | **Auto**（别锁 Gen1） | 锁 Gen1 就永远上不了 Gen2 x16 |
+
+位置（各家叫法不同，按关键词找）：华硕 `Advanced → System Agent (SA) Configuration`、技嘉 `Settings → IO Ports`、
+微星 `Settings → Advanced → PCI Subsystem Settings`、华擎 `Advanced → Chipset Configuration`；
+CSM / Secure Boot / Fast Boot 都在 `Boot` / `Security` 页。逐条报错对照见 `排查指引.md` 第 3 节。
 
 想先只看不改：`Install-40HXUnlock.ps1 -Mode Check`（纯体检，0 项失败即环境 OK）。
 

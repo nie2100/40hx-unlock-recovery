@@ -5,6 +5,34 @@
 
 ---
 
+## 〇、开装之前：BIOS 里必须先改的 5 项（脚本替你做不了）
+
+> 现场"装完没效果 / 认不到卡 / 代码 43"绝大多数栽在这里。各家 BIOS 菜单名不一样，
+> 按**关键词**找（很多 BIOS 支持直接搜 `4G` / `CSM` / `Secure Boot`）。
+
+| # | 改什么（常见叫法） | 设成 | 不改会怎样 | 常见位置 |
+|---|---|---|---|---|
+| 1 | **Above 4G Decoding**（4G 以上解码 / 大地址解码 / Above 4G memory） | **Enabled** | **头号失败原因**。40HX 是 8 GB 显存，显存 BAR 要落在 4 GB 以上地址空间；关着就认不到卡、或设备管理器"代码 43"、甚至开机黑屏 | 华硕/ROG：`Advanced → System Agent (SA) Configuration`；技嘉：`Settings → IO Ports`；微星：`Settings → Advanced → PCI Subsystem Settings`（矿版叫 `Above 4G memory/Crypto Currency mining`）；华擎：`Advanced → Chipset Configuration` |
+| 2 | **CSM**（Launch CSM / 兼容性支持模块 / CSM Support） | **Disabled**（= 纯 UEFI 引导） | 固件会按 Legacy 引导 → 脚本判定"固件不是 UEFI 模式"直接中止安装（前提不满足）；解锁固件也不会被执行 | `Boot → CSM` |
+| 3 | **Secure Boot**（安全启动） | **Disabled**（华硕老 BIOS 选 `Other OS`） | 解锁固件 `40HXUNLK.EFI` 是**未签名**的，Secure Boot 开着它就不执行 → 算力一直是未解锁状态 | `Security → Secure Boot` |
+| 4 | **Fast Boot**（快速启动） | **Disabled** | 它会和 Windows 的"快速启动"叠加成**混合关机** → GSP/驱动改动不生效（代码 43 的根因之一） | `Boot → Fast Boot` |
+| 5 | 该 x16 槽的 **PCIe 速率**（PCIe Speed / Link Speed） | **Auto**（别锁 Gen1） | 锁在 Gen1 就永远上不了 **Gen2 x16**（本方案的目标），拆显卡都白拆 | `Advanced`/`Chipset` 里的 PCIe 速率项 |
+
+**同一时间顺手确认这几条（不在 BIOS 里，但同样决定成败）**：
+
+| 项 | 要求 |
+|---|---|
+| 系统盘 | **GPT + UEFI**（老盘是 MBR：管理员执行 `mbr2gpt /convert /allowFullOS`） |
+| BitLocker | 关掉或暂停（否则改引导链会索要恢复密钥） |
+| 显示器接哪 | 40HX **没有视频输出口**：显示器接核显或另一张卡，BIOS 主显示设 `Auto` / `IGFX` 即可 |
+| 启动顺序 | 开机要真的走一次 `40HX Unlock`（安装器会建这条）。被 Windows 更新/双系统改乱了：重跑 `-Mode MakeDefault`，或进 BIOS 把它排到第一位 |
+| 杀软 | 火绒/360：既要在"信任区"放行三个驱动，**也要单独关掉"漏洞驱动拦截"**（它是独立模块，只加信任区不生效） |
+
+> 想先只看不改：`oneclick/Install-40HXUnlock.ps1 -Mode Check`（纯体检，0 项失败 = 环境 OK）。
+> BIOS 相关的逐条报错对照在 [`oneclick/排查指引.md`](oneclick/排查指引.md) 第 3 节（退出码 2）。
+
+---
+
 ## 一、我要怎么做（只用 `oneclick/` 这一个文件夹）
 
 1. 下载本仓库里的 **`oneclick/`** 文件夹（或 Releases 里的 zip），拷到那台装 40HX 的 Windows 上

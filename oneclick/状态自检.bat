@@ -23,6 +23,19 @@ set "FP32T="
 set "FP16T="
 set "TCT="
 set "VRAMT="
+rem 2026-10-06：逐项判定变量。1=实测通过 / 0=实测不通过 / 2=本机没测成(未实测)
+rem   默认 2 = "还没测"：只有真跑出结果的分支才把它改成 1 或 0，避免拿"没测"当"通过"。
+set "OK1=2"
+set "OK2=2"
+set "OK3=2"
+set "OK4=2"
+set "OK5=2"
+set "NGN="
+set "WAITN="
+set "EARLY="
+set "TASKV="
+set "TMPT=%TEMP%\40hx_task.stat"
+set "TMPCL=%TEMP%\40hx_check.lst"
 
 echo ============================================================
 echo                 40HX 解锁状态检查
@@ -31,6 +44,8 @@ echo.
 
 if not exist "%SMI%" (
   echo   [错误] 未找到 %SMI%
+  set "OK1=0"
+  set "EARLY=1"
   goto :summary
 )
 
@@ -57,6 +72,14 @@ echo     GPU       : %GPU%
 echo     驱动版本  : %DRV%
 echo     显存      : %VMEM%
 echo     温度/功耗 : %TEMPC% C / %PWR%  (上限 %PLIM%)
+rem 2026-10-06：这一项以前只有读数、没有结论，末行照样写"全绿" —— 现在有结论且计入判定
+set "OK1=0"
+if not "%GPU%"=="" if not "%DRV%"=="" set "OK1=1"
+rem 2026-10-06（审查 r1 低危）：nvidia-smi 拿不到版本时会给字面量 N/A / [N/A] —— 那不是"正常"
+if /I "%DRV%"=="N/A" set "OK1=0"
+if /I "%DRV%"=="[N/A]" set "OK1=0"
+if "%OK1%"=="1" echo     [OK] 显卡与驱动已识别
+if "%OK1%"=="0" echo     [!!] 上面型号/驱动版本是空的或是 N/A: nvidia-smi 没读到卡, 或驱动异常
 echo.
 
 echo [2/6] 驱动模式   (WDDM = WSL 直通可用)
@@ -64,6 +87,9 @@ echo     当前 : %DMC%     待生效 : %DMP%
 if /I "%DMC%"=="WDDM" set "OKMODE=1"
 if /I "%DMC%"=="WDDM" echo     [OK] WDDM 模式正常
 if /I "%DMC%"=="TCC" echo     [!!] TCC 模式异常: WSL 直通会失效, PCIe 也会掉回 Gen1
+set "OK2=0"
+if "%OKMODE%"=="1" set "OK2=1"
+if /I not "%DMC%"=="WDDM" if /I not "%DMC%"=="TCC" echo     [!!] 驱动模式既不是 WDDM 也不是 TCC: driver_model 没解析到
 echo.
 
 echo [3/6] PCIe 链路   (实测带宽, 唯一可信判据)
@@ -342,6 +368,9 @@ if /I "%VERD%"=="GEN2" set "OKLINK=1"
 if /I "%VERD%"=="GEN2" echo     [OK] 判定: Gen2 已解锁
 if /I "%VERD%"=="GEN1" echo     [!!] 判定: Gen1 未解锁
 if not defined VERD echo     [!!] 判定: 带宽测试失败
+rem 2026-10-06：只有真跑出 VERDICT 才算判定，跑不出来仍旧算"未实测"(2)
+if /I "%VERD%"=="GEN2" set "OK3=1"
+if /I "%VERD%"=="GEN1" set "OK3=0"
 rem 2026-10-01b（第三方审查 H17）：实测程序失败时也会建出空的 %TMPO% → 以前直接落到"带宽测试失败"，
 rem   真正的根因（nvcuda/驱动的 ERROR 行）从不显示。把原始输出回显出来，别让客户/经销商猜。
 if not defined VERD if exist "%TMPO%" (
@@ -370,12 +399,19 @@ echo     显存带宽  : %VRAMT% GB/s      (判据下限 330 / 参考满血 ~400)
 if %SMN% GEQ 34 if %FP32I% GEQ 700 if %FP16I% GEQ 1300 if %TCI% GEQ 4000 if %VRAMI% GEQ 330 set "OKPOWER=1"
 if "%OKPOWER%"=="1" echo     [OK] 核心未砍, 算力满血
 if "%OKPOWER%"=="0" echo     [!!] 算力/显存低于判据下限, 可能被砍核心/降频/TC 被关
+rem 2026-10-06：同样只有真跑出 VERDICT 才敢判"低/够"，没跑出来算未实测
+if not defined VERD goto :power_done
+if "%OKPOWER%"=="1" set "OK4=1"
+if "%OKPOWER%"=="0" set "OK4=0"
+:power_done
 echo.
 goto :gen2info
 
 :nosmi
 echo [1/6] 显卡与驱动
 echo     [!!] nvidia-smi 无输出, 驱动可能异常
+set "OK1=0"
+set "EARLY=1"
 echo.
 goto :summary
 
@@ -414,6 +450,25 @@ if exist "%LOGP%" (
 ) else (
   echo     [--] 未找到日志 %LOGP%
 )
+rem 2026-10-06：这一项以前只贴日志、不进结论 —— 于是"日志里是上一次开机的 PASS"也能配上"全绿"。
+rem   现在按两条判：①日志是不是本次开机写的（LastWriteTime > LastBootUpTime）②最后一轮是不是
+rem   EXIT=0 且带 PASS 行。刚开机 3 分钟内还没落日志的算"未实测"，不冤枉它。
+rem   判定用 PowerShell 一次性给结论：命令行里只用单引号、不拼中文路径/参数（免得代码页把参数搞坏）。
+set "OK5=0"
+rem 同一个 %TMPT% 会被上一次运行留下 —— 先删掉, 免得拿上次的结论当本次的（本机实测踩到过）
+if exist "%TMPT%" del "%TMPT%" >nul 2>&1
+if exist "%LOGP%" powershell -NoProfile -ExecutionPolicy Bypass -Command "$p='%LOGP%';$bt=(Get-CimInstance Win32_OperatingSystem).LastBootUpTime;$f=Get-Item -LiteralPath $p;$t=[IO.File]::ReadAllText($p);$i=$t.LastIndexOf('PostBind start');$ok=$false;if($i -ge 0){$tail=$t.Substring($i);if(($tail -match 'EXIT=0') -and ($tail -match 'PASS: Gen2 reached on the new path')){$ok=$true}};if($f.LastWriteTime -gt $bt){if($ok){'OK'}else{'FAIL'}}else{if(((Get-Date)-$bt).TotalMinutes -lt 3){'WAIT'}else{'STALE'}}" > "%TMPT%" 2>nul
+if exist "%TMPT%" for /f "usebackq delims=" %%a in ("%TMPT%") do set "TASKV=%%a"
+if "%TASKV%"=="OK" set "OK5=1"
+if "%TASKV%"=="OK" echo     [OK] 本次开机的任务跑过: 最后一轮 EXIT=0 + PASS
+if "%TASKV%"=="FAIL" echo     [!!] 最近的日志轮次没有 EXIT=0 + PASS: 开机任务没跑成
+if "%TASKV%"=="STALE" echo     [!!] 日志还停在"上一次开机": 本次开机的任务没跑成
+if "%TASKV%"=="WAIT" set "OK5=2"
+if "%TASKV%"=="WAIT" echo     [--] 本次开机的日志还没落下来(任务在进桌面后约 1 分钟内跑, 稍后重跑本脚本)
+if not exist "%LOGP%" echo     [!!] 没有开机任务日志: 可能没装开机任务(见 排查指引 第 5 节)
+if not defined TASKV if exist "%LOGP%" echo     [!!] 没能判定: PowerShell 没给出结果(被拦或本机没有 PowerShell)
+rem 2026-10-06（审查 r1 中危）：TASKV 空 = "测不成", 不是"未过" —— 计为未实测(2)，别报成假红
+if not defined TASKV if exist "%LOGP%" set "OK5=2"
 echo.
 
 echo [6/6] 解锁工具状态文件
@@ -429,6 +484,8 @@ if exist "%STAT%" (
 ) else (
   echo     [--] 未找到 %STAT%
 )
+rem 2026-10-06：这一项是厂商工具留下的文件, 本包不走它 —— 明确标"参考", 不计入结论
+echo     [参考] 上面是厂商工具的状态文件, 本包不用它: 过期或内容旧都不算异常
 if defined NPASS (
   echo.
   echo     [说明] 上面这份是**厂商工具**的状态文件; 本包走新路径 ^(ECAM+inpoutx64, 不需要 ThrottleStop^),
@@ -437,25 +494,56 @@ if defined NPASS (
 echo.
 
 :summary
+rem ---- 把 6 项的实测状态汇总成"未过/未实测"两个清单（顺序 if, 不用块; 必须放在这里 ——
+rem   前面几条 goto :summary 的早退路径会跳过 [1/6]..[6/6] 之间的代码）----
+if "%OK1%"=="0" set "NGN=%NGN% 显卡与驱动"
+if "%OK2%"=="0" set "NGN=%NGN% 驱动模式"
+if "%OK3%"=="0" set "NGN=%NGN% PCIe 链路"
+if "%OK4%"=="0" set "NGN=%NGN% 算力/显存"
+if "%OK5%"=="0" set "NGN=%NGN% 开机任务"
+if "%OK1%"=="2" set "WAITN=%WAITN% 显卡与驱动"
+if "%OK2%"=="2" set "WAITN=%WAITN% 驱动模式"
+if "%OK3%"=="2" set "WAITN=%WAITN% PCIe 链路(算力/带宽没实测成)"
+if "%OK4%"=="2" set "WAITN=%WAITN% 算力/显存"
+if "%OK5%"=="2" set "WAITN=%WAITN% 开机任务(未实测: 本次没落日志或本机判不了)"
 echo ============================================================
-if defined NOCSC if "%OKMODE%"=="1" (
-  echo   结论: 正常 ^(部分未实测^) -- WDDM 正常; 算力/带宽因本机无法编译实测程序未实测
-  echo     - Gen2 以 [5/6] 的 "PASS: Gen2 reached on the new path" 为准
-  echo ============================================================
-  goto :selfcheck_end
-)
-rem 2026-10-04 实测: 算力/显存读数随 GPU 当时负载与时钟波动 - 同一张好卡空闲时 32C/1650MHz 测到 FP32 8.4,
-rem   连续压测后 56C/1470MHz 只有 7.9; 显存带宽单次采样还曾低到 282 GB/s, 空闲复测 358-400。
+rem 2026-10-06（本次改造的核心）：结论不再由 WDDM/Gen2/算力 三个开关一句话拍出来，
+rem   而是先把 6 项各自的实测结果摆成彩色清单，再按这 6 项算结论：
+rem   [OK]=绿  [!!]=红  [--]=黄(未实测)；只要有一项是红的, 结论就不会是"全绿"。
+rem   2026-10-04 实测记录（保留）：算力/显存读数随 GPU 当时负载与时钟波动 —— 同一张好卡空闲时 32C/1650MHz
+rem   测到 FP32 8.4, 连续压测后 56C/1470MHz 只有 7.9；显存带宽单次采样还曾低到 282 GB/s, 空闲复测 358-400。
 rem   所以只有"性能类"读数不达标时结论写"需复核"而不是"存在异常", 免得客户以为解锁失败/硬件坏了。
 rem   这里用顺序判断而不是 if/else 块, 免得踩块内 %VAR% 提前展开的坑。
-set "SUMV=存在异常"
-if "%OKMODE%%OKLINK%%OKPOWER%"=="111" set "SUMV=全绿 -- WDDM + PCIe Gen2 + 算力满血, 解锁正常"
-if "%OKMODE%%OKLINK%"=="11" if "%OKPOWER%"=="0" if not defined NOCSC set "SUMV=需复核 -- WDDM 正常 + PCIe Gen2 已解锁, 但算力/显存读数低于判据下限"
-echo   结论: %SUMV%
-if "%OKMODE%%OKLINK%"=="11" if "%OKPOWER%"=="0" if not defined NOCSC echo     - 先空闲时重跑一次: 关掉占用 GPU 的程序, 等一两分钟再跑本脚本
-if "%OKMODE%"=="0" echo     - 驱动模式不是 WDDM: 管理员执行 nvidia-smi -dm 0, 然后重启
-if "%OKLINK%"=="0" if not defined NOCSC echo     - PCIe 未达 Gen2: 先重启让开机任务重训; 仍不行检查 ACE-BOOT 是否拦截
-if "%OKPOWER%"=="0" if not defined NOCSC echo     - 算力/显存低于判据下限: 检查是否降频/高温, 或驱动未正常加载
+set "VERDICT=异常"
+if "%OK1%%OK2%%OK3%%OK4%%OK5%"=="11111" set "VERDICT=全绿"
+if "%OK1%%OK2%%OK3%%OK4%%OK5%"=="11101" set "VERDICT=需复核"
+if "%VERDICT%"=="异常" if not defined NGN set "VERDICT=部分未实测"
+set "VST=0"
+set "SUMV=存在异常 -- 未过的项:%NGN%"
+if "%VERDICT%"=="全绿" set "VST=1"
+if "%VERDICT%"=="全绿" set "SUMV=全绿 -- WDDM + PCIe Gen2 + 算力满血, 解锁正常"
+if "%VERDICT%"=="需复核" set "VST=2"
+if "%VERDICT%"=="需复核" set "SUMV=需复核 -- WDDM 正常 + PCIe Gen2 已解锁, 但算力/显存读数低于判据下限"
+if "%VERDICT%"=="部分未实测" set "SUMV=部分未实测 -- 已过的项都正常; 未实测:%WAITN%"
+rem ---- 彩色逐项清单：标签+状态先落成文件, 再由 PowerShell 读文件上色 ----
+rem   （-Command 里只有写死的几个中文字面量; 路径/参数一律不传中文, 实测 chcp 936 正常）
+> "%TMPCL%" echo %OK1%;显卡与驱动
+>> "%TMPCL%" echo %OK2%;驱动模式 WDDM
+>> "%TMPCL%" echo %OK3%;PCIe 链路 Gen2
+>> "%TMPCL%" echo %OK4%;算力与显存满血
+>> "%TMPCL%" echo %OK5%;开机任务 本次开机
+>> "%TMPCL%" echo 2;厂商工具状态文件 参考项
+>> "%TMPCL%" echo V;%VST%;%SUMV%
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$cn=@{'1'='Green';'0'='Red';'2'='Yellow'};$sw=@{'1'='[OK]';'0'='[!!]';'2'='[--]'};foreach($l in ([IO.File]::ReadAllLines([string]'%TMPCL%',[Text.Encoding]::GetEncoding(936)))){$p=$l.Split([char]59);if($p.Count -lt 2){continue};if($p[0] -eq 'V'){$k=$p[1];if($k -ne '1'){if($k -ne '0'){$k='2'}};$tx=($p[2..($p.Count-1)] -join ';');Write-Host ('   结论: ' + $tx) -ForegroundColor $cn[$k]}else{$k=$p[0];if($k -ne '1'){if($k -ne '0'){$k='2'}};Write-Host ('   ' + $sw[$k] + ' ' + $p[1]) -ForegroundColor $cn[$k]}}"
+if "%OK5%"=="0" echo     - 开机任务没跑成: 见 排查指引 第 5 节; 也可以直接重启一次再跑本脚本
+if "%OK5%"=="2" if not defined EARLY echo     - 开机任务未实测: 本次还没落日志就等进桌面 1 分钟后再跑; 本机判不了就看 [5/6] 的说明
+if "%OK1%"=="0" echo     - 没读到显卡/驱动: 先确认 nvidia-smi 能跑、驱动正常(设备管理器有没有感叹号)
+if "%OK2%"=="0" echo     - 驱动模式不是 WDDM: 管理员执行 nvidia-smi -dm 0, 然后重启
+if "%OK3%"=="0" if not defined NOCSC echo     - PCIe 未达 Gen2: 先重启让开机任务重训; 仍不行检查 ACE-BOOT 是否拦截
+if "%OK4%"=="0" if not defined NOCSC echo     - 算力/显存低于判据下限: 检查是否降频/高温, 或驱动未正常加载
+if "%VERDICT%"=="需复核" echo     - 先空闲时重跑一次: 关掉占用 GPU 的程序, 等一两分钟再跑本脚本
+if defined NOCSC echo     - 本机没有可用的 csc.exe: 实测算力/带宽做不了(不是显卡故障), Gen2 以 [5/6] 的 PASS 为准
+if defined EARLY echo     - 本次检查没跑完(上面已说明原因): 结论只覆盖已执行到的那部分
 echo ============================================================
 :selfcheck_end
 echo.
