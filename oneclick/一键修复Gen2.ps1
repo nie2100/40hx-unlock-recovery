@@ -4,6 +4,7 @@
 #   1) 把新版 Gen2 工具就地更新到 C:\ProgramData\CMP40HXGen2\windows（按哈希比对，一样就跳过）
 #   2) 跑一次：只读体检 → 写 LINK_CONFIG_0 / PRIV_MISC_1 → 根端口重训 x2 → GPU 侧兜底重训 x2 → 复读校验
 #      注意：**不会**自动补写“解锁固件该预埋的 Gen2 前提值”（要显式 -AllowPrime，见 工具-测试与修复\补写Gen2预埋.cmd）
+#   2.5) 预检并修复"开机 Gen2 不自启"的两个缺口：两个计划任务（缺失/禁用/动作被改）+ 卡住的轮锁
 #   3) 把关键结果 + 完整日志复制到桌面，方便直接发回
 #   4) 屏幕上给出结论（成功/失败 + 下一步）
 #  全程不停 ACE-BOOT、不复位显卡、不写 ESP/固件。
@@ -40,6 +41,84 @@ $fail = 0
 $out = New-Object System.Collections.ArrayList
 function T { param([string]$t, [string]$c = 'Gray') Write-Host $t -ForegroundColor $c; [void]$out.Add($t) }
 
+# ---- 2026-10-07 追加：开机 Gen2 不自启的同一套判据（来自"开机重装 Gen2 不自启"热修，已经五轮第三方审查）----
+function G2UptimeMs() {
+  $up = 0
+  try { $up = [int64][System.Environment]::TickCount } catch { $up = 0 }
+  if ($up -le 0) { try { $up = [int64]((Get-CimInstance Win32_PerfFormattedData_PerfOS_System -ErrorAction Stop).SystemUpTime) * 1000 } catch { $up = 0 } }
+  return $up
+}
+function G2Tsk([string]$name) {
+  $taskObj = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+  if (-not $taskObj) { return $null }
+  $act = ((@($taskObj.Actions) | ForEach-Object { [string]$_.Execute + ' ' + [string]$_.Arguments }) -join ' ')
+  $trg = ((@($taskObj.Triggers) | ForEach-Object { [string]$_.CimClass.CimClassName }) -join ',')
+  return (New-Object psobject -Property @{ Name = $name; State = [string]$taskObj.State; Action = $act; Triggers = $trg })
+}
+function G2LiveRounds([int]$excludePid) {
+  $found = New-Object System.Collections.ArrayList
+  try {
+    foreach ($proc in @(Get-CimInstance Win32_Process -ErrorAction Stop)) {
+      if ([string]$proc.Name -ne 'cmd.exe') { continue }
+      if ([int]$proc.ProcessId -eq $excludePid) { continue }
+      if ([string]$proc.CommandLine -match 'RunPostBind') { [void]$found.Add(([string]$proc.ProcessId + '  ' + [string]$proc.CommandLine)) }
+    }
+  } catch { [void]$found.Add('QUERY-FAILED') }
+  return $found
+}
+function G2LockFacts([string]$LockDir) {
+  $fact = New-Object psobject -Property @{ Exists = $false; Owner = ''; HolderPid = 0; Alive = $false; LockMtime = $null; AgeMin = 0.0; Predates = $false; IsTicks = $false; Stale = $true; Why = 'no lock' }
+  if (-not (Test-Path -LiteralPath $LockDir)) { return $fact }
+  $fact.Exists = $true
+  $owner = ''
+  $ownerFile = Join-Path $LockDir 'started.txt'
+  if (Test-Path -LiteralPath $ownerFile) {
+    # .NET 读，别用 Get-Content：空文件返回 $null，.Trim() 会抛异常
+    try {
+      $rawText = [System.IO.File]::ReadAllText($ownerFile)
+      $nlIdx = $rawText.IndexOf([char]10)
+      if ($nlIdx -lt 0) { $owner = $rawText.Trim() } else { $owner = $rawText.Substring(0, $nlIdx).Trim() }
+    } catch { $owner = '' }
+  }
+  $fact.Owner = $owner
+  $parts = @($owner -split '\|')
+  $factTicks = [string]$parts[0]
+  if ($factTicks -match '^[0-9]{15,}$') { $fact.IsTicks = $true }
+  if ($parts.Count -ge 4) { try { $fact.HolderPid = [int]$parts[3] } catch { $fact.HolderPid = 0 } }
+  $holderStart = ''
+  if ($parts.Count -ge 5) { $holderStart = [string]$parts[4] }
+  if ($fact.HolderPid -gt 0) {
+    $proc = Get-Process -Id $fact.HolderPid -ErrorAction SilentlyContinue
+    if ($proc -and ([string]$proc.ProcessName -like 'cmd*')) {
+      $fact.Alive = $true
+      if ($holderStart -ne '') { if ($proc.StartTime.ToString('s') -ne $holderStart) { $fact.Alive = $false } }
+    }
+  }
+  $lockMtime = (Get-Item -LiteralPath $LockDir).LastWriteTime
+  $age = (Get-Date) - $lockMtime
+  $fact.AgeMin = [math]::Round($age.TotalMinutes, 1)
+  $fact | Add-Member -NotePropertyName LockMtime -NotePropertyValue $lockMtime -Force
+  $upd = G2UptimeMs
+  $bootTicks = ''
+  $bootObj = $null
+  try { $bootObj = (Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).LastBootUpTime; $bootTicks = [string]$bootObj.Ticks } catch { $bootObj = $null; $bootTicks = '' }
+  if ($bootObj -ne $null -and $lockMtime -lt $bootObj.AddSeconds(-90)) { $fact.Predates = $true }
+  elseif ($upd -gt 60000 -and $upd -lt 5184000000 -and $age.TotalMilliseconds -gt ($upd + 120000)) { $fact.Predates = $true }
+  $corrob = $false
+  if ($fact.Predates) { $corrob = $true }
+  if ($fact.IsTicks -and $bootTicks -ne '' -and $factTicks -ne $bootTicks) { $corrob = $true }
+  if ($fact.AgeMin -ge 2) { $corrob = $true }
+  if ($fact.IsTicks -and $bootTicks -ne '' -and $factTicks -ne $bootTicks) { $fact.Stale = $true; $fact.Why = 'lock from an earlier boot session' }
+  elseif ($fact.Predates) { $fact.Stale = $true; $fact.Why = 'lock predates this boot session' }
+  elseif ($fact.HolderPid -gt 0 -and -not $fact.Alive -and $corrob) { $fact.Stale = $true; $fact.Why = ('holder pid ' + $fact.HolderPid + ' is gone') }
+  elseif ($fact.Alive -and $fact.AgeMin -ge 0 -and $fact.AgeMin -lt 30) { $fact.Stale = $false; $fact.Why = 'held by a live round' }
+  elseif ($fact.AgeMin -lt 0 -or $fact.AgeMin -ge 20) { $fact.Stale = $true; $fact.Why = ('age ' + $fact.AgeMin + ' min') }
+  elseif ($factTicks -eq '' -and $fact.AgeMin -lt 1) { $fact.Stale = $false; $fact.Why = 'empty lock record appeared moments ago - waiting for the writer (grace 1 min)' }
+  elseif ($factTicks -eq '') { $fact.Stale = $true; $fact.Why = 'lock has no owner record' }
+  else { $fact.Stale = $false; $fact.Why = 'held (holder not identifiable)' }
+  return $fact
+}
+
 T '============================================================' 'Cyan'
 T '  40HX 一键修复 PCIe Gen2 （全自动，不需要输命令）' 'Cyan'
 T '============================================================' 'Cyan'
@@ -57,6 +136,70 @@ $smi = "$env:SystemRoot\System32\nvidia-smi.exe"
 if (Test-Path $smi) { T ('  显卡/驱动    : ' + ((& $smi --query-gpu=name,vbios_version,driver_version --format=csv,noheader 2>&1 | Out-String).Trim())) } else { T '  [X] 找不到 nvidia-smi（驱动没装好？）' 'Red'; $fail++ }
 if (Test-Path $src) { T '  包内新工具   : 找到' } else { T ('  [X] 包内缺少 payload\windows\40hx-retrain-inpout.ps1（本文件要放在包目录里跑）: ' + $src) 'Red'; $fail++ }
 if ($fail -gt 0) { T ''; T '前置条件不满足，先解决上面的 [X] 再跑。' 'Red'; $out | Out-File -Encoding utf8 $sum; Write-Host ('结果已存: ' + $sum); exit 1 }
+
+# ---------- 0.5) 启动项 + 轮锁 预检（2026-10-07 追加） ----------
+#  为什么加这一步：开机 Gen2 不自启有两个缺口 —— (A) 轮锁被上一次被杀掉的轮留在 ProgramData 里，
+#  之后每次开机的轮全被挡掉（任务退出码 0x4B=75）；(B) 本工具以前只管重训，不检查/不修复两个计划任务。
+#  这里用的是"开机 Gen2 不自启"热修的同一套判据（已五轮第三方审查）；只在本机做加法，不动原有流程。
+T ''
+T '[0.5/4] 启动项 + 轮锁 预检' 'Cyan'
+$g2Win    = Join-Path $env:ProgramData 'CMP40HXGen2\windows'
+$g2Tgt    = Join-Path $g2Win 'RunPostBind.cmd'
+$g2LockD  = Join-Path $g2Win 'logs\postbind.lock'
+$g2TaskA  = 'CMP40HX Gen2 PostBind'
+$g2TaskB  = 'CMP40HX Gen2 PostBind Logon'
+$g2CmdLn  = 'cmd.exe /d /c ' + $g2Tgt
+$g2MyPar  = 0
+try { $g2MyPar = [int](Get-CimInstance Win32_Process -Filter ('ProcessId=' + $PID) -ErrorAction Stop).ParentProcessId } catch { $g2MyPar = 0 }
+# (A) 两个计划任务
+$g2tA = G2Tsk $g2TaskA
+$g2tB = G2Tsk $g2TaskB
+$g2NeedA = (-not $g2tA) -or ($g2tA.State -eq 'Disabled') -or ($g2tA.Action -notmatch 'RunPostBind') -or ($g2tA.Triggers -notmatch 'BootTrigger')
+$g2NeedB = (-not $g2tB) -or ($g2tB.State -eq 'Disabled') -or ($g2tB.Action -notmatch 'RunPostBind') -or ($g2tB.Triggers -notmatch 'LogonTrigger')
+if (Test-Path -LiteralPath $g2Tgt) {
+  if ($g2NeedA) {
+    T ('  开机任务      : 需要修（' + $(if (-not $g2tA) { '不存在' } else { $g2tA.State + ' | ' + $g2tA.Triggers + ' | ' + $g2tA.Action }) + '）—— 用安装器同一套参数重建')
+    $null = (& schtasks /delete /tn $g2TaskA /f 2>&1 | Out-String)
+    $null = (& schtasks /create /tn $g2TaskA /sc onstart /ru SYSTEM /rl HIGHEST /tr $g2CmdLn /f 2>&1 | Out-String)
+    $g2tA = G2Tsk $g2TaskA
+    if ($g2tA -and $g2tA.State -ne 'Disabled' -and $g2tA.Action -match 'RunPostBind' -and $g2tA.Triggers -match 'BootTrigger') { T '  [OK] 开机任务已重建并复核通过' 'Green' } else { T '  [X] 开机任务重建失败/复核不过 —— 把本文件发回经销商' 'Red' }
+  } else { T ('  开机任务      : 正常（' + $g2tA.State + ' | ' + $g2tA.Triggers + '）') }
+  if ($g2NeedB) {
+    T ('  登录补跑任务  : 需要修（' + $(if (-not $g2tB) { '不存在' } else { $g2tB.State + ' | ' + $g2tB.Triggers + ' | ' + $g2tB.Action }) + '）—— 用安装器同一套参数重建')
+    $null = (& schtasks /delete /tn $g2TaskB /f 2>&1 | Out-String)
+    $null = (& schtasks /create /tn $g2TaskB /sc onlogon /delay 0001:00 /ru SYSTEM /rl HIGHEST /tr $g2CmdLn /f 2>&1 | Out-String)
+    $g2tB = G2Tsk $g2TaskB
+    if ($g2tB -and $g2tB.State -ne 'Disabled' -and $g2tB.Action -match 'RunPostBind' -and $g2tB.Triggers -match 'LogonTrigger') { T '  [OK] 登录补跑任务已重建并复核通过' 'Green' } else { T '  [X] 登录补跑任务重建失败/复核不过 —— 把本文件发回经销商' 'Red' }
+  } else { T ('  登录补跑任务  : 正常（' + $g2tB.State + ' | ' + $g2tB.Triggers + '）') }
+} else { T ('  [ !] 还没安装（' + $g2Tgt + ' 不存在）—— 先跑一次"一键安装"，本步跳过') 'Yellow' }
+# (B) 轮锁：只清"证得死"的锁；有活轮在跑或证不死就不动
+$g2Lock  = G2LockFacts $g2LockD
+$g2Live  = G2LiveRounds $g2MyPar
+$g2LiveN = 0
+foreach ($g2Item in $g2Live) { if ($g2Item -ne 'QUERY-FAILED') { $g2LiveN++ } }
+$g2QFail = [bool]($g2Live.Count -eq 1 -and $g2Live[0] -eq 'QUERY-FAILED')
+if (-not $g2Lock.Exists) { T '  轮锁          : 没有锁（正常）' }
+elseif ($g2LiveN -gt 0) { T ('  轮锁          : 有 ' + $g2LiveN + ' 个轮在跑 —— 不清锁（避免并发）') 'Yellow' }
+elseif ($g2Lock.Stale) {
+  $g2Same = $true
+  try {
+    $g2OwnerNow = ''; $g2MNow = $null
+    if (Test-Path -LiteralPath (Join-Path $g2LockD 'started.txt')) {
+      $g2raw = [System.IO.File]::ReadAllText((Join-Path $g2LockD 'started.txt')); $g2nl = $g2raw.IndexOf([char]10)
+      if ($g2nl -lt 0) { $g2OwnerNow = $g2raw.Trim() } else { $g2OwnerNow = $g2raw.Substring(0, $g2nl).Trim() }
+    }
+    $g2MNow = (Get-Item -LiteralPath $g2LockD).LastWriteTime
+    if ($g2MNow -ne $g2Lock.LockMtime -or $g2OwnerNow -ne $g2Lock.Owner) { $g2Same = $false }
+  } catch { $g2Same = $false }
+  if (-not $g2Same) { T '  轮锁          : 判定之后被改动过（可能刚有轮接手）—— 不清锁' 'Yellow' }
+  else {
+    try { Remove-Item -LiteralPath $g2LockD -Recurse -Force -ErrorAction Stop; T ('  [OK] 已清掉卡住的轮锁（' + $g2Lock.Owner + '，依据：' + $g2Lock.Why + '）—— 否则每次开机的轮都会被它挡掉') 'Green' }
+    catch { T ('  [ !] 锁删不掉（' + $_.Exception.Message + '）—— 下次开机可能仍不自启，重启后再跑一次本工具') 'Yellow' }
+  }
+} else { T ('  轮锁          : 有效（' + $g2Lock.Why + '，存在 ' + $g2Lock.AgeMin + ' 分钟）—— 不动它') }
+if ((-not $g2QFail) -and $g2LiveN -eq 0) {
+  Get-ChildItem -LiteralPath (Join-Path $g2Win 'logs') -Force -Filter 'postbind.lock.stale-*' -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 # ---------- 1) 更新工具 ----------
 T ''
