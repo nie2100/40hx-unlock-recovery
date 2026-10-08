@@ -8,13 +8,18 @@
 # ============================================================
 param(
   [switch]$Fix,
+  [switch]$NoFix,
   [switch]$DryRun,
   [switch]$NoElevate,
   [string]$OutFile = '',
   [string]$ClassRoot = ''
 )
 $ErrorActionPreference = 'Continue'
-$VER = '2026-10-04c'
+$VER = '2026-10-08'
+# 2026-10-08: 默认“条件具备就自动修”（客户反馈：装/更新驱动后 GSP 常是关的，不该让客户再跑第二次）；
+#           要纯只读请用 查GSP.cmd /readonly（= -NoFix）。
+$AutoFix = (-not $NoFix)      # 不是显式只读 → 允许自动修
+$DoFix   = ($Fix -or $AutoFix)
 
 $desk = [Environment]::GetFolderPath('Desktop')
 if (-not $desk) { $desk = 'C:\Users\Public\Desktop' }
@@ -35,6 +40,7 @@ if (-not $NoElevate -and -not (Is-Admin)) {
   # 2026-10-04c（审查发现）：-ArgumentList 原样拼命令行，含空格的路径必须自带引号，否则提权子进程参数会被拆断
   $a = @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"' + $PSCommandPath + '"'),'-NoElevate','-OutFile',('"' + $out + '"'))
   if ($Fix)       { $a += '-Fix' }
+  if ($NoFix)     { $a += '-NoFix' }
   if ($DryRun)    { $a += '-DryRun' }
   if ($ClassRoot) { $a += @('-ClassRoot',('"' + $ClassRoot + '"')) }
   try { Start-Process powershell -Verb RunAs -Wait -ArgumentList $a; exit 0 }
@@ -42,9 +48,10 @@ if (-not $NoElevate -and -not (Is-Admin)) {
 }
 
 W '============================================================'
-W (' CMP 40HX  GSP（GPU 固件）诊断' + $(if ($Fix) { '（含修复）' } else { '（只读）' }) + '   工具版 ' + $VER)
+W (' CMP 40HX  GSP（GPU 固件）诊断' + $(if ($DoFix) { '（含自动修复）' } else { '（只读）' }) + '   工具版 ' + $VER)
 W (' 时间: ' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '   机器: ' + $env:COMPUTERNAME + '   管理员: ' + (Is-Admin))
 W '============================================================'
+W ('  模式: ' + $(if ($DoFix) { '体检 + 条件具备时自动写 GSP 开关（写前备份；不用你再跑第二次）' } else { '纯只读（/readonly）：只诊断，不写任何东西' }))
 W ''
 W '【为什么要看 GSP】CMP 40HX 解锁算力后，驱动要启用 GSP（GPU 固件）才能正常认卡；'
 W '                  GSP 没开最常见的结果是设备管理器「代码 43」+ 开机黑屏一下。'
@@ -148,6 +155,8 @@ else {
   W ('  权威子键: ' + $target.PSPath.Replace('Microsoft.PowerShell.Core\Registry::',''))
   W ('  EnableGpuFirmware = ' + $(if ($has) { $val } else { '(未设置 —— 等同未启用)' }))
   W ('  驱动版本(子键记录) = ' + $tp.DriverVersion + '   驱动日期 = ' + $tp.DriverDate + '   InfPath = ' + $tp.InfPath)
+  # 2026-10-08: 装/更新驱动会重新枚举设备，开关不会自动跟过来（客户机实测都是这个状态）
+  if (-not $has) { W '  ☞ 装过/更新过 NVIDIA 驱动后，这里“没有这个值”是常态（Windows 上 GSP 默认是关的）→ 本脚本会顺手修。' }
 }
 W ''
 
@@ -180,17 +189,25 @@ if ($gspOn) {
     W '       ⚠ 开关已经是 1 但 nvidia-smi 仍说没启用 → 先**完全关机再开机**（不是重启）；若开机后还是 N/A，'
     W '         说明问题不在这个开关（驱动版本 / VBIOS / 固件），别反复写它。'
   } else {
-    W '       处置：跑一次  查GSP.cmd /fix  （写 EnableGpuFirmware=1），然后**完全关机再开机**（不是重启）。'
-    W '       开机后跑 状态自检.bat + 本脚本复查：nvidia-smi 应显示 GSP Firmware Version = 版本号。'
+    if ($DoFix) {
+      W '       处置：**本脚本接下来会自动写** EnableGpuFirmware=1（写前备份，见第 5 节），不用你再跑一次。'
+      W '       写完必须**完全关机再开机**（不是重启）。开机后跑 状态自检.bat + 本脚本复查：nvidia-smi 应显示 GSP Firmware Version = 版本号。'
+    } else {
+      W '       处置：跑一次  查GSP.cmd /fix  （写 EnableGpuFirmware=1），然后**完全关机再开机**（不是重启）。'
+      W '       开机后跑 状态自检.bat + 本脚本复查：nvidia-smi 应显示 GSP Firmware Version = 版本号。'
+    }
   }
 }
 W ''
 
 # ---------- 5) 修复（-Fix）----------
-if ($Fix) {
+if ($DoFix) {
   W '==== 5) 修复动作 ===='
+  W $(if ($Fix) { '  （显式 /fix）' } else { '  （自动模式：只有“条件全部具备”才写）' })
   if (-not $target) { W '  [X] 没有可写的权威子键 —— 先解决驱动问题（见第 4 节），本次不写任何东西。' }
   elseif ($regOn) { W '  [--] 开关 EnableGpuFirmware 已经是 1 —— 幂等跳过（重复写没有意义；先完全关机再开机）。' }   # 2026-10-04c：原来要 $regOn -and $gspOn 才跳过，导致"开关=1 但没启用"时又备份又重写，与自己第 4 节的建议矛盾
+  # 2026-10-08：自动模式下只允许“条件全部具备（驱动层正常 + 驱动包里有 GSP 固件）”才写，否则一个值都不动
+  elseif (-not ($drvOK -and $fwOK)) { W '  [--] 条件不具备（驱动层不正常，或驱动包里缺 GSP 固件）→ 本次不写任何东西；先按第 4 节处理，再跑一次本脚本。' }
   else {
     $keyPath = $target.PSPath.Replace('Microsoft.PowerShell.Core\Registry::','') -replace '^HKEY_LOCAL_MACHINE','HKLM' -replace '^HKEY_CURRENT_USER','HKCU'
     $bk = Join-Path $desk ('40HX-GSP备份-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.reg')

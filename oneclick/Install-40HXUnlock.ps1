@@ -2176,7 +2176,7 @@ function Invoke-GspHealthCheck {
   # 2026-10-04 新增（用户要求：**按需触发**）：装完只在 GSP 没启用时才跑这一次体检。
   #   只读 = 不写系统；副作用只有"落一份报告"（桌面 + 包内 logs 各一份）。
   #   绝不改变安装结论：不动 $script:FailCount / $script:WarnCount / 退出码，异常一律 Info。
-  Head 'GSP 体检（只读，不写系统；报告落桌面）'
+  Head 'GSP 体检（只读：传 -NoFix，绝不写系统；报告落桌面）'
   $tool = Join-Path $script:PkgRoot '工具-测试与修复\查GSP.ps1'
   if (-not (Test-Path -LiteralPath $tool)) { Info '包内没有 工具-测试与修复\查GSP.ps1 → 跳过（不影响安装）'; return }
   $desk = [Environment]::GetFolderPath('Desktop')
@@ -2190,7 +2190,9 @@ function Invoke-GspHealthCheck {
   $tmpOut = Join-Path $env:TEMP ('gsp-check-out-' + [Guid]::NewGuid().ToString('N').Substring(0,8) + '.txt')
   $tmpErr = $tmpOut + '.err'
   try {
-    $argList = @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"' + $tool + '"'),'-NoElevate','-OutFile',('"' + $out + '"'))
+    # 2026-10-08：查GSP.ps1 默认已改成"条件具备就自动写开关"，安装器这次体检必须是**只读**的
+    #   （承诺：不写系统、不改变安装结论）→ 显式传 -NoFix
+    $argList = @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"' + $tool + '"'),'-NoElevate','-OutFile',('"' + $out + '"'),'-NoFix')
     $finished = $false
     $proc = $null
     # 2026-10-04（第 23 轮审查 中-1）：**抑制子进程 stdout/stderr** —— 报告只落桌面（+包内 logs），
@@ -2209,7 +2211,7 @@ function Invoke-GspHealthCheck {
       # 回退路径（某些宿主 -NoNewWindow 不可用）。2026-10-04（审查 低-1）：必须走 Invoke-Native ——
       #   本脚本硬规则：PS 5.1 下外部程序往 stderr 写字即使 2>&1|Out-Null 也会终止脚本；且此处是全包最后的保险，别绕过它。
       Info 'GSP 体检改用同步调用（Start-Process 不可用）'
-      try { Invoke-Native { & $psExe -NoProfile -ExecutionPolicy Bypass -File $tool -NoElevate -OutFile $out } | Out-Null } catch { }
+      try { Invoke-Native { & $psExe -NoProfile -ExecutionPolicy Bypass -File $tool -NoElevate -OutFile $out -NoFix } | Out-Null } catch { }   # 同上：体检必须只读
       $finished = $true
     }
     if (Test-Path -LiteralPath $out) {
