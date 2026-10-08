@@ -59,7 +59,7 @@ db55f715574bb87c29dc2fbd482ecc7e     28421  oneclick/payload/windows/RunPostBind
 6e3f7dbd75d2e59fd824c195b7278477       735  oneclick/payload/windows/Status.cmd
 2a44b95ea3797a1dcffe4cf5fe4fb08f      1017  oneclick/payload/windows/Uninstall_Auto.cmd
 8dc1be522a6c4b1c644050895508f065      6581  oneclick/payload/windows/Unpack-Drivers.ps1
-3e0eb8c8ae8649c4463c61f60d2bc060     14792  oneclick/README.md
+5665b5c912f50d1d1ed3b6724539343d     15168  oneclick/README.md
 a9c1709bb86f1fc866a7eb8c4b336e03      2970  oneclick/THIRD_PARTY.md
 4858ccd7f2d8fa3bcee342f57e289ed1      1734  oneclick/一键修复Gen2.cmd
 f0b5f540dc94b814a9d47e0b27986d44     25090  oneclick/一键修复Gen2.ps1
@@ -82,7 +82,7 @@ f25f4ae3f932cd076293f241970c46a6      5608  oneclick/工具-测试与修复/安�
 3ee0acee29efa0574f01d6efabaeb325      9383  oneclick/工具-测试与修复/收集蓝屏证据.ps1
 3fdff8d120daa17aca2fd069a6a2cb4a      1922  oneclick/工具-测试与修复/查GSP.cmd
 8b5607cfb8faca6ddb06886f759352eb     15102  oneclick/工具-测试与修复/查GSP.ps1
-9c82c28e9ef5af03981ddc8f771ca86e      2307  oneclick/工具-测试与修复/查GSP-怎么用.txt
+8855077482e9296b3f11b5463ea14565      3030  oneclick/工具-测试与修复/查GSP-怎么用.txt
 13320fd98e5f19974c87008d673b809e      1706  oneclick/工具-测试与修复/查ThrottleStop.cmd
 f7b557f58af3adca11065e8271ced425     18694  oneclick/工具-测试与修复/查ThrottleStop.ps1
 fce9d8dca7beaa23e5d9baa60e2e91dd      1465  oneclick/工具-测试与修复/桌面恢复.cmd
@@ -104,7 +104,7 @@ ab6c31bbc75192746fe0bbaaf1c6a9d9      3978  oneclick/归档-旧版本/ACE排查/
 66396b8918d75af0b42adcef24cab38d     20125  oneclick/归档-旧版本/ACE排查/状态自检.bat
 f7b2dfc5e107f3fcdc40a7f824637636      5484  oneclick/归档-旧版本/hotfix-20260928/apply-hotfix.ps1
 86db385da94ffab2f6575129f0b00ede     74586  oneclick/归档-旧版本/hotfix-20260928/Install-40HXUnlock.ps1
-e150f4ff59d543148af7bbcabd363bad     15838  oneclick/归档-旧版本/hotfix-20260928/payload/ACE-Toggle.ps1
+0f57dc0c3d098091b1ce401a7a4e4e29     16145  oneclick/归档-旧版本/hotfix-20260928/payload/ACE-Toggle.ps1
 c7c28a0972d3bc2e024e4a766d16f516      3533  oneclick/归档-旧版本/hotfix-20260928/payload/RunPostBind.cmd
 bd68fd7e0798cca7bf8c07d14bb22081       312  oneclick/归档-旧版本/hotfix-20260928/应用热修.cmd
 608745073b72d3257937eb1821addcea       312  oneclick/归档-旧版本/hotfix-20260928/应用热修并立即验证.cmd
@@ -112,7 +112,7 @@ bd68fd7e0798cca7bf8c07d14bb22081       312  oneclick/归档-旧版本/hotfix-202
 2d4de87d0c33cecb05879875230ad59e       418  oneclick/归档-旧版本/就地更新并跑一次.cmd
 56ba5437d011d1fe85462509eda34085      4117  oneclick/归档-旧版本/就地更新并跑一次.ps1
 909d8d0175c2e2508dc7522f965576a8      3617  oneclick/归档-旧版本/给客户-操作指引-20260930d.txt
-04a82ddd807c0a80be021dea2b5d4bc7     80838  oneclick/排查指引.md
+87b8ae81bc14b80d5b92df63dc277dca     81607  oneclick/排查指引.md
 a71a9cdec856326626af9b31ce195812     27545  oneclick/文档/使用说明-详细.md
 1850026059651ff54df6edba269b903f      5189  oneclick/文档/给客户-ACE报错处理指引-20261004.txt
 e3cf708f75d0d369cd60f25133315eac      9075  oneclick/文档/给客户-Gen2预埋缺失-怎么办-20261005.txt
