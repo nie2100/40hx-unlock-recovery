@@ -59,7 +59,7 @@ db55f715574bb87c29dc2fbd482ecc7e     28421  oneclick/payload/windows/RunPostBind
 6e3f7dbd75d2e59fd824c195b7278477       735  oneclick/payload/windows/Status.cmd
 2a44b95ea3797a1dcffe4cf5fe4fb08f      1017  oneclick/payload/windows/Uninstall_Auto.cmd
 8dc1be522a6c4b1c644050895508f065      6581  oneclick/payload/windows/Unpack-Drivers.ps1
-3b510977e7d3c4a3366321a4b6a2f83b     15311  oneclick/README.md
+c86b0556ec3be41c8d3f0f2a42d46538     15412  oneclick/README.md
 a9c1709bb86f1fc866a7eb8c4b336e03      2970  oneclick/THIRD_PARTY.md
 4858ccd7f2d8fa3bcee342f57e289ed1      1734  oneclick/一键修复Gen2.cmd
 f0b5f540dc94b814a9d47e0b27986d44     25090  oneclick/一键修复Gen2.ps1
@@ -180,7 +180,7 @@ c7c28a0972d3bc2e024e4a766d16f516      3533  payload/windows-live/RunPostBind.cmd
 71458e1cbf9d86c288c1a1faa714e0bd      2776  payload/windows-live/RunPostBind.no-ace.cmd.bak
 6e3f7dbd75d2e59fd824c195b7278477       735  payload/windows-live/Status.cmd
 2a44b95ea3797a1dcffe4cf5fe4fb08f      1017  payload/windows-live/Uninstall_Auto.cmd
-2624e5ddf1e49c39e1ec317f88caeb45     11592  README.md
+f5b938d149e0401234072c5d1def70a9     11692  README.md
 d094d3d8f42685ee61bddc9b9aa33474     31563  scripts/40HX解锁状态.bat
 a263240ac52b02cb91cf692e965be17c       996  scripts/clean-run-keys.ps1
 9070c6fe409e3005a14cc02aa9f97c67      4611  scripts/coldboot-report.ps1
