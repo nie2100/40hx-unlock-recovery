@@ -82,7 +82,7 @@ f25f4ae3f932cd076293f241970c46a6      5608  oneclick/工具-测试与修复/安�
 3ee0acee29efa0574f01d6efabaeb325      9383  oneclick/工具-测试与修复/收集蓝屏证据.ps1
 3fdff8d120daa17aca2fd069a6a2cb4a      1922  oneclick/工具-测试与修复/查GSP.cmd
 8b5607cfb8faca6ddb06886f759352eb     15102  oneclick/工具-测试与修复/查GSP.ps1
-8855077482e9296b3f11b5463ea14565      3030  oneclick/工具-测试与修复/查GSP-怎么用.txt
+b7a273369c19b4bb456ecc465f02fcd0      3044  oneclick/工具-测试与修复/查GSP-怎么用.txt
 13320fd98e5f19974c87008d673b809e      1706  oneclick/工具-测试与修复/查ThrottleStop.cmd
 f7b557f58af3adca11065e8271ced425     18694  oneclick/工具-测试与修复/查ThrottleStop.ps1
 fce9d8dca7beaa23e5d9baa60e2e91dd      1465  oneclick/工具-测试与修复/桌面恢复.cmd
