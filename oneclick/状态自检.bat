@@ -453,11 +453,17 @@ if exist "%LOGP%" (
 rem 2026-10-06£ºÕâÒ»ÏîÒÔÇ°Ö»ÌùÈÕÖ¾¡¢²»½ø½áÂÛ ¡ª¡ª ÓÚÊÇ"ÈÕÖ¾ÀïÊÇÉÏÒ»´Î¿ª»úµÄ PASS"Ò²ÄÜÅäÉÏ"È«ÂÌ"¡£
 rem   ÏÖÔÚ°´Á½ÌõÅĞ£º¢ÙÈÕÖ¾ÊÇ²»ÊÇ±¾´Î¿ª»úĞ´µÄ£¨LastWriteTime > LastBootUpTime£©¢Ú×îºóÒ»ÂÖÊÇ²»ÊÇ
 rem   EXIT=0 ÇÒ´ø PASS ĞĞ¡£¸Õ¿ª»ú 3 ·ÖÖÓÄÚ»¹Ã»ÂäÈÕÖ¾µÄËã"Î´Êµ²â"£¬²»Ô©Í÷Ëü¡£
+rem   2026-10-08£¨¿Í»§»úÊµ²â£©£º¿ª»úºó**Á¢¿Ì**ÅÜ±¾½Å±¾»¹»á²Èµ½"±¾ÂÖÒÑ start¡¢»¹Ã»Âä EXIT ĞĞ" ¡ª¡ª Ô­À´ÕâÖÖÒ²ÅĞ FAIL(ºì)£¬
+rem   ¿Í»§ÒÔÎª¿ª»úÈÎÎñ»µÁË£¨ÆäÊµÊÇÄÇÒ»ÂÖÒª 1~3 ·ÖÖÓ£©¡£ÏÖÔÚ¶àÒ»¸ö RUN ½áÂÛ£ºÈÕÖ¾ÔÚ 4 ·ÖÖÓÄÚ¸Õ¸üĞÂ¹ı¡¢±¾ÂÖÓÖÃ»ÓĞ EXIT ĞĞ
+rem   = ÈÎÎñ»¹ÔÚÅÜ£¨»Æ/Î´Êµ²â£©£»³¬¹ı 4 ·ÖÖÓ»¹Ã» EXIT ĞĞ = ÕæµÄÃ»ÅÜ³É£¨ºì£©¡£
+rem   2026-10-08£¨Éó²é Q1£¬ÖĞÎ££©£ºFAIL: Ò²Ëã"±¾ÂÖÒÑ¾­³ö½áÂÛ" ¡ª¡ª ËüÖ»ÔÚÊ§°Ü·ÖÖ§Ğ´
+rem   £¨payload\windows\RunPostBind.cmd Àï RC!=0 ²Å echo FAIL:£©£¬±¾»ú 36 ÂÖÈÕÖ¾Àï³öÏÖ 0 ´Î¡£
+rem   ²»ÕâÃ´ÊÕµÄ»°£¬"ÒÑ´ò FAIL: µ«½ø³Ì±»É±Ã»Âä EXIT"µÄÂÖ´Î»á±»µ±»Æ(Î´Êµ²â)£¬µÈÓÚ°ÑÕæÊ§°Ü²ØÆğÀ´¡£
 rem   ÅĞ¶¨ÓÃ PowerShell Ò»´ÎĞÔ¸ø½áÂÛ£ºÃüÁîĞĞÀïÖ»ÓÃµ¥ÒıºÅ¡¢²»Æ´ÖĞÎÄÂ·¾¶/²ÎÊı£¨ÃâµÃ´úÂëÒ³°Ñ²ÎÊı¸ã»µ£©¡£
 set "OK5=0"
 rem Í¬Ò»¸ö %TMPT% »á±»ÉÏÒ»´ÎÔËĞĞÁôÏÂ ¡ª¡ª ÏÈÉ¾µô, ÃâµÃÄÃÉÏ´ÎµÄ½áÂÛµ±±¾´ÎµÄ£¨±¾»úÊµ²â²Èµ½¹ı£©
 if exist "%TMPT%" del "%TMPT%" >nul 2>&1
-if exist "%LOGP%" powershell -NoProfile -ExecutionPolicy Bypass -Command "$p='%LOGP%';$bt=(Get-CimInstance Win32_OperatingSystem).LastBootUpTime;$f=Get-Item -LiteralPath $p;$t=[IO.File]::ReadAllText($p);$i=$t.LastIndexOf('PostBind start');$ok=$false;if($i -ge 0){$tail=$t.Substring($i);if(($tail -match 'EXIT=0') -and ($tail -match 'PASS: Gen2 reached on the new path')){$ok=$true}};if($f.LastWriteTime -gt $bt){if($ok){'OK'}else{'FAIL'}}else{if(((Get-Date)-$bt).TotalMinutes -lt 3){'WAIT'}else{'STALE'}}" > "%TMPT%" 2>nul
+if exist "%LOGP%" powershell -NoProfile -ExecutionPolicy Bypass -Command "$p='%LOGP%';$bt=(Get-CimInstance Win32_OperatingSystem).LastBootUpTime;$f=Get-Item -LiteralPath $p;$t=[IO.File]::ReadAllText($p);$i=$t.LastIndexOf('PostBind start');$ok=$false;$done=$false;if($i -ge 0){$tail=$t.Substring($i);$done=(($tail -match 'PostBind EXIT') -or ($tail -match 'FAIL:'));if(($tail -match 'EXIT=0') -and ($tail -match 'PASS: Gen2 reached on the new path')){$ok=$true}};if($f.LastWriteTime -gt $bt){if($ok){'OK'}elseif((-not $done) -and (((Get-Date)-$f.LastWriteTime).TotalMinutes -lt 4)){'RUN'}else{'FAIL'}}else{if(((Get-Date)-$bt).TotalMinutes -lt 3){'WAIT'}else{'STALE'}}" > "%TMPT%" 2>nul
 if exist "%TMPT%" for /f "usebackq delims=" %%a in ("%TMPT%") do set "TASKV=%%a"
 if "%TASKV%"=="OK" set "OK5=1"
 if "%TASKV%"=="OK" echo     [OK] ±¾´Î¿ª»úµÄÈÎÎñÅÜ¹ı: ×îºóÒ»ÂÖ EXIT=0 + PASS
@@ -465,6 +471,8 @@ if "%TASKV%"=="FAIL" echo     [!!] ×î½üµÄÈÕÖ¾ÂÖ´ÎÃ»ÓĞ EXIT=0 + PASS: ¿ª»úÈÎÎñÃ»Å
 if "%TASKV%"=="STALE" echo     [!!] ÈÕÖ¾»¹Í£ÔÚ"ÉÏÒ»´Î¿ª»ú": ±¾´Î¿ª»úµÄÈÎÎñÃ»ÅÜ³É
 if "%TASKV%"=="WAIT" set "OK5=2"
 if "%TASKV%"=="WAIT" echo     [--] ±¾´Î¿ª»úµÄÈÕÖ¾»¹Ã»ÂäÏÂÀ´(ÈÎÎñÔÚ½ø×ÀÃæºóÔ¼ 1 ·ÖÖÓÄÚÅÜ, ÉÔºóÖØÅÜ±¾½Å±¾)
+if "%TASKV%"=="RUN" set "OK5=2"
+if "%TASKV%"=="RUN" echo     [--] ±¾´Î¿ª»úµÄÈÎÎñ±¾ÂÖ**»¹ÔÚÅÜ**(ÈÕÖ¾ÒÑ start, »¹Ã»Âä EXIT ĞĞ) -- µÈ 2~3 ·ÖÖÓÔÙÅÜ±¾½Å±¾
 if not exist "%LOGP%" echo     [!!] Ã»ÓĞ¿ª»úÈÎÎñÈÕÖ¾: ¿ÉÄÜÃ»×°¿ª»úÈÎÎñ(¼û ÅÅ²éÖ¸Òı µÚ 5 ½Ú)
 if not defined TASKV if exist "%LOGP%" echo     [!!] Ã»ÄÜÅĞ¶¨: PowerShell Ã»¸ø³ö½á¹û(±»À¹»ò±¾»úÃ»ÓĞ PowerShell)
 rem 2026-10-06£¨Éó²é r1 ÖĞÎ££©£ºTASKV ¿Õ = "²â²»³É", ²»ÊÇ"Î´¹ı" ¡ª¡ª ¼ÆÎªÎ´Êµ²â(2)£¬±ğ±¨³É¼Ùºì
@@ -505,7 +513,7 @@ if "%OK1%"=="2" set "WAITN=%WAITN% ÏÔ¿¨ÓëÇı¶¯"
 if "%OK2%"=="2" set "WAITN=%WAITN% Çı¶¯Ä£Ê½"
 if "%OK3%"=="2" set "WAITN=%WAITN% PCIe Á´Â·(ËãÁ¦/´ø¿íÃ»Êµ²â³É)"
 if "%OK4%"=="2" set "WAITN=%WAITN% ËãÁ¦/ÏÔ´æ"
-if "%OK5%"=="2" set "WAITN=%WAITN% ¿ª»úÈÎÎñ(Î´Êµ²â: ±¾´ÎÃ»ÂäÈÕÖ¾»ò±¾»úÅĞ²»ÁË)"
+if "%OK5%"=="2" set "WAITN=%WAITN% ¿ª»úÈÎÎñ(Î´Êµ²â: ±¾´ÎÃ»ÂäÈÕÖ¾/±¾ÂÖ»¹ÔÚÅÜ, »ò±¾»úÅĞ²»ÁË)"
 echo ============================================================
 rem 2026-10-06£¨±¾´Î¸ÄÔìµÄºËĞÄ£©£º½áÂÛ²»ÔÙÓÉ WDDM/Gen2/ËãÁ¦ Èı¸ö¿ª¹ØÒ»¾ä»°ÅÄ³öÀ´£¬
 rem   ¶øÊÇÏÈ°Ñ 6 Ïî¸÷×ÔµÄÊµ²â½á¹û°Ú³É²ÊÉ«Çåµ¥£¬ÔÙ°´Õâ 6 ÏîËã½áÂÛ£º
@@ -525,6 +533,9 @@ if "%VERDICT%"=="È«ÂÌ" set "SUMV=È«ÂÌ -- WDDM + PCIe Gen2 + ËãÁ¦ÂúÑª, ½âËøÕı³£"
 if "%VERDICT%"=="Ğè¸´ºË" set "VST=2"
 if "%VERDICT%"=="Ğè¸´ºË" set "SUMV=Ğè¸´ºË -- WDDM Õı³£ + PCIe Gen2 ÒÑ½âËø, µ«ËãÁ¦/ÏÔ´æ¶ÁÊıµÍÓÚÅĞ¾İÏÂÏŞ"
 if "%VERDICT%"=="²¿·ÖÎ´Êµ²â" set "SUMV=²¿·ÖÎ´Êµ²â -- ÒÑ¹ıµÄÏî¶¼Õı³£; Î´Êµ²â:%WAITN%"
+rem 2026-10-08£º¹âÓĞÎÄ°¸²»¹» ¡ª¡ª VST ÁôÔÚ 0 »áÈÃÕâÒ»ĞĞÓ¡³ÉºìÉ«£¨ÉÏÉ«½Å±¾°Ñ·Ç 1/0 µÄ¶¼µ±»Æ£¬Ö»ÓĞ 0 ÊÇºì£©£¬
+rem   ¿Í»§¿´µ½"»ÆÏî + ºì½áÂÛ"ÕÕÑù»áÒÔÎª½âËøÊ§°Ü¡£ÕâÀïÈÃËü¸ú"Î´Êµ²â"µÄÓïÒåÒ»ÖÂ£º»Æ¡£
+if "%VERDICT%"=="²¿·ÖÎ´Êµ²â" set "VST=2"
 rem ---- ²ÊÉ«ÖğÏîÇåµ¥£º±êÇ©+×´Ì¬ÏÈÂä³ÉÎÄ¼ş, ÔÙÓÉ PowerShell ¶ÁÎÄ¼şÉÏÉ« ----
 rem   £¨-Command ÀïÖ»ÓĞĞ´ËÀµÄ¼¸¸öÖĞÎÄ×ÖÃæÁ¿; Â·¾¶/²ÎÊıÒ»ÂÉ²»´«ÖĞÎÄ, Êµ²â chcp 936 Õı³££©
 > "%TMPCL%" echo %OK1%;ÏÔ¿¨ÓëÇı¶¯
@@ -536,7 +547,7 @@ rem   £¨-Command ÀïÖ»ÓĞĞ´ËÀµÄ¼¸¸öÖĞÎÄ×ÖÃæÁ¿; Â·¾¶/²ÎÊıÒ»ÂÉ²»´«ÖĞÎÄ, Êµ²â chcp 93
 >> "%TMPCL%" echo V;%VST%;%SUMV%
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$cn=@{'1'='Green';'0'='Red';'2'='Yellow'};$sw=@{'1'='[OK]';'0'='[!!]';'2'='[--]'};foreach($l in ([IO.File]::ReadAllLines([string]'%TMPCL%',[Text.Encoding]::GetEncoding(936)))){$p=$l.Split([char]59);if($p.Count -lt 2){continue};if($p[0] -eq 'V'){$k=$p[1];if($k -ne '1'){if($k -ne '0'){$k='2'}};$tx=($p[2..($p.Count-1)] -join ';');Write-Host ('   ½áÂÛ: ' + $tx) -ForegroundColor $cn[$k]}else{$k=$p[0];if($k -ne '1'){if($k -ne '0'){$k='2'}};Write-Host ('   ' + $sw[$k] + ' ' + $p[1]) -ForegroundColor $cn[$k]}}"
 if "%OK5%"=="0" echo     - ¿ª»úÈÎÎñÃ»ÅÜ³É: ¼û ÅÅ²éÖ¸Òı µÚ 5 ½Ú; Ò²¿ÉÒÔÖ±½ÓÖØÆôÒ»´ÎÔÙÅÜ±¾½Å±¾
-if "%OK5%"=="2" if not defined EARLY echo     - ¿ª»úÈÎÎñÎ´Êµ²â: ±¾´Î»¹Ã»ÂäÈÕÖ¾¾ÍµÈ½ø×ÀÃæ 1 ·ÖÖÓºóÔÙÅÜ; ±¾»úÅĞ²»ÁË¾Í¿´ [5/6] µÄËµÃ÷
+if "%OK5%"=="2" if not defined EARLY echo     - ¿ª»úÈÎÎñÎ´Êµ²â: ±¾´Î»¹Ã»ÂäÈÕÖ¾/±¾ÂÖ»¹ÔÚÅÜ -- µÈ½ø×ÀÃæ 1~3 ·ÖÖÓÔÙÅÜ±¾½Å±¾; ±¾»úÅĞ²»ÁË¾Í¿´ [5/6] µÄËµÃ÷
 if "%OK1%"=="0" echo     - Ã»¶Áµ½ÏÔ¿¨/Çı¶¯: ÏÈÈ·ÈÏ nvidia-smi ÄÜÅÜ¡¢Çı¶¯Õı³£(Éè±¸¹ÜÀíÆ÷ÓĞÃ»ÓĞ¸ĞÌ¾ºÅ)
 if "%OK2%"=="0" echo     - Çı¶¯Ä£Ê½²»ÊÇ WDDM: ¹ÜÀíÔ±Ö´ĞĞ nvidia-smi -dm 0, È»ºóÖØÆô
 if "%OK3%"=="0" if not defined NOCSC echo     - PCIe Î´´ï Gen2: ÏÈÖØÆôÈÃ¿ª»úÈÎÎñÖØÑµ; ÈÔ²»ĞĞ¼ì²é ACE-BOOT ÊÇ·ñÀ¹½Ø
