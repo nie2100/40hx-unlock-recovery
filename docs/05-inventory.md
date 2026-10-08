@@ -32,11 +32,12 @@ bash scripts/make-inventory.sh        # 在仓库根目录跑，输出 INVENTORY
 | `scripts/coldboot-report.ps1` + `register-coldboot-task.ps1` | 一次性开机任务：冷启动 3 分钟后自动出验证报告 | — |
 | `scripts/nvram_chk.ps1` / `nvram_write.ps1` / `nvram_bootorder.ps1` | 读写 UEFI 引导变量（`SeSystemEnvironmentPrivilege`） | — |
 | `scripts/ghost-clean.ps1` | 清理幽灵 PnP 实例（先 `reg export` 备份） | — |
-| `scripts/40HX解锁状态.bat` | **日常一键自检**（双击即用，6 步）：nvidia-smi + WDDM 模式 + CUDA ctypes 实测链路带宽判 Gen2 + **PTX 实测算力**（SM 数 / FP32 / FP16 / FP16-TC / 显存带宽）+ 开机任务日志 + 厂商状态文件，末行给三态结论 | md5 `66396b8918d75af0b42adcef24cab38d`（与本机桌面文件逐字节一致；GBK + CRLF） |
+| `scripts/40HX解锁状态.bat` | **日常一键自检**（双击即用，6 步）：nvidia-smi + WDDM 模式 + CUDA ctypes 实测链路带宽判 Gen2 + **PTX 实测算力**（SM 数 / FP32 / FP16 / FP16-TC / 显存带宽）+ 开机任务日志 + 厂商状态文件，末行给三态结论 | md5 `d094d3d8f42685ee61bddc9b9aa33474`（2026-10-08 复核实测；GBK + CRLF） |
 | `oneclick/一键安装.cmd` | **一键安装入口**（双击；先摘要+确认再提权，提权后那份不再二次询问） | GBK + CRLF（`.gitattributes` 已禁止转换） |
 | `oneclick/Install-40HXUnlock.ps1` | 自含安装/修复/取证脚本：`Check`/`SelfTest`/`Install`/`Repair`/`Verify`/`MakeDefault`/`Uninstall`；退出码 0/1/2/3/4/5，失败自动打印「出错怎么办」；**2026-09-28 修掉**：所有原生命令（`schtasks`/`sc`/`mountvol`/`nvidia-smi`）统一走 `Invoke-Native` 包装 —— 此前 `$ErrorActionPreference='Stop'` 下首次安装必断在 `schtasks /delete`（见 `docs/03` D6） | UTF-8 **带 BOM** |
-| `oneclick/状态自检.bat` | 与 `scripts/40HX解锁状态.bat` **逐字节相同**（md5 `66396b8918d75af0b42adcef24cab38d`），包内自带一份以保持自含 | GBK + CRLF |
-| `oneclick/README-使用说明.md` / `排查指引.md` / `验证记录.md` | 包内说明、**按报错原话/退出码索引的排查指引**、交付前本机实测记录 | UTF-8 |
+| `oneclick/状态自检.bat` | 包内当前版检测脚本（早先与 `scripts/40HX解锁状态.bat` 逐字节相同；**2026-10-08 复核已分叉**：`scripts/` 那份是历史单点脚本、不再同步）。`[5/6]` 本轮新增 RUN 判定（本轮已 start 但还没落 EXIT、日志 4 分钟内刚更新过 = 未实测/黄）并把 `FAIL:` 收进"已出结论"（不让真失败被当成未实测）。当前 md5 `2548c0c3a103e54b7911d87e4a8d1c88` | GBK + CRLF |
+| `oneclick/README-使用说明.md` / `排查指引.md` / `验证记录.md` | 包内说明、**按报错原话/退出码索引的排查指引**（含 §17「开机后报启动项异常 / 开机任务没跑成」两条根因）、交付前本机实测记录 | UTF-8 |
+| `oneclick/工具-测试与修复/存储体检.cmd` | **只读取证（2026-10-08 新增）**：装机版/精简版 Windows 读不出分区样式（安装被「系统盘不是 GPT（未知）」挡住）时跑它 —— 5 个存储后端的**原始错误原文**都进报告，报告落桌面 | GBK + CRLF |
 | `oneclick/payload/windows/ACE-Toggle.ps1` | **ACE(腾讯反作弊) 定位与停/恢复**：按 ImagePath 含 `AntiCheatExpert` 定位（换目录/改名无关）、托盘按路径定位、
 恢复按状态文件里记录的原始启动类型；WARN 提示其它厂商反作弊。被 `RunPostBind.cmd` 的 `:ace_toggle off|on` 调用 | UTF-8 带 BOM |
 | `oneclick/payload/` | EFI 解锁固件 + Windows helper + 两个驱动的 base64 + `sha256.txt`（与仓库其它 payload 目录内容等价：EFI/helper 逐字节相同；`*.b64` 仅换行方式不同，**解码后字节一致**、哈希与期望值相符） | 同仓库其它 payload |
