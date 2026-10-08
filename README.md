@@ -3,6 +3,16 @@
 > **一句话**：让一张 CMP 40HX 矿卡在 Windows 上恢复被砍掉的算力，并把 PCIe 从 Gen1 提到 **Gen2 x16**，
 > 而且**每次开机自动保持**。整套东西自含、离线、双击即装。
 
+## ⬇ 下载（点这一条就够，不用点 Code、不用看懂 GitHub）
+
+| 你要什么 | 怎么拿 |
+|---|---|
+| **一键包（推荐；装机器只用它）** | [点此直接下载 `40hx-oneclick.zip`](https://github.com/nie2100/40hx-unlock-recovery/releases/latest/download/40hx-oneclick.zip)（约 0.7 MB）→ 解压 → 双击 `一键安装.cmd` |
+| 整个仓库（原理文档 + 实测证据 + 源码） | 绿色 **`Code`** 按钮 → **`Download ZIP`**（约 3 MB）。这是**整个仓库**，装机器时只用里面 **`oneclick/`** 那一层目录 |
+| 国内下载慢 / 超时 / 打不开 | 在链接前面加镜像前缀 `https://ghfast.top/`，例：`https://ghfast.top/https://github.com/nie2100/40hx-unlock-recovery/releases/latest/download/40hx-oneclick.zip` |
+
+> 一键包的 **sha256 写在对应 Release 的说明里**（[所有版本](https://github.com/nie2100/40hx-unlock-recovery/releases)），下载后可自行核对。
+
 ---
 
 ## 〇、开装之前：BIOS 里必须先改的 5 项（脚本替你做不了）
