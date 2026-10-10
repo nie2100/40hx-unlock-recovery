@@ -63,3 +63,11 @@
   2026-10-05 晚补充：这台机器回执证明"只写 XVE_OVR=6 就能让显卡自己把 VSEC/LNKCAP/LNKCAP2/TLS 全部翻到 Gen2 档"
   （详见 文档\验证记录.md 第 15 轮）；因为寄存器易失，补写已挂进开机任务（RunPostBind.cmd 新路径 -AllowPrime），
   客户不用再手动跑本工具。手动跑仍然可用（排查/复现都用它），两个 .cmd 跑完窗口会停住等按键。
+
+【MBR 系统盘转 GPT（2026-10-10 新增）】
+  MBR转GPT.cmd                        —— mbr2gpt（微软官方）的安全包装：先体检（Windows 版本/BitLocker/
+                                        分区数≤3/C盘剩余空间）→ 官方 /validate 只读校验 → 输入 YES 才转换。
+                                        系统盘已是 GPT 会直接告诉你退出，不碰任何东西。
+  必须知道：转完重启要进 BIOS 把引导模式 Legacy 改成 UEFI（关 CSM），否则开不了机（数据没丢，
+        BIOS 改对就能进）；转换后桌面会留一份「40HX-转GPT后看这里.txt」。
+  不能转的情况：分区数 >3、BitLocker 开着、2011 年以前无 UEFI 的老主板、双系统。

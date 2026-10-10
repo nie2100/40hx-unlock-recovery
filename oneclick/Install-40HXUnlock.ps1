@@ -2875,7 +2875,7 @@ elseif ($rep.DiskStyle -ne 'GPT') {
     Bad '取不到 EFI 系统分区（ESP）—— 引导模式或 ESP 挂载有问题，本次**还没有做任何改动**'
     $blockers++
     $espHardBlocked = $true
-    Add-Action '先分两条查：① 这台机器是不是 UEFI+GPT 引导（真 MBR 盘用 mbr2gpt /convert /allowFullOS 转换，并在 BIOS 关 CSM；盘里没数据的话直接重装成 GPT 更快）；② ESP 是不是被安全软件/别的东西占着挂不上（管理员下手动 mountvol Y: /S 试，或双击 工具-测试与修复\存储体检.cmd 取证）'
+    Add-Action '先分两条查：① 这台机器是不是 UEFI+GPT 引导（真 MBR 盘双击 工具-测试与修复\MBR转GPT.cmd（微软 mbr2gpt 的安全包装，先校验后转换），并在 BIOS 关 CSM；盘里没数据的话直接重装成 GPT 更快）；② ESP 是不是被安全软件/别的东西占着挂不上（管理员下手动 mountvol Y: /S 试，或双击 工具-测试与修复\存储体检.cmd 取证）'
   }
 }
 if ($rep.SecureBoot -eq $true) { Bad 'Secure Boot 开着'; $blockers++ }

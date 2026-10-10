@@ -45,7 +45,7 @@ d2f8f43def04ae97bade7ce89955528e      1012  evidence/inpout-20260929/00-diag-fai
 014ac1e5bd011b010934c7782de365e7       320  .gitattributes
 4f91bded2ac11e84bb54491c70942763      5038  LICENSE
 cc4a3adb52affbf9789a2af60fc95836      1025  oneclick/GSP体检.cmd
-51b418094f64b1649296293094a16cd6    211021  oneclick/Install-40HXUnlock.ps1
+6b2121d68ac424cf75c151ee81ab312b    211081  oneclick/Install-40HXUnlock.ps1
 4f91bded2ac11e84bb54491c70942763      5038  oneclick/LICENSE
 8598c45c61f04e9ce2145628adcfe28b    134522  oneclick/payload/drivers/inpoutx64.dll.b64
 59f7f4409873dae9abb7eba851d958bc     20540  oneclick/payload/drivers/inpoutx64.sys.b64
@@ -70,7 +70,9 @@ e4fe862b89710de17c68e618ca6555e9      1452  oneclick/下一步-重启后看这�
 ab06ce5a911dac4fc3b8b9fae02560dd     49084  oneclick/工具-测试与修复/ACE修复.ps1
 6f6a24af5ca0365cb248d2e21f1f8d5d      1486  oneclick/工具-测试与修复/DesktopRecover.cmd
 4cab7f393d0c9c7477f73fc58c59f1bf     11143  oneclick/工具-测试与修复/DesktopRecover.ps1
-3d9a3235c58f5785f6848c8819d41652      6744  oneclick/工具-测试与修复/README-工具说明.txt
+cb037355be8d6a4d5940d526c5a66ef6      1830  oneclick/工具-测试与修复/MBR转GPT.cmd
+63f97b24acae9c9a1474385daf2d9bde      8134  oneclick/工具-测试与修复/MBR转GPT.ps1
+46b781ab6f34ac7f58114f1cd8ac4353      7508  oneclick/工具-测试与修复/README-工具说明.txt
 2be36e6cbef9744b0dee77587fc5c019      1957  oneclick/工具-测试与修复/修复ACE.cmd
 a321d5168a05f453ededaea4b6a9bdda      1425  oneclick/工具-测试与修复/判断延长线.cmd
 d3350b00446b91518a6fea57d9e78817     10234  oneclick/工具-测试与修复/判断延长线.ps1
