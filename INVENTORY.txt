@@ -43,10 +43,10 @@ d2f8f43def04ae97bade7ce89955528e      1012  evidence/inpout-20260929/00-diag-fai
 97758a6ba934166306a890da0d80ca61      8706  evidence/verify_report.txt
 67c1e5c504865dcc4dc46540a8159a8e     10970  evidence/下一步.md
 014ac1e5bd011b010934c7782de365e7       320  .gitattributes
-b63de0c4dffaeb76610528087ea9e69f      4860  LICENSE
+4f91bded2ac11e84bb54491c70942763      5038  LICENSE
 cc4a3adb52affbf9789a2af60fc95836      1025  oneclick/GSP体检.cmd
 32bde20a590737e910f8596954a9cd07    205846  oneclick/Install-40HXUnlock.ps1
-b63de0c4dffaeb76610528087ea9e69f      4860  oneclick/LICENSE
+4f91bded2ac11e84bb54491c70942763      5038  oneclick/LICENSE
 8598c45c61f04e9ce2145628adcfe28b    134522  oneclick/payload/drivers/inpoutx64.dll.b64
 59f7f4409873dae9abb7eba851d958bc     20540  oneclick/payload/drivers/inpoutx64.sys.b64
 87ac9051ad8dcef59f0f474252875361     68718  oneclick/payload/drivers/ThrottleStop.sys.b64
@@ -60,7 +60,7 @@ be36ce1b2868b23021a7071090c8fac3     26037  oneclick/payload/windows/RunPostBind
 2a44b95ea3797a1dcffe4cf5fe4fb08f      1017  oneclick/payload/windows/Uninstall_Auto.cmd
 8dc1be522a6c4b1c644050895508f065      6581  oneclick/payload/windows/Unpack-Drivers.ps1
 ab91abf407613de81d32b70f4f38bb91     16294  oneclick/README.md
-0d1a2967301756329a3f9b5b42f7d7c2      7415  oneclick/THIRD_PARTY.md
+6292214c35f6b16379fe272a1e134467      7539  oneclick/THIRD_PARTY.md
 e930dd8a8130ef830c25a0240d403b37      1908  oneclick/一键修复Gen2.cmd
 da373e3e11b189c5eab5e4ace89ca8e5     25908  oneclick/一键修复Gen2.ps1
 2af273adeaf43101f65d26c96196d281      3679  oneclick/一键卸载.cmd
@@ -202,4 +202,4 @@ cd11ade0c41673676a6fdd5d50197619       526  scripts/make-inventory.sh
 17411638f11a39ea705086c6165e06e2      1974  scripts/step7_heal.ps1
 897f10e02564610d493369f8582468f2      2275  scripts/step8_wrapper.ps1
 042ddf56ff13412108b2a998967bfc6a      3117  scripts/step9_final.ps1
-4225e7abdf0cf3c89a3872926fd2b6fc      7573  THIRD_PARTY.md
+d1001b57a2c07c9caa2a988657c3f045      7697  THIRD_PARTY.md

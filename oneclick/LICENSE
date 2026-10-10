@@ -24,7 +24,7 @@ Copyright (c) 2026 the CMP40HX-Unlock-OnlyEFI authors (GitHub: BardKing-CN) （�
 ================================================================================
 
 范围：来自 **CMP40HX-Unlock**（GitHub: PZH1gdmu）与 **CMP40HX-Unlock-OnlyEFI**（GitHub: BardKing-CN）
-的代码与二进制（含 `40HXUNLK.EFI`、`Status.cmd` 等；`CMP40HXGen2.exe`、`AutoRetrain.cmd` 曾随包分发，2026-10-10 起已随"停 ACE 降级链"移除、不再分发），
+的代码与二进制（含 `40HXUNLK.EFI`、`Status.cmd` 等；`CMP40HXGen2.exe`、`AutoRetrain.cmd` 曾随一键包分发，2026-10-10 起已随"停 ACE 降级链"从一键包移除、不再随包分发 —— 仓内 `payload/onlyefi-v0.1.1/` 上游原包存档与 `payload/windows-live/` 历史快照仍含这两个文件，仅作来源证据/历史记录），
 以及本仓库对它们的修改。这些部分按 **MIT** 提供 —— 其原始版权声明与许可全文就在下面
 （MIT 要求随副本保留版权声明与许可文本，故一并放在本文件里）。
 
