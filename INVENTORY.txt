@@ -45,7 +45,7 @@ d2f8f43def04ae97bade7ce89955528e      1012  evidence/inpout-20260929/00-diag-fai
 014ac1e5bd011b010934c7782de365e7       320  .gitattributes
 4f91bded2ac11e84bb54491c70942763      5038  LICENSE
 cc4a3adb52affbf9789a2af60fc95836      1025  oneclick/GSP体检.cmd
-7a12d30551794ada73f186aa60c8fd50    206368  oneclick/Install-40HXUnlock.ps1
+15de904363ff3df00ce57cef7bb90f37    206464  oneclick/Install-40HXUnlock.ps1
 4f91bded2ac11e84bb54491c70942763      5038  oneclick/LICENSE
 8598c45c61f04e9ce2145628adcfe28b    134522  oneclick/payload/drivers/inpoutx64.dll.b64
 59f7f4409873dae9abb7eba851d958bc     20540  oneclick/payload/drivers/inpoutx64.sys.b64
@@ -59,7 +59,7 @@ be36ce1b2868b23021a7071090c8fac3     26037  oneclick/payload/windows/RunPostBind
 6e3f7dbd75d2e59fd824c195b7278477       735  oneclick/payload/windows/Status.cmd
 2a44b95ea3797a1dcffe4cf5fe4fb08f      1017  oneclick/payload/windows/Uninstall_Auto.cmd
 8dc1be522a6c4b1c644050895508f065      6581  oneclick/payload/windows/Unpack-Drivers.ps1
-ab91abf407613de81d32b70f4f38bb91     16294  oneclick/README.md
+539cda5cd9c2416f8b48c0f3047f85ab     17007  oneclick/README.md
 6292214c35f6b16379fe272a1e134467      7539  oneclick/THIRD_PARTY.md
 e930dd8a8130ef830c25a0240d403b37      1908  oneclick/一键修复Gen2.cmd
 da373e3e11b189c5eab5e4ace89ca8e5     25908  oneclick/一键修复Gen2.ps1
@@ -114,12 +114,12 @@ bd68fd7e0798cca7bf8c07d14bb22081       312  oneclick/归档-旧版本/hotfix-202
 56ba5437d011d1fe85462509eda34085      4117  oneclick/归档-旧版本/就地更新并跑一次.ps1
 909d8d0175c2e2508dc7522f965576a8      3617  oneclick/归档-旧版本/给客户-操作指引-20260930d.txt
 6c9aa1f71657836cd54930b52cc4a3fd     82471  oneclick/排查指引.md
-c41688bed12fe41037ee409f3dbb86cc     27794  oneclick/文档/使用说明-详细.md
+3c79419297898a891aeb8e051d5c34bd     28216  oneclick/文档/使用说明-详细.md
 1850026059651ff54df6edba269b903f      5189  oneclick/文档/给客户-ACE报错处理指引-20261004.txt
 e3cf708f75d0d369cd60f25133315eac      9075  oneclick/文档/给客户-Gen2预埋缺失-怎么办-20261005.txt
 0ed5589c3c81c673ac1783a3ca58293d      3618  oneclick/文档/给客户-安装退出码196608-怎么办.txt
 6fb85ad44c58899fbdf0e2782dce20ff      3270  oneclick/文档/给客户-操作指引-20261001.txt
-38f8bb69b979de15f4340ebc79ce0e88     13948  oneclick/文档/风险与恢复.md
+cd0aebb821333af79e574a0b1b401e18     14085  oneclick/文档/风险与恢复.md
 e832723a9983b6f798f5c351e99d378e    153892  oneclick/文档/验证记录.md
 f79c0f8348e9a7e0ae929c79f59d5eb0     45285  oneclick/状态自检.bat
 82c7fceede927d3101aab34768fd70d6      1686  payload/drivers/README.md
@@ -181,7 +181,7 @@ c7c28a0972d3bc2e024e4a766d16f516      3533  payload/windows-live/RunPostBind.cmd
 71458e1cbf9d86c288c1a1faa714e0bd      2776  payload/windows-live/RunPostBind.no-ace.cmd.bak
 6e3f7dbd75d2e59fd824c195b7278477       735  payload/windows-live/Status.cmd
 2a44b95ea3797a1dcffe4cf5fe4fb08f      1017  payload/windows-live/Uninstall_Auto.cmd
-d28f002225f0ea76fe3455a2c6879a41     14166  README.md
+e21ce92294db30f1da9693923957259b     14691  README.md
 d094d3d8f42685ee61bddc9b9aa33474     31563  scripts/40HX解锁状态.bat
 a263240ac52b02cb91cf692e965be17c       996  scripts/clean-run-keys.ps1
 9070c6fe409e3005a14cc02aa9f97c67      4611  scripts/coldboot-report.ps1

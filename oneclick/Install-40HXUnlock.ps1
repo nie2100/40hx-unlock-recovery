@@ -1309,7 +1309,7 @@ function Show-Check {
     Warn '快速启动   : 开着（HiberbootEnabled=1）—— "关机"其实是混合关机：内核和显卡驱动从 hiberfile 恢复、不重新初始化，GSP 这类改动永远不生效（Install 会自动关掉它）'
     Add-Action '快速启动开着：Install 已把它关掉；重启/关机后请确认 HiberbootEnabled=0（关掉后"关机"才是真关机）'
   } else { Ok ('快速启动   : 已关闭（HiberbootEnabled=' + $(if ($Report.Hiberboot -eq '') { '未设置，按关处理' } else { $Report.Hiberboot }) + '）') }
-  Info "BIOS 里必须确认: Above 4G Decoding = Enabled、CSM = Disabled、Fast Boot = Disabled（这三项 OS 侧读不到，是头号失败原因）"
+  Info "BIOS 建议确认（OS 侧读不到）: Above 4G Decoding = Enabled、CSM = Disabled、Fast Boot = Disabled —— 不是硬性前提（单卡不开 Above 4G 多数也能解锁），但认不到卡/解锁固件没被执行时先查这三项"
 
   Head '杀软 / 反作弊'
   if ($Report.Huorong) {
