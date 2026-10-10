@@ -669,7 +669,15 @@ function Get-EspPartitionInfo {
   $pick = $null
   if ($sameDisk.Count -eq 1) { $pick = $sameDisk[0] }
   elseif ($sameDisk.Count -gt 1) { $pick = $sameDisk | Sort-Object PartitionNumber | Select-Object -First 1 }
-  else { $pick = $cands | Select-Object -First 1 }
+  else {
+    # 2026-10-10（审查 B2）：系统盘号读不到时不能跨盘瞎挑 —— 全盘唯一 ESP 才敢用；多个就拒判
+    #   （指错盘 = 启动项找不到固件文件 = 静默不解锁；上层会改用现有参考项的节点 + 告警）
+    if ($cands.Count -eq 1) { $pick = $cands[0] }
+    else {
+      Warn ('系统盘号读不到，而机器上有 ' + $cands.Count + ' 个 ESP 分区 —— 不敢随便挑。启动项将沿用现有参考项的设备路径（或用 BIOS 手动选）')
+      return $null
+    }
+  }
   return [pscustomobject]@{
     DiskNumber      = $pick.DiskNumber
     PartitionNumber = $pick.PartitionNumber
@@ -1240,6 +1248,9 @@ function Get-CheckReport {
   $r.Blocklist = ''
   # 易受攻击驱动阻止列表：开着时可能把 ThrottleStop / WinRing0 的服务改成"禁用"（客户机实测 Start=4 → sc start 1058）
   try { $r.Blocklist = [string](Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Config' -Name 'VulnerableDriverBlocklistEnable' -ErrorAction SilentlyContinue).VulnerableDriverBlocklistEnable } catch { }
+  # 2026-10-10（审查 A1）：内核隔离(HVCI/内存完整性) 会在映像加载阶段拦 BYOVD 驱动（现场 exit 13/577），与阻止列表是两回事
+  $r.Hvci = ''
+  try { $r.Hvci = [string](Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity' -Name 'Enabled' -ErrorAction SilentlyContinue).Enabled } catch { }
   $r.Hiberboot = ''
   try { $r.Hiberboot = [string](Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' -Name 'HiberbootEnabled' -ErrorAction SilentlyContinue).HiberbootEnabled } catch { }
   # 2026-09-30：快速启动 = 1 时"关机"是混合关机（内核/驱动从 hiberfile 恢复）→ nvlddmkm 不重新初始化，
@@ -1305,11 +1316,15 @@ function Show-Check {
     Warn '易受攻击驱动列表 : 开着（VulnerableDriverBlocklistEnable=1）—— 它/360/ACE 都可能把 ThrottleStop·WinRing0 的服务改成“禁用”，表现为老路径 sc start 失败 1058；本包每次开机都会自愈：WinRing0 启动类型纠正回 demand；ThrottleStop 则被停掉并禁用（它加载在内核里会被腾讯 ACE-BOOT 判为兼容性问题）'
     Add-Action '易受攻击驱动列表开着：想彻底关掉（厂商安装器也关它）就用 reg add "HKLM\SYSTEM\CurrentControlSet\Control\CI\Config" /v VulnerableDriverBlocklistEnable /t REG_DWORD /d 0 /f 然后重启；不关也行，本包每次开机都会纠正服务启动类型'
   } else { Ok ('易受攻击驱动列表 : ' + $(if ($Report.Blocklist -eq '') { '未设置（按关处理）' } else { '已关（0）' })) }
+  if ($Report.Hvci -eq '1') {
+    Warn '内核隔离(内存完整性): 开着 —— 会拦 inpoutx64/WinRing0 驱动加载（Gen2 落不了地，算力不受影响）'
+    Add-Action '内核隔离开着：设置 → 隐私和安全性 → Windows 安全中心 → 设备安全性 → 内核隔离 → 关「内存完整性」，然后完全关机再开机'
+  } else { Ok ('内核隔离(内存完整性): ' + $(if ($Report.Hvci -eq '0') { '已关' } else { '未设置（按关处理）' })) }
   if ($Report.HiberbootOn) {
     Warn '快速启动   : 开着（HiberbootEnabled=1）—— "关机"其实是混合关机：内核和显卡驱动从 hiberfile 恢复、不重新初始化，GSP 这类改动永远不生效（Install 会自动关掉它）'
     Add-Action '快速启动开着：Install 已把它关掉；重启/关机后请确认 HiberbootEnabled=0（关掉后"关机"才是真关机）'
   } else { Ok ('快速启动   : 已关闭（HiberbootEnabled=' + $(if ($Report.Hiberboot -eq '') { '未设置，按关处理' } else { $Report.Hiberboot }) + '）') }
-  Info "BIOS 里必须确认: Above 4G Decoding = Enabled、CSM = Disabled、Fast Boot = Disabled（这三项 OS 侧读不到，是头号失败原因）"
+  Info "BIOS 建议确认（OS 侧读不到）: Above 4G Decoding = Enabled、CSM = Disabled、Fast Boot = Disabled —— 不是硬性前提（单卡不开 Above 4G 多数也能解锁），但认不到卡/解锁固件没被执行时先查这三项"
 
   Head '杀软 / 反作弊'
   if ($Report.Huorong) {
@@ -1910,6 +1925,16 @@ function Install-Efi {
     $tip = '① 必须是管理员窗口（一键安装.cmd 会自动提权）；② 手动敲 mountvol 看有没有卷被占用；③ BitLocker 开着会挂不上，先暂停；④ 虚拟机/WSL 里跑不了，要在真机 Windows 上跑'
     Fail $hint $script:ExitHash $tip
   }
+  # 2026-10-10（审查 A2）：先验 ESP 剩余空间（固件 590KB + 兜底驱动源约 400KB）—— 不够就别动手，
+  #   否则 Copy-Item 在 EAP=Stop 下抛异常，机器停在"已落 6 步改动"的半成品
+  try {
+    $drvInfo = New-Object System.IO.DriveInfo($espRoot)
+    $needBytes = [int64]($script:EfiSize + 400KB)
+    if ($drvInfo.AvailableFreeSpace -lt $needBytes) {
+      Fail ('ESP 剩余空间不足：剩 ' + [math]::Round($drvInfo.AvailableFreeSpace/1KB) + ' KB，需要约 ' + [math]::Round($needBytes/1KB) + ' KB') $script:ExitPrereq 'ESP 快满了（品牌机 100MB 小 ESP 堆了厂商文件时会发生）：进 ESP 删掉明显的厂商冗余/旧备份后重跑'
+    }
+    Ok ('ESP 剩余空间: ' + [math]::Round($drvInfo.AvailableFreeSpace/1MB, 1) + ' MB（够用）')
+  } catch { Warn ('ESP 剩余空间读不到（' + $_.Exception.Message + '）—— 跳过容量预检') }
   $srcEfi = Join-Path $script:PayloadDir 'EFI\40HXUNLK.EFI'
   if (-not (Test-Path $srcEfi)) { Fail ("载荷缺失: " + $srcEfi) $script:ExitHash '包的 payload\EFI 目录丢了（漏拷或杀软删）→ 重新解压一份完整包' }
   $srcHash = Get-FileSha256 $srcEfi
@@ -1973,12 +1998,30 @@ function Install-BootEntry {
     Warn '退化处理：设备路径节点沿用现有启动项的字节'
   }
 
+  # 2026-10-10（审查 B1）：Install-Efi 写固件的分区 与 启动项指向的分区必须是同一个 —— 不一致 = 固件找不到文件 = 静默不解锁
+  if ($script:EspRootUsed -and $espPart) {
+    $wroteGuid = Get-EspVolumeGuid $script:EspRootUsed
+    if ($wroteGuid -and $wroteGuid -ne ([string]$espPart.GuidText).ToLower()) {
+      Fail ('写固件的 ESP（' + $wroteGuid + '）与启动项将指向的分区（' + $espPart.GuidText + '）不是同一个') $script:ExitNvram '多盘机器的 ESP 定位分歧 —— 把本次 run-*.log 发给作者；临时办法：进 BIOS 手动选 40HX Unlock'
+    }
+  }
+
   $unlock = Get-UnlockBootEntry $entries
   $created = $false
   if ($unlock) {
     Ok ("已存在解锁启动项 " + $unlock.Name + " '" + $unlock.Entry.Description + "' → " + $unlock.FilePath + "（复用，不重复创建）")
     $name = $unlock.Name
     $index = $unlock.Index
+    # 2026-10-10（审查 B3）：复用也要验设备路径 —— ESP 重建/换盘/重分区后分区 GUID 会变，旧节点指向旧分区 = 静默不解锁
+    if ($node -and $unlock.Entry.DeviceNode -and ([Convert]::ToBase64String($unlock.Entry.DeviceNode) -ne [Convert]::ToBase64String($node))) {
+      Warn ('已存在的启动项设备路径与当前 ESP 分区不一致（ESP 被重建/换盘过）→ 原槽位重写')
+      $bytesFix = New-BootEntryBytes -DeviceNode $node -Description '40HX Unlock' -EfiPath '\EFI\40HX\40HXUNLK.EFI' -Attributes $attrs -OptionalData $null
+      [IO.File]::WriteAllBytes((Join-Path $BackupDir ($name + '.rewrite.bin')), $bytesFix)
+      if (-not (Write-FwVar $name $bytesFix)) { Fail ('重写 ' + $name + ' 失败') $script:ExitNvram '先关安全软件的启动项/UEFI 保护再跑' }
+      $rbFix = Read-FwVar $name
+      if (-not $rbFix -or [Convert]::ToBase64String($rbFix) -ne [Convert]::ToBase64String($bytesFix)) { Fail ('重写 ' + $name + ' 后回读不一致') $script:ExitNvram '进 BIOS 手动检查 40HX Unlock 启动项' }
+      Ok ('已重写启动项 ' + $name + '（设备路径已指向当前 ESP 分区，逐字节回读一致）')
+    }
   } else {
     $index = Get-FreeBootSlot $entries
     if ($index -lt 0) { Fail '没有空闲 Boot#### 槽位' $script:ExitNvram 'NVRAM 满了（少见）→ 进 BIOS 启动项里删掉几个没用的再跑' }
@@ -2808,6 +2851,7 @@ Head '计划'
 if ($Mode -eq 'Install') { Info '安装/修复：驱动+服务 → helper(含新路径工具) → 新路径驱动(inpoutx64) → 安全加固(目录权限 + 驱动源 base64) → GSP 开关 → 关快速启动 → ESP 固件 → 固件启动项 → 开机任务 → 厂商自启收尾' } else { Info 'Repair：只补驱动/服务/helper/新路径驱动/任务/安全加固，不动 ESP 与固件启动项' }
 
 $blockers = 0
+$espHardBlocked = $false   # 2026-10-10（审查 A6）：ESP 挂不上是硬门槛，-Force 也不能绕
 if ($rep.Firmware -eq 'Uefi') { }
 elseif ($rep.Firmware -eq '未知') {
   # 2026-10-10（审查中-1）：Get-ComputerInfo 依赖 WMI，精简/装机版系统上会抛异常 → '未知'。
@@ -2830,6 +2874,7 @@ elseif ($rep.DiskStyle -ne 'GPT') {
     #   ① 真 MBR/BIOS 引导，也可能是 ② ESP 被安全软件/已有挂载点挡着。不要断言成 ①。
     Bad '取不到 EFI 系统分区（ESP）—— 引导模式或 ESP 挂载有问题，本次**还没有做任何改动**'
     $blockers++
+    $espHardBlocked = $true
     Add-Action '先分两条查：① 这台机器是不是 UEFI+GPT 引导（真 MBR 盘用 mbr2gpt /convert /allowFullOS 转换，并在 BIOS 关 CSM；盘里没数据的话直接重装成 GPT 更快）；② ESP 是不是被安全软件/别的东西占着挂不上（管理员下手动 mountvol Y: /S 试，或双击 工具-测试与修复\存储体检.cmd 取证）'
   }
 }
@@ -2837,6 +2882,7 @@ if ($rep.SecureBoot -eq $true) { Bad 'Secure Boot 开着'; $blockers++ }
 if ($rep.BitLocker -match 'On|1') { Bad 'BitLocker 开着（会索要恢复密钥）'; $blockers++ }
 if ($rep.Target.Count -eq 0) { Bad '没找到 CMP 40HX (DEV_1F0B)'; $blockers++ }
 if ($blockers -gt 0) {
+  if ($Force -and $espHardBlocked) { Fail ('ESP 挂不上属于硬门槛，-Force 不能绕过（继续也装不上，只会留半成品）') $script:ExitPrereq '按上面的待办先解决 ESP 挂载（杀软占用 / 引导模式），再重跑' }
   if ($Force) { Warn ('有 ' + $blockers + ' 项前提不满足，但 -Force 已指定 → 继续') }
   else { Fail ('有 ' + $blockers + ' 项前提不满足，先处理后重跑；确认要继续就加 -Force') $script:ExitPrereq '按上面 [失败] 行逐条处理：Secure Boot→BIOS 关；BitLocker→暂停/解密；MBR 盘→mbr2gpt；显卡没识别→插紧/装 NVIDIA 驱动；不是 UEFI→BIOS 关 CSM' }
 }

@@ -45,7 +45,7 @@ d2f8f43def04ae97bade7ce89955528e      1012  evidence/inpout-20260929/00-diag-fai
 014ac1e5bd011b010934c7782de365e7       320  .gitattributes
 4f91bded2ac11e84bb54491c70942763      5038  LICENSE
 cc4a3adb52affbf9789a2af60fc95836      1025  oneclick/GSP体检.cmd
-7a12d30551794ada73f186aa60c8fd50    206368  oneclick/Install-40HXUnlock.ps1
+51b418094f64b1649296293094a16cd6    211021  oneclick/Install-40HXUnlock.ps1
 4f91bded2ac11e84bb54491c70942763      5038  oneclick/LICENSE
 8598c45c61f04e9ce2145628adcfe28b    134522  oneclick/payload/drivers/inpoutx64.dll.b64
 59f7f4409873dae9abb7eba851d958bc     20540  oneclick/payload/drivers/inpoutx64.sys.b64
