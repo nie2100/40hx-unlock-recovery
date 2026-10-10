@@ -59,12 +59,13 @@ be36ce1b2868b23021a7071090c8fac3     26037  oneclick/payload/windows/RunPostBind
 6e3f7dbd75d2e59fd824c195b7278477       735  oneclick/payload/windows/Status.cmd
 2a44b95ea3797a1dcffe4cf5fe4fb08f      1017  oneclick/payload/windows/Uninstall_Auto.cmd
 8dc1be522a6c4b1c644050895508f065      6581  oneclick/payload/windows/Unpack-Drivers.ps1
-539cda5cd9c2416f8b48c0f3047f85ab     17007  oneclick/README.md
+66149932824341ea8d4465913ed4eb17     17396  oneclick/README.md
 6292214c35f6b16379fe272a1e134467      7539  oneclick/THIRD_PARTY.md
 e930dd8a8130ef830c25a0240d403b37      1908  oneclick/一键修复Gen2.cmd
 da373e3e11b189c5eab5e4ace89ca8e5     25908  oneclick/一键修复Gen2.ps1
 2af273adeaf43101f65d26c96196d281      3679  oneclick/一键卸载.cmd
 d58ee30462a4bf55d928f10a71c90d2e      4879  oneclick/一键安装.cmd
+70114ee910ae41c67ea2a993370e8422      2899  oneclick/一键诊断.cmd
 e4fe862b89710de17c68e618ca6555e9      1452  oneclick/下一步-重启后看这里.txt
 9a331db307d3c6220646dbaf08f42171      1953  oneclick/工具-测试与修复/ACE修复.cmd
 ab06ce5a911dac4fc3b8b9fae02560dd     49084  oneclick/工具-测试与修复/ACE修复.ps1
@@ -95,7 +96,7 @@ fce9d8dca7beaa23e5d9baa60e2e91dd      1465  oneclick/工具-测试与修复/桌�
 63d3ac0e49f81e54c1dd9082d2f4b27f      2111  oneclick/工具-测试与修复/补写Gen2预埋.cmd
 7c376541c3be2e419b8061d678a6c652      2173  oneclick/工具-测试与修复/补写Gen2预埋-dry.cmd
 5e684d4ed7104c8cf5f85800eed4a5ae     10683  oneclick/工具-测试与修复/补写Gen2预埋.ps1
-4d10e89b60d3b8f007c6817b412b79b3     50184  oneclick/工具-测试与修复/诊断包-20260930/40HX诊断.ps1
+e348416f4185fadfa780a3f63c356134     55114  oneclick/工具-测试与修复/诊断包-20260930/40HX诊断.ps1
 e5b1792debe8e0c89fda1ced340d02e0      2341  oneclick/工具-测试与修复/诊断包-20260930/README-诊断包说明.txt
 9a6c89b885c05a029758e9df9e251985      2923  oneclick/工具-测试与修复/诊断包-20260930/一键诊断.cmd
 fcb16124cfc705f43b9a52841613cc6e      2168  oneclick/工具-测试与修复/诊断包-20260930/修复-GSP.cmd

@@ -118,6 +118,10 @@ Sec '0. 速判（自动判定，先看这里）' {
   Ln '[判据 A] GSP 固件（解锁后驱动能否认卡的决定项）'
   KV 'nvidia-smi' $(if ($smiPath) { $smiPath } else { '找不到（没装驱动？）' })
   KV 'GSP 行' $(if ($gspLine) { $gspLine } else { '<nvidia-smi -q 里没有这一行 / 没跑成>' })
+  # 2026-10-10b：VBIOS 版本是案例对照的关键字段（.04 vs .06 结局不同）——显式提取，不埋在"关键行"里
+  $script:VbiosVer = ''
+  if ($q) { $mv = [regex]::Match($q, '(?im)^\s*VBIOS Version\s*:\s*(\S+)'); if ($mv.Success) { $script:VbiosVer = $mv.Groups[1].Value.Trim() } }
+  KV 'VBIOS 版本' $(if ($script:VbiosVer) { $script:VbiosVer } else { '<读不到：NVML 没初始化/驱动异常，修好驱动后重跑本诊断就有了>' })
   KV '显示类子键(40HX)' $(if ($cfNvidia) { $cfNvidia } else { '没找到 40HX 的显示类子键' })
   # 2026-09-30：真正说了算的是 Enum\<设备实例>\Driver 指到的那个子键，光看 DriverDesc 可能挑错
   $authIdx = ''
@@ -129,6 +133,8 @@ Sec '0. 速判（自动判定，先看这里）' {
     }
   } catch { }
   KV '权威显示类子键' $(if ($authIdx) { $authIdx + '（Enum\<实例>\Driver）' } else { '读不到' })
+  $script:GpuSubsys = ''
+  if ($d40 -and ($d40.InstanceId -match 'SUBSYS_([0-9A-Fa-f]{8})')) { $script:GpuSubsys = $Matches[1] }
   KV 'nvlddmkm\Parameters' $(if ($null -eq $pEF) { '无 EnableGpuFirmware' } else { 'EnableGpuFirmware=' + $pEF })
   $hbNow = ''
   try { $hbNow = [string](Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' -Name 'HiberbootEnabled' -ErrorAction SilentlyContinue).HiberbootEnabled } catch { }
@@ -206,6 +212,18 @@ Sec '0. 速判（自动判定，先看这里）' {
         if ($txt -match 'UNLOCKED \(SS0=0x88888888') { $unlocked = $true }
         if ($txt -match 'abort:') { $script:EfiAbort = [string](($txt | Select-String 'abort:' | Select-Object -Last 1).Line).Trim() }
         if ($txt -match 'RESULT:.*SS0=0x00000000') { $script:EfiResultZero = $true }
+        # 2026-10-10b（案例库攒样本）：POST 初态 / 写入探测 / 最终态 —— 判断"平台 vs 卡个体"的关键数据
+        $all = ($txt -join "`n")
+        $mI = [regex]::Match($all, '\[v55 boot\]:\s*PLM=(0x[0-9A-Fa-f]+)\s+SS0=(0x[0-9A-Fa-f]+)\s+SS1=(0x[0-9A-Fa-f]+)')
+        if ($mI.Success) { $script:EfiInitPlm = $mI.Groups[1].Value; $script:EfiInitSS0 = $mI.Groups[2].Value; $script:EfiInitSS1 = $mI.Groups[3].Value }
+        $mP = [regex]::Match($all, 'probe:\s*SS0=(0x[0-9A-Fa-f]+)\s+SS1=(0x[0-9A-Fa-f]+)\s+after writing')
+        if ($mP.Success) { $script:EfiProbeSS0 = $mP.Groups[1].Value; $script:EfiWriteIgnored = ($mP.Groups[1].Value -ne '0x88888888') }
+        $mF = [regex]::Match($all, '\[v55 final\]:\s*PLM=(0x[0-9A-Fa-f]+)\s+SS0=(0x[0-9A-Fa-f]+)\s+SS1=(0x[0-9A-Fa-f]+)')
+        if ($mF.Success) { $script:EfiFinalSS0 = $mF.Groups[2].Value }
+        # booter 通道才是真正的分水岭：健康卡 probe 直写也被吞（回读不变），但 booter OK 后照样 UNLOCKED；
+        #   锁死卡是 booter 全 halted。别拿 probe 回读不变当"硬件拒绝"（2026-10-10b 实机对照纠正）
+        $script:EfiBooterOk = ($all -match 'booter OK')
+        $script:EfiBooterNotOk = (-not $script:EfiBooterOk) -and ($all -match 'not-OK|halted')
       }
       try {
         $dl = $esp0.Substring(0,2)
@@ -251,6 +269,16 @@ Sec '0. 速判（自动判定，先看这里）' {
   KV '本次开机时间' $(if ($boot) { [string]$boot } else { '未知' })
   KV 'ESP 40hx_log.txt' $(if ($espLogTime) { $espLogTime + '   大小: ' + $espLogSize + ' B   UNLOCKED 行: ' + $unlocked } else { '没找到（ESP 没挂载/固件没跑/不是本包装的）' })
   if ($espFree) { KV 'ESP 剩余空间' $espFree }
+  if ($script:EfiInitSS0) {
+    KV '卡 POST 初态' ('SS0=' + $script:EfiInitSS0 + ' SS1=' + $script:EfiInitSS1 + ' PLM=' + $script:EfiInitPlm + $(if ($script:EfiInitSS0 -eq '0x00000004' -and $script:EfiInitSS1 -eq '0x00000001') { '   （已知健康形态）' } elseif ($script:EfiInitSS0 -eq '0x00000002' -and $script:EfiInitSS1 -eq '0x00000003') { '   （★ 已知锁死形态：写入会被吞，算力解锁会失败）' } else { '   （没见过的形态，把报告发回攒样本）' }))
+    if ($null -ne $script:EfiWriteIgnored) {
+      if ($unlocked -or ($script:EfiFinalSS0 -eq '0x88888888')) { KV '写入探测' ('直接写回读 ' + $script:EfiProbeSS0 + ' 没变化 —— 正常：健康卡也这样，真正解锁走 booter 通道（看下一行）') }
+      else { KV '写入探测' ('写 0x88888888 回读 ' + $script:EfiProbeSS0 + ' 且本次未解锁 → 疑似锁死形态（配合 booter 行看）') }
+    }
+    if ($script:EfiBooterOk) { KV 'booter 通道' 'booter OK（SEC2 直载成功 —— 健康形态）' }
+    elseif ($script:EfiBooterNotOk) { KV 'booter 通道' 'booter 全部 halted / not-OK —— 卡拒绝加载，锁死形态特征' }
+    if ($script:EfiFinalSS0) { KV '固件结束态 SS0' $script:EfiFinalSS0 }
+  }
   # 2026-10-05（客户机实测）：日志 0 字节时**不能**判"解锁失败" —— 可能是 ESP 写满/写入失败，
   #   而 Windows 侧读数（retrain-last.log 的 SS0=0x88888888）说明算力其实是解锁的。旧版这里直接下"解锁没成功"= 误判。
   if ($espLogTime -and ($espLogSize -eq 0)) {
@@ -290,6 +318,30 @@ Sec '0. 速判（自动判定，先看这里）' {
   else { KV '任务' '未注册（Gen2 不会自动落地）' }
   # 2026-10-05（审查 L4）：假 PASS 提示放在任务判断**之外**打（任务丢了也要报；它是日志结论层面的问题）
   if ($falsePass) { Ln ('  ' + $falsePass) }
+  # 2026-10-10b（案例库）：一行指纹，客户直接把这一行发回来就能横向对照
+  Ln ''
+  Ln '[案例指纹] 把下面 CASE 行一起发回（攒样本判断平台规律用）'
+  $bbStr = ''; $cpuStr = ''
+  try { $bbi = Get-CimInstance Win32_BaseBoard -ErrorAction Stop; $bbStr = (([string]$bbi.Manufacturer) + ' ' + ([string]$bbi.Product)).Trim() } catch { }
+  try { $cpuStr = [string](Get-CimInstance Win32_Processor -ErrorAction Stop).Name } catch { }
+  $plat = '平台未知'
+  if ($cpuStr -match 'AMD|Ryzen|EPYC|Athlon|Phenom') { $plat = 'AMD' } elseif ($cpuStr -match 'Intel|Xeon|Core|Pentium|Celeron') { $plat = 'Intel' }
+  $prob43 = '?'
+  try {
+    $ddx = @(Get-PnpDevice -Class Display -ErrorAction Stop | Where-Object { $_.InstanceId -match 'DEV_1F0B' }) | Select-Object -First 1
+    if ($ddx) { $prob43 = [string](Get-PnpDeviceProperty -InstanceId $ddx.InstanceId -KeyName 'DEVPKEY_Device_ProblemCode' -ErrorAction Stop).Data }
+  } catch { }
+  $caseLine = 'CASE: ' + $(if ($bbStr) { $bbStr } else { '主板未知' }) + ' | ' + $plat +
+    ' | vbios=' + $(if ($script:VbiosVer) { $script:VbiosVer } else { '?' }) +
+    ' | subsys=' + $(if ($script:GpuSubsys) { $script:GpuSubsys } else { '?' }) +
+    ' | initSS=' + $(if ($script:EfiInitSS0) { $script:EfiInitSS0 + '/' + $script:EfiInitSS1 } else { '?' }) +
+    ' | booter=' + $(if ($script:EfiBooterOk) { 'OK' } elseif ($script:EfiBooterNotOk) { 'FAIL' } else { '?' }) +
+    ' | finalSS=' + $(if ($script:EfiFinalSS0) { $script:EfiFinalSS0 } else { '?' }) +
+    ' | unlocked=' + $unlocked +
+    ' | abort=' + $(if ($script:EfiAbort) { $script:EfiAbort } else { '-' }) +
+    ' | prob=' + $prob43 +
+    ' | gen2=' + $pbVerdict
+  Ln ('  ' + $caseLine)
 }
 
 # ------------------------------------------------------------------ 1. 环境
