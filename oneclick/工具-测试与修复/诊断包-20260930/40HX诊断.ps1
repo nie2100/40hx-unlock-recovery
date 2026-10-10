@@ -177,7 +177,7 @@ Sec '0. 速判（自动判定，先看这里）' {
     } catch { }
   }
   Ln ''
-  Ln '[判据 B] 40HX 的实际 PCIe 位置（一键包脚本里写死了 bus1/dev0/fn0 与 root 00:01.0）'
+  Ln '[判据 B] 40HX 的实际 PCIe 位置（20261004e 起新路径工具按 PnP 自动探测显卡与根端口，不再写死）'
   KV '显卡实例' $(if ($inst40) { $inst40 } else { '没找到 40HX 设备' })
   KV '显卡位置' $(if ($bdf) { $bdf + '   BDF=' + $bdfHex } else { '读不到 LocationInfo' })
   KV '父设备(根端口)' $(if ($parentBdf) { $parentBdf } else { '读不到' })
@@ -185,13 +185,14 @@ Sec '0. 速判（自动判定，先看这里）' {
   elseif ($bdfHex) { Ln ('   → 判定：显卡不在 01:00.0（实际 ' + $bdfHex + '）→ 新路径工具会一直等卡、120 秒后 exit 12 回落到旧路径（每次开机会多花约 2 分钟）') }
   else { Ln '   → 判定：读不到显卡位置（见第 2 节原始行），无法判断' }
   if ($parentHex -eq '0x0008') { Ln '   → 判定：父根端口就是 00:01.0，与脚本写死值一致' }
-  elseif ($parentHex -and $bdfHex -eq '0x0100') { Ln ('   → 判定：显卡在 01:00.0，但父根端口是 ' + $parentHex + '（不是 00:01.0）——脚本会对错误的根端口做 Retrain，Gen2 落不了地，请务必把这条发回来') }
+  elseif ($parentHex -and $bdfHex -eq '0x0100') { Ln ('   → 判定：显卡在 01:00.0，父根端口是 ' + $parentHex + ' —— 新版工具（20261004e 起）按 PnP 自动探测，这不是问题；retrain-last.log 里的 detect 行能核对它找没找对') }
   elseif ($parentHex) { Ln ('   → 判定：父根端口是 ' + $parentHex) }
   $script:Ans['BDF'] = $bdfHex
 
   # 判据 C/D：解锁固件 + 开机任务
   $boot = (Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue).LastBootUpTime
   $espLogTime = ''; $unlocked = $false; $espLogSize = $null; $espFree = ''
+  $script:EfiAbort = ''; $script:EfiResultZero = $false   # 2026-10-10：固件失败特征
   try {
     $esp0 = Mount-Esp
     if ($esp0) {
@@ -200,7 +201,11 @@ Sec '0. 速判（自动判定，先看这里）' {
         $espLogTime = [string](Get-Item $lp).LastWriteTime
         $espLogSize = (Get-Item $lp).Length
         $txt = Get-Content -LiteralPath $lp -ErrorAction SilentlyContinue
-        if ($txt -match 'UNLOCKED') { $unlocked = $true }
+        # 2026-10-10（客户机实测踩坑）：松匹配 'UNLOCKED' 会把日志里 "SEC2 unlocked" 这类行误当已解锁
+        #   —— 必须带 SS0 值才算数；同时抓失败特征（abort = 固件守卫拒绝了这张卡）
+        if ($txt -match 'UNLOCKED \(SS0=0x88888888') { $unlocked = $true }
+        if ($txt -match 'abort:') { $script:EfiAbort = [string](($txt | Select-String 'abort:' | Select-Object -Last 1).Line).Trim() }
+        if ($txt -match 'RESULT:.*SS0=0x00000000') { $script:EfiResultZero = $true }
       }
       try {
         $dl = $esp0.Substring(0,2)
@@ -254,6 +259,14 @@ Sec '0. 速判（自动判定，先看这里）' {
     if ($espFree) { Ln ('     若 ESP 剩余空间很小（现在 ' + $espFree + '），先清 ESP 垃圾文件，再让解锁固件重跑一次。') }
   }
   elseif ($espLogTime -and -not $unlocked) { Ln '   → 固件跑了但日志里没有 UNLOCKED：按"解锁没成功"处理（但先看 [判据 D] 的 SS0：若显示 0x88888888 说明是日志机制问题，不是解锁失败）' }
+  if ($script:EfiAbort) {
+    Ln ('   → ★★ 固件日志里解锁被中止：' + $script:EfiAbort)
+    Ln '     这张卡过不了固件的身份守卫（卡批次/修订不支持）—— 半途而废的固件序列会留下残留状态，'
+    Ln '     正是"每次开机代码 43"的典型成因。建议：-Mode Uninstall 卸载本包 → 完全关机再开机 → 43 应消失；'
+    Ln '     这张卡要解锁请换厂商版工具（实现不同），并把本报告发回。'
+  } elseif ($script:EfiResultZero -and -not $unlocked) {
+    Ln '   → ★ 固件 RESULT 行 SS0=0x00000000：解锁没生效（写不进去/守卫拒绝）—— 这张卡很可能与本包固件不兼容'
+  }
   Ln ''
   Ln '[判据 D] 开机任务（Gen2 落地）'
   # retrain 工具的判定行（Gen2 为什么没落地，看这里最快）

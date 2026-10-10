@@ -95,7 +95,7 @@ fce9d8dca7beaa23e5d9baa60e2e91dd      1465  oneclick/工具-测试与修复/桌�
 63d3ac0e49f81e54c1dd9082d2f4b27f      2111  oneclick/工具-测试与修复/补写Gen2预埋.cmd
 7c376541c3be2e419b8061d678a6c652      2173  oneclick/工具-测试与修复/补写Gen2预埋-dry.cmd
 5e684d4ed7104c8cf5f85800eed4a5ae     10683  oneclick/工具-测试与修复/补写Gen2预埋.ps1
-e8fd8b7c4927980c2456e349e8071e9c     48856  oneclick/工具-测试与修复/诊断包-20260930/40HX诊断.ps1
+4d10e89b60d3b8f007c6817b412b79b3     50184  oneclick/工具-测试与修复/诊断包-20260930/40HX诊断.ps1
 e5b1792debe8e0c89fda1ced340d02e0      2341  oneclick/工具-测试与修复/诊断包-20260930/README-诊断包说明.txt
 9a6c89b885c05a029758e9df9e251985      2923  oneclick/工具-测试与修复/诊断包-20260930/一键诊断.cmd
 fcb16124cfc705f43b9a52841613cc6e      2168  oneclick/工具-测试与修复/诊断包-20260930/修复-GSP.cmd
@@ -115,7 +115,7 @@ bd68fd7e0798cca7bf8c07d14bb22081       312  oneclick/归档-旧版本/hotfix-202
 2d4de87d0c33cecb05879875230ad59e       418  oneclick/归档-旧版本/就地更新并跑一次.cmd
 56ba5437d011d1fe85462509eda34085      4117  oneclick/归档-旧版本/就地更新并跑一次.ps1
 909d8d0175c2e2508dc7522f965576a8      3617  oneclick/归档-旧版本/给客户-操作指引-20260930d.txt
-6c9aa1f71657836cd54930b52cc4a3fd     82471  oneclick/排查指引.md
+3558dead6d0f9593a3e10d7ae6ebabe3     84435  oneclick/排查指引.md
 3c79419297898a891aeb8e051d5c34bd     28216  oneclick/文档/使用说明-详细.md
 1850026059651ff54df6edba269b903f      5189  oneclick/文档/给客户-ACE报错处理指引-20261004.txt
 e3cf708f75d0d369cd60f25133315eac      9075  oneclick/文档/给客户-Gen2预埋缺失-怎么办-20261005.txt
