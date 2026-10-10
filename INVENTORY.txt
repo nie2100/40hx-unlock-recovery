@@ -64,7 +64,7 @@ be36ce1b2868b23021a7071090c8fac3     26037  oneclick/payload/windows/RunPostBind
 e930dd8a8130ef830c25a0240d403b37      1908  oneclick/一键修复Gen2.cmd
 da373e3e11b189c5eab5e4ace89ca8e5     25908  oneclick/一键修复Gen2.ps1
 2af273adeaf43101f65d26c96196d281      3679  oneclick/一键卸载.cmd
-1d9be01d5b2e6000785e95ebdcf69c41      4674  oneclick/一键安装.cmd
+d58ee30462a4bf55d928f10a71c90d2e      4879  oneclick/一键安装.cmd
 e4fe862b89710de17c68e618ca6555e9      1452  oneclick/下一步-重启后看这里.txt
 9a331db307d3c6220646dbaf08f42171      1953  oneclick/工具-测试与修复/ACE修复.cmd
 ab06ce5a911dac4fc3b8b9fae02560dd     49084  oneclick/工具-测试与修复/ACE修复.ps1

@@ -22,7 +22,9 @@ if errorlevel 1 goto ask
 :run
 rem 2026-10-10（审查高-2）：透传参数（去掉 elevated 标记），不带参数时默认 -Mode Install -Yes
 set "RARGS=%*"
-set "RARGS=!RARGS:elevated=!"
+rem 2026-10-10 热修：RARGS 未定义（%* 为空，如右键"以管理员身份运行"直接进 :run）时，
+rem   延迟扩展的替换语法会把字面量 "elevated=" 当值赋进去 → ps1 报参数验证失败。必须先判 defined。
+if defined RARGS set "RARGS=!RARGS:elevated=!"
 if not defined RARGS set "RARGS=-Mode Install -Yes"
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Install-40HXUnlock.ps1" !RARGS!
 set "RC=%ERRORLEVEL%"
