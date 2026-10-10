@@ -45,7 +45,7 @@ d2f8f43def04ae97bade7ce89955528e      1012  evidence/inpout-20260929/00-diag-fai
 014ac1e5bd011b010934c7782de365e7       320  .gitattributes
 4f91bded2ac11e84bb54491c70942763      5038  LICENSE
 cc4a3adb52affbf9789a2af60fc95836      1025  oneclick/GSP体检.cmd
-32bde20a590737e910f8596954a9cd07    205846  oneclick/Install-40HXUnlock.ps1
+7a12d30551794ada73f186aa60c8fd50    206368  oneclick/Install-40HXUnlock.ps1
 4f91bded2ac11e84bb54491c70942763      5038  oneclick/LICENSE
 8598c45c61f04e9ce2145628adcfe28b    134522  oneclick/payload/drivers/inpoutx64.dll.b64
 59f7f4409873dae9abb7eba851d958bc     20540  oneclick/payload/drivers/inpoutx64.sys.b64
@@ -121,7 +121,7 @@ e3cf708f75d0d369cd60f25133315eac      9075  oneclick/文档/给客户-Gen2预埋
 6fb85ad44c58899fbdf0e2782dce20ff      3270  oneclick/文档/给客户-操作指引-20261001.txt
 38f8bb69b979de15f4340ebc79ce0e88     13948  oneclick/文档/风险与恢复.md
 e832723a9983b6f798f5c351e99d378e    153892  oneclick/文档/验证记录.md
-80182e8d4c04d595c2eb90a63f072680     44816  oneclick/状态自检.bat
+f79c0f8348e9a7e0ae929c79f59d5eb0     45285  oneclick/状态自检.bat
 82c7fceede927d3101aab34768fd70d6      1686  payload/drivers/README.md
 8cf6ba0b9577f2362758c486e2f23d76      2146  payload/drivers/RESTORE-DRIVERS.ps1
 6bc8e3505d9f51368ddf323acb6abc49     50216  payload/drivers/ThrottleStop.sys

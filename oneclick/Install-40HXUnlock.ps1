@@ -2071,7 +2071,9 @@ function Install-Task {
     $act = ($t.Actions | ForEach-Object { $_.Execute + ' ' + $_.Arguments }) -join ' '
     Info ('  动作: ' + $act)
     Info ('  触发器: ' + (($t.Triggers | ForEach-Object { $_.CimClass.CimClassName }) -join ', ') + ' ; 身份: ' + $t.Principal.UserId + '/' + $t.Principal.RunLevel)
-  } else { Bad '任务未注册成功' }
+  } else { Bad '任务未注册成功'
+    # 2026-10-10（用户现场联动排查）：写不上的常见原因给全 —— 杀软启动项保护拦计划任务、Task Scheduler 服务没跑
+    Add-Action '开机任务没注册上：① 杀软（火绒/360）的「启动项保护」会拦计划任务创建 → 先关掉或加信任；② services.msc 里 Task Scheduler 服务要在跑；处理后跑 -Mode Repair（或双击 一键修复Gen2.cmd 也会重建任务）' }
   # 2026-10-01：登录后 60 秒自动补跑一次（见 $script:TaskNameLogon 的注释）。
   # 为什么需要：开机那轮是最早的一批服务，客户机实测会因杀软拦驱动 / GPU 未就绪 / 驱动文件被清而失败，
   #   而用户登录后手动跑一次总是成功 —— 那就别让用户点，由系统自己补跑。
@@ -2081,7 +2083,7 @@ function Install-Task {
   }
   $out2 = (Invoke-Native { schtasks /create /tn $script:TaskNameLogon /sc onlogon /delay 0001:00 /ru SYSTEM /rl HIGHEST /tr $cmdLine /f 2>&1 } | Out-String)
   if ($out2 -match '成功|SUCCESS') { Ok ('登录后补跑任务已注册: ' + $script:TaskNameLogon + ' (LogonTrigger +60s, SYSTEM/Highest)') }
-  else { Warn ('登录后补跑任务注册可能失败: ' + $out2.Trim() + ' —— 需要它的话跑 -Mode Repair 重试') }
+  else { Warn ('登录后补跑任务注册可能失败: ' + $out2.Trim() + ' —— 同上两项（杀软启动项保护 / Task Scheduler 服务）；处理后跑 -Mode Repair 或双击 一键修复Gen2.cmd') }
   # 厂商自启（会在本机把算力清掉/覆盖 EFI）一律停掉
   # 2026-09-30 修：不再只认两个固定任务名（厂商换名就漏），改成按"名字或动作命令行里含 40HX"全扫
   $dis = 0
