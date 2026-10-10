@@ -100,6 +100,53 @@ Info '开始转换（通常几秒钟）...'
 $crc = $LASTEXITCODE
 if ($crc -ne 0) { Bad ('转换失败（退出码 ' + $crc + '）—— 把上面的英文输出发给技术。磁盘一般还是 MBR 原样。'); exit 1 }
 
+# ---- 6) 新 BCD 体检 + 自动修复（2026-10-10 客户现场实踩，勿删）----
+#   这台链条里唯一写 BCD 的是 mbr2gpt 自己（安装器建固件启动项只写 NVRAM，不碰 BCD）。
+#   已知坑：mbr2gpt 新建的 BCD 偶尔 device/osdevice 解析不出来（unknown），
+#   客户一重启就 0xc000000e 蓝屏，只能进 PE 手工 bcdboot 救 —— 所以转完当场验证、
+#   坏了当场重建，把 PE 那一步提前到这里自动做掉。
+Say ''
+Info '体检新 BCD（防重启蓝屏 0xc000000e）...'
+function Test-BcdStore { param([string]$BcdPath)
+  # $true=健康 / $false=坏或读不出。判据：{default} 的 osdevice 必须解析成 partition=...
+  if (-not (Test-Path $BcdPath)) { return $false }
+  $out = (& bcdedit.exe /store $BcdPath /enum '{default}' 2>&1 | Out-String)
+  if ($LASTEXITCODE -ne 0) { return $false }
+  if ($out -notmatch 'osdevice\s+partition=') { return $false }
+  return $true
+}
+$bcdBad = $false
+try {
+  $esp = @(Get-Partition -DiskNumber $dn -ErrorAction Stop | Where-Object { [string]$_.GptType -eq '{c12a7328-f81f-11d2-ba4b-00a0c93ec93b}' } | Select-Object -First 1)
+  if ($esp.Count -eq 0) { Warn '没找到新 ESP 分区 —— 跳过 BCD 体检（重启后若 0xc000000e 蓝屏，进 PE 跑 bcdboot，见桌面说明）'; $bcdBad = $true }
+  else {
+    $esp = $esp[0]
+    $L = $null
+    foreach ($c in [char[]]'ZYXWVUTSRQPON') { if (-not (Get-PSDrive -Name ([string]$c) -ErrorAction SilentlyContinue)) { $L = [string]$c; break } }
+    if (-not $L) { Warn '没有空闲盘符挂 ESP —— 跳过 BCD 体检'; $bcdBad = $true }
+    else {
+      $esp | Set-Partition -NewDriveLetter $L -ErrorAction Stop
+      $bcdPath = $L + ':\EFI\Microsoft\Boot\BCD'
+      if (Test-BcdStore $bcdPath) {
+        Ok '新 BCD 体检通过（osdevice 可正常解析）'
+      } else {
+        Warn '新 BCD 是坏的（device/osdevice=unknown）—— 正在自动重建（bcdboot）...'
+        & (Join-Path $env:SystemRoot 'System32\bcdboot.exe') ($env:SystemDrive + '\Windows') /s ($L + ':') /f UEFI | Out-Null
+        if (Test-BcdStore $bcdPath) { Ok 'bcdboot 重建后体检通过 —— 蓝屏隐患已排除' }
+        else {
+          $bcdBad = $true
+          Bad 'bcdboot 重建后 BCD 仍是坏的 —— 【先别重启】把本窗口截图发给技术'
+        }
+      }
+      # 收尾：把 ESP 盘符撤掉（引导不依赖盘符）
+      try { & mountvol.exe ($L + ':') /d | Out-Null } catch { }
+    }
+  }
+} catch {
+  Warn ('BCD 体检没跑成（' + $_.Exception.Message + '）—— 跳过，不影响转换结果本身')
+  $bcdBad = $true
+}
+
 Say ''
 Say '============================================================' 'Green'
 Say '  [OK] 转换完成：系统盘已是 GPT。' 'Green'
