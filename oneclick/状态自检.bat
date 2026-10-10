@@ -44,6 +44,7 @@ set "TMPCL=%TEMP%\40hx_check.lst"
 set "TMPG=%TEMP%\40hx_gsp.txt"
 set "TMPG2=%TEMP%\40hx_gsp_v.txt"
 set "TMPG3=%TEMP%\40hx_c43.txt"
+set "TMPW=%TEMP%\40hx_width.txt"
 
 echo ============================================================
 echo                 40HX ½âËø×´Ì¬¼ì²é
@@ -404,6 +405,7 @@ if not defined D2HT set "D2HT=Ê§°Ü"
 echo     H2D ´ø¿í : %H2DT% GB/s
 echo     D2H ´ø¿í : %D2HT% GB/s
 echo     ²Î¿¼Öµ   : Gen1 Ô¼ 3.1-3.4 / Gen2 Ô¼ 5.8-6.7 GB/s
+echo                £¨¿í¶È²»ÊÇ x16 Ê±°´±ÈÀýÕÛËã: Gen2 x8 Ô¼ 3.0-3.4, Óë Gen1 x16 ÖØµþ ¡ª¡ª ¿´ÏÂÃæ¿í¶ÈÅÐ¶¨£©
 if /I "%VERD%"=="GEN2" set "OKLINK=1"
 if /I "%VERD%"=="GEN2" echo     [OK] ÅÐ¶¨: Gen2 ÒÑ½âËø
 if /I "%VERD%"=="GEN1" echo     [!!] ÅÐ¶¨: Gen1 Î´½âËø
@@ -417,6 +419,31 @@ if not defined VERD if exist "%TMPO%" (
   echo     ---- Êµ²â³ÌÐòÔ­Ê¼Êä³ö£¨¶¨Î»¸ùÒòÓÃ£©----
   type "%TMPO%"
   echo     --------------------------------------
+)
+
+rem 2026-10-10£¨¿Í»§ÏÖ³¡£©£º¿í¶ÈÅÐ¶Á ¡ª¡ª Ã»²¹µçÈÝµÄ¿¨µçÆøÉÏÏÞÖ»ÓÐ x8£»ÓÐÐ©Ö÷°åÎïÀí x16 ²ÛµçÆøÖ»ÓÐ x4/x8¡£
+rem   Gen2 x8 ¡Ö 3.0-3.4 GB/s Óë Gen1 x16 µÄ 3.1-3.4 ÖØµþ ¡ú ×Ü´ø¿í·Ö²»Çå£¬°´"Ã¿Í¨µÀ´ø¿í"(H2D/¿í¶È)¸´ÅÐ£º
+rem   >=0.34 GB/s Ã¿Í¨µÀ = Gen2 ËÙÂÊ¡£
+set "WSTAT="
+set "WLANE="
+if exist "%TMPW%" del "%TMPW%" >nul 2>&1
+powershell -NoProfile -Command "$c=0;$m=0;$h=0.0;[void][int]::TryParse('%LWC%',[ref]$c);[void][int]::TryParse('%LWM%',[ref]$m);[void][double]::TryParse('%H2DT%',[System.Globalization.NumberStyles]::Float,[System.Globalization.CultureInfo]::InvariantCulture,[ref]$h);$o='UNK';if($m -gt 0){if($m -lt 16){$o='MAXLOW'}elseif($c -lt $m){$o='CURLOW'}else{$o='FULL'}};$lane='NA';if($h -gt 0 -and $c -gt 0){if($h/$c -ge 0.34){$lane='G2'}else{$lane='G1'}};$o+'|'+$lane+'|'+$c+'|'+$m" > "%TMPW%" 2>nul
+if exist "%TMPW%" for /f "usebackq tokens=1-4 delims=|" %%a in ("%TMPW%") do (set "WSTAT=%%a" & set "WLANE=%%b")
+if "%WSTAT%"=="FULL" echo     [OK] Á´Â·¿í¶È x%LWC% È«Âú
+if not "%WSTAT%"=="MAXLOW" goto :w_notmaxlow
+echo     [!!] ¸Ã²Û/¸Ã¿¨µçÆøÉÏÏÞÖ»ÓÐ x%LWM%£¨×¢Òâ: ÎïÀí x16 ²»µÈÓÚµçÆø x16£©
+echo            Á½ÖÖ¿ÉÄÜ: ¢Ù¿¨Ã»²¹µçÈÝ£¨40HX Òª²¹µçÈÝ²ÅÓÐ x16 µçÆø£©¢Ú²å´í²Û£¨Ö÷°åÕâÌõ²ÛµçÆøÖ»ÓÐ x%LWM%£©
+echo            ´¦Àí: ÍêÈ«¹Ø»úºó»»Ö÷°å¡¾µÚÒ»Ìõ¡¿x16 ²ÛÔÙ²â£»»¹ÊÇ x%LWM% ¾ÍÊÇ¿¨Ã»²¹µçÈÝ
+echo            £¨Ö»Ó°Ïì´ø¿í²»Ó°ÏìËãÁ¦: Gen2 x8 ´ø¿íÉÏÏÞÔ¼ 3.3 GB/s, µ½²»ÁË x16 µÄ 5.8+£©
+:w_notmaxlow
+if not "%WSTAT%"=="CURLOW" goto :w_notcurlow
+echo     [!!] Á´Â·Ö»Ð­ÉÌµ½ x%LWC%£¨²ÛÎ»ÉÏÏÞ x%LWM%£©¡ª¡ª Ã»²å½ô/½ðÊÖÖ¸Ôà¾Ó¶à
+echo            ´¦Àí: ÍêÈ«¹Ø»úºóÖØ²åÏÔ¿¨£¨ÏðÆ¤²ÁÒ»ÏÂ½ðÊÖÖ¸£©£¬²»ÐÐ»»²Û
+:w_notcurlow
+rem ¿í¶È²»¹»Ê±×Ü´ø¿íµÍ¡ÙÃ»½âËø£ºGen1 ÅÐ¶¨Òª°´Ã¿Í¨µÀ´ø¿í¸´ºË
+if /I "%VERD%"=="GEN1" if "%WLANE%"=="G2" (
+  echo     [ËµÃ÷] °´Ã¿Í¨µÀ´ø¿íËãÆäÊµÊÇ Gen2 x%LWC%£¨¿í¶ÈÊÜÏÞ°Ñ×Ü´ø¿íÀ­µÍÁË£©¡ª¡ª ²»ÊÇÃ»½âËø, °´»ÆÉ«"¿í¶ÈÊÜÏÞ"¼Æ
+  set "OK3=2"
 )
 echo.
 
@@ -595,6 +622,8 @@ if "%OK1%"=="0" echo     - Ã»¶Áµ½ÏÔ¿¨/Çý¶¯: ÏÈÈ·ÈÏ nvidia-smi ÄÜÅÜ¡¢Çý¶¯Õý³£(Éè±
 if "%OK2%"=="0" echo     - Çý¶¯Ä£Ê½²»ÊÇ WDDM: ¹ÜÀíÔ±Ö´ÐÐ nvidia-smi -dm 0, È»ºóÖØÆô
 if "%GSPK%"=="0" echo     - GSP ¹Ì¼þÎ´ÆôÓÃ: Ë«»÷ GSPÌå¼ì.cmd ×Ô¶¯ÐÞ, È»ºó¡¾ÍêÈ«¹Ø»ú¡¿ÔÙ¿ª»úºó¸´ºË
 if "%OK3%"=="0" if not defined NOCSC echo     - PCIe Î´´ï Gen2: ÏÈÖØÆôÈÃ¿ª»úÈÎÎñÖØÑµ; ÈÔ²»ÐÐ¼ì²é ACE-BOOT ÊÇ·ñÀ¹½Ø
+if "%WSTAT%"=="MAXLOW" echo     - Á´Â·ÉÏÏÞÖ»ÓÐ x%LWM%: ÏÈ»»µÚÒ»Ìõ x16 ²ÛÅÅ³ý²å´í; ÒÀ¾ÉÔòÊÇ¿¨Ã»²¹µçÈÝ£¨Ó²¼þÉÏÏÞ, ²»Ó°ÏìËãÁ¦£©
+if "%WSTAT%"=="CURLOW" echo     - Á´Â·´Ó x%LWM% µôµ½ x%LWC%: ÍêÈ«¹Ø»úÖØ²åÏÔ¿¨/²Á½ðÊÖÖ¸, ²»ÐÐ»»²Û
 rem 2026-10-10£¨ÓÃ»§Ö¸³ö£©£ºÅÜÂë±Ø½âËø ¡ª¡ª ËãÁ¦Ã»½âËø ¡Ö ±¾´Î¿ª»úÃ»×ß 40HX Unlock Æô¶¯Ïî£¨BIOS Ã»°ÑËü·ÅµÚÒ»£©¡£
 rem   ÐÎÌ¬Çø·Ö£ºSM Âú 34 µ«ÕÅÁ¿ºË±»¿³£¨TCI Ô¶µÍÓÚ 4000=40T ÅÐ¾Ý£¬¿³ÁËµÄ¿¨Ö»Ê£ÁãÍ·£©= Ã»ÅÜÂë£»ÂÔµÍÓÚÅÐ¾Ý = ½µÆµ/¸ßÎÂ¡£
 set "LOCKSIG="

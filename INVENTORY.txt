@@ -121,7 +121,7 @@ e3cf708f75d0d369cd60f25133315eac      9075  oneclick/文档/给客户-Gen2预埋
 6fb85ad44c58899fbdf0e2782dce20ff      3270  oneclick/文档/给客户-操作指引-20261001.txt
 38f8bb69b979de15f4340ebc79ce0e88     13948  oneclick/文档/风险与恢复.md
 e832723a9983b6f798f5c351e99d378e    153892  oneclick/文档/验证记录.md
-1b317c9017a9542bfca7b8efe6bb3034     42588  oneclick/状态自检.bat
+80182e8d4c04d595c2eb90a63f072680     44816  oneclick/状态自检.bat
 82c7fceede927d3101aab34768fd70d6      1686  payload/drivers/README.md
 8cf6ba0b9577f2362758c486e2f23d76      2146  payload/drivers/RESTORE-DRIVERS.ps1
 6bc8e3505d9f51368ddf323acb6abc49     50216  payload/drivers/ThrottleStop.sys
