@@ -41,6 +41,9 @@ set "EARLY="
 set "TASKV="
 set "TMPT=%TEMP%\40hx_task.stat"
 set "TMPCL=%TEMP%\40hx_check.lst"
+set "TMPG=%TEMP%\40hx_gsp.txt"
+set "TMPG2=%TEMP%\40hx_gsp_v.txt"
+set "TMPG3=%TEMP%\40hx_c43.txt"
 
 echo ============================================================
 echo                 40HX ½âËø×´Ì¬¼ì²é
@@ -87,6 +90,36 @@ if /I "%DRV%"=="N/A" set "OK1=0"
 if /I "%DRV%"=="[N/A]" set "OK1=0"
 if "%OK1%"=="1" echo     [OK] ÏÔ¿¨ÓëÇý¶¯ÒÑÊ¶±ð
 if "%OK1%"=="0" echo     [!!] ÉÏÃæÐÍºÅ/Çý¶¯°æ±¾ÊÇ¿ÕµÄ»òÊÇ N/A: nvidia-smi Ã»¶Áµ½¿¨, »òÇý¶¯Òì³£
+
+rem 2026-10-10£¨ÓÃ»§ÒªÇó£©£ºGSP ¹Ì¼þ×´Ì¬Ìáµ½ÕâÀï²é ¡ª¡ª GSP ¹Ø×Å + ´úÂë 43 Ê±ÏÔ¿¨ÒÑ±»Çý¶¯Í£ÓÃ£¬
+rem   ºóÃæµÄ´ø¿í/ËãÁ¦Êµ²â×¢¶¨Ê§°Ü£¨CUDA ³õÊ¼»¯²»ÁË£©£¬È·Õï¾ÍÖ±½ÓÌø½áÂÛÇø£¬²»°×ÅÜÒ²²»ÏÅÈË¡£
+set "GSPK=2"
+set "GSPV="
+if exist "%TMPG2%" del "%TMPG2%" >nul 2>&1
+"%SMI%" -q > "%TMPG%" 2>nul
+if exist "%TMPG%" powershell -NoProfile -Command "$q=[IO.File]::ReadAllText('%TMPG%');$m=[regex]::Match($q,'(?im)^\s*GSP Firmware Version\s*:\s*(.+?)\s*$');if(-not $m.Success){'UNKNOWN'}else{$v=$m.Groups[1].Value.Trim();if($v -match '^\d+(\.\d+)+'){'ON '+$v}else{'OFF '+$v}}" > "%TMPG2%" 2>nul
+if exist "%TMPG2%" for /f "usebackq delims=" %%a in ("%TMPG2%") do set "GSPV=%%a"
+if defined GSPV if "%GSPV:~0,2%"=="ON" set "GSPK=1"
+if defined GSPV if "%GSPV:~0,3%"=="OFF" set "GSPK=0"
+if "%GSPK%"=="1" echo     [OK] GSP ¹Ì¼þ  : ÒÑÆôÓÃ (%GSPV:~3%)
+if not defined GSPV echo     [--] GSP ¹Ì¼þ  : Ã»ÄÜÅÐ¶¨£¨nvidia-smi -q ±»À¹?£©-- ²»Ó°ÏìÏÂÃæµÄÊµ²â
+if defined GSPV if "%GSPV:~0,7%"=="UNKNOWN" echo     [--] GSP ¹Ì¼þ  : nvidia-smi -q ÀïÃ»ÓÐ GSP ÐÐ£¨Çý¶¯Ì«ÀÏ?£©-- ²»Ó°ÏìÏÂÃæµÄÊµ²â
+if not "%GSPK%"=="0" goto :gsp_ok
+echo     [!!] GSP ¹Ì¼þ  : Î´ÆôÓÃ (%GSPV:~4%) -- ½âËøºó nvlddmkm ÈÏ²»ÁË¿¨ = ºÚÆÁ + Éè±¸¹ÜÀíÆ÷´úÂë 43
+echo            ´¦Àí: Ë«»÷ GSPÌå¼ì.cmd ×Ô¶¯ÐÞ, È»ºó¡¾ÍêÈ«¹Ø»ú¡¿£¨²»ÊÇÖØÆô£©ÔÙ¿ª»ú
+rem GSP Ã»¿ªÊ±ÔÙ¿´Ò»ÑÛÊÇ²»ÊÇÒÑ¾­´úÂë 43 ÁË£ºÊÇ ¡ú Ìø¹ý [2/6]~[4/6] Êµ²â
+set "C43="
+if exist "%TMPG3%" del "%TMPG3%" >nul 2>&1
+powershell -NoProfile -Command "$d=Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match '40HX' -or $_.InstanceId -match 'DEV_1F0B' } | Select-Object -First 1; if($d){$pc=(Get-PnpDeviceProperty -InstanceId $d.InstanceId -KeyName 'DEVPKEY_Device_ProblemCode' -ErrorAction SilentlyContinue).Data; if($pc -eq 43){'C43'}else{'OK'}}else{'NODEV'}" > "%TMPG3%" 2>nul
+if exist "%TMPG3%" for /f "usebackq delims=" %%a in ("%TMPG3%") do set "C43=%%a"
+if not "%C43%"=="C43" goto :gsp_ok
+echo     [!!] ÏÔ¿¨µ±Ç°¾ÍÊÇ´úÂë 43£¨Çý¶¯Í£ÓÃÁËÕâÕÅ¿¨£©-- [2/6]~[4/6] µÄÊµ²âÌø¹ý£¨²âÁËÒ²±Ø°Ü£©
+echo            Ë³Ðò: ÏÈÐÞ GSP£¨¼ûÉÏÃæ£©£¬ÍêÈ«¹Ø»úÔÙ¿ª»ú£¬ÔÙÅÜ±¾½Å±¾¸´ºË
+set "OK2=2"
+set "OK3=2"
+set "OK4=2"
+goto :gen2info
+:gsp_ok
 echo.
 
 echo [2/6] Çý¶¯Ä£Ê½   (WDDM = WSL Ö±Í¨¿ÉÓÃ)
@@ -496,15 +529,16 @@ rem 2026-10-01b£¨Éó²é H17£©£ºÔ­À´Á½ÐÐ·Ö¿ªÐ´£¬ÈÕÖ¾²»´æÔÚÊ± errorlevel ÑØÓÃÉÏÒ»ÌõÃ
 rem   ¡ú »á±»ÎóÅÐ³É"³§ÉÌ¹¤¾ß±¨¹ý PASS"¡£°ü½ø if exist ¿éºó¾Í²»»áÁË¡£
 if exist "%STAT%" (
   powershell -NoProfile -Command "$c = Get-Content '%STAT%' -Encoding UTF8; Write-Output ('    written: ' + (Get-Item '%STAT%').LastWriteTime); $c -replace ([char]0x2705),'[OK]' -replace ([char]0x274C),'[NG]' -replace ([char]0x2713),'v' -replace ([char]0x26A0),'!' -replace ([char]0xFE0F),''"
+  rem 2026-10-06£ºÕâÒ»ÏîÊÇ³§ÉÌ¹¤¾ßÁôÏÂµÄÎÄ¼þ, ±¾°ü²»×ßËü ¡ª¡ª Ã÷È·±ê"²Î¿¼", ²»¼ÆÈë½áÂÛ
+  echo     [²Î¿¼] ÉÏÃæÊÇ³§ÉÌ¹¤¾ßµÄ×´Ì¬ÎÄ¼þ, ±¾°ü²»ÓÃËü: ¹ýÆÚ»òÄÚÈÝ¾É¶¼²»ËãÒì³£
+  if defined NPASS (
+    echo.
+    echo     [ËµÃ÷] ÉÏÃæÕâ·ÝÊÇ**³§ÉÌ¹¤¾ß**µÄ×´Ì¬ÎÄ¼þ; ±¾°ü×ßÐÂÂ·¾¶ ^(ECAM+inpoutx64, ²»ÐèÒª ThrottleStop^),
+    echo            Ëü±¨"ThrottleStop Çý¶¯Î´ÔËÐÐ"ÊôÕý³£ÏÖÏó, ÇëÒÔ [5/6] µÄ PASS Îª×¼
+  )
 ) else (
-  echo     [--] Î´ÕÒµ½ %STAT%
-)
-rem 2026-10-06£ºÕâÒ»ÏîÊÇ³§ÉÌ¹¤¾ßÁôÏÂµÄÎÄ¼þ, ±¾°ü²»×ßËü ¡ª¡ª Ã÷È·±ê"²Î¿¼", ²»¼ÆÈë½áÂÛ
-echo     [²Î¿¼] ÉÏÃæÊÇ³§ÉÌ¹¤¾ßµÄ×´Ì¬ÎÄ¼þ, ±¾°ü²»ÓÃËü: ¹ýÆÚ»òÄÚÈÝ¾É¶¼²»ËãÒì³£
-if defined NPASS (
-  echo.
-  echo     [ËµÃ÷] ÉÏÃæÕâ·ÝÊÇ**³§ÉÌ¹¤¾ß**µÄ×´Ì¬ÎÄ¼þ; ±¾°ü×ßÐÂÂ·¾¶ ^(ECAM+inpoutx64, ²»ÐèÒª ThrottleStop^),
-  echo            Ëü±¨"ThrottleStop Çý¶¯Î´ÔËÐÐ"ÊôÕý³£ÏÖÏó, ÇëÒÔ [5/6] µÄ PASS Îª×¼
+  rem 2026-10-10£¨ÓÃ»§ÒªÇó£©£ºÐÂ×°»úÆ÷±¾À´¾ÍÃ»ÓÐÕâ¸öÎÄ¼þ ¡ª¡ª Ò»¾ä"Õý³£"´ø¹ý, ²»ÔÙ´ò"Î´ÕÒµ½"ÏÅÈË
+  echo     [OK] ±¾»úÃ»ÓÐ³§ÉÌ¹¤¾ßÒÅÁôµÄ×´Ì¬ÎÄ¼þ ^(ÐÂ×°»úÆ÷±¾À´¾ÍÃ»ÓÐ, Õý³£^)
 )
 echo.
 
@@ -516,6 +550,7 @@ if "%OK2%"=="0" set "NGN=%NGN% Çý¶¯Ä£Ê½"
 if "%OK3%"=="0" set "NGN=%NGN% PCIe Á´Â·"
 if "%OK4%"=="0" set "NGN=%NGN% ËãÁ¦/ÏÔ´æ"
 if "%OK5%"=="0" set "NGN=%NGN% ¿ª»úÈÎÎñ"
+if "%GSPK%"=="0" set "NGN=%NGN% GSP¹Ì¼þÎ´ÆôÓÃ"
 if "%OK1%"=="2" set "WAITN=%WAITN% ÏÔ¿¨ÓëÇý¶¯"
 if "%OK2%"=="2" set "WAITN=%WAITN% Çý¶¯Ä£Ê½"
 if "%OK3%"=="2" set "WAITN=%WAITN% PCIe Á´Â·(ËãÁ¦/´ø¿íÃ»Êµ²â³É)"
@@ -550,15 +585,24 @@ rem   £¨-Command ÀïÖ»ÓÐÐ´ËÀµÄ¼¸¸öÖÐÎÄ×ÖÃæÁ¿; Â·¾¶/²ÎÊýÒ»ÂÉ²»´«ÖÐÎÄ, Êµ²â chcp 93
 >> "%TMPCL%" echo %OK3%;PCIe Á´Â· Gen2
 >> "%TMPCL%" echo %OK4%;ËãÁ¦ÓëÏÔ´æÂúÑª
 >> "%TMPCL%" echo %OK5%;¿ª»úÈÎÎñ ±¾´Î¿ª»ú
->> "%TMPCL%" echo 2;³§ÉÌ¹¤¾ß×´Ì¬ÎÄ¼þ ²Î¿¼Ïî
+if defined GSPK >> "%TMPCL%" echo %GSPK%;GSP ¹Ì¼þ
+if exist "%STAT%" >> "%TMPCL%" echo 2;³§ÉÌ¹¤¾ß×´Ì¬ÎÄ¼þ ²Î¿¼Ïî
 >> "%TMPCL%" echo V;%VST%;%SUMV%
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$cn=@{'1'='Green';'0'='Red';'2'='Yellow'};$sw=@{'1'='[OK]';'0'='[!!]';'2'='[--]'};foreach($l in ([IO.File]::ReadAllLines([string]'%TMPCL%',[Text.Encoding]::GetEncoding(936)))){$p=$l.Split([char]59);if($p.Count -lt 2){continue};if($p[0] -eq 'V'){$k=$p[1];if($k -ne '1'){if($k -ne '0'){$k='2'}};$tx=($p[2..($p.Count-1)] -join ';');Write-Host ('   ½áÂÛ: ' + $tx) -ForegroundColor $cn[$k]}else{$k=$p[0];if($k -ne '1'){if($k -ne '0'){$k='2'}};Write-Host ('   ' + $sw[$k] + ' ' + $p[1]) -ForegroundColor $cn[$k]}}"
 if "%OK5%"=="0" echo     - ¿ª»úÈÎÎñÃ»ÅÜ³É: ¼û ÅÅ²éÖ¸Òý µÚ 5 ½Ú; Ò²¿ÉÒÔÖ±½ÓÖØÆôÒ»´ÎÔÙÅÜ±¾½Å±¾
 if "%OK5%"=="2" if not defined EARLY echo     - ¿ª»úÈÎÎñÎ´Êµ²â: ±¾´Î»¹Ã»ÂäÈÕÖ¾/±¾ÂÖ»¹ÔÚÅÜ -- µÈ½ø×ÀÃæ 1~3 ·ÖÖÓÔÙÅÜ±¾½Å±¾; ±¾»úÅÐ²»ÁË¾Í¿´ [5/6] µÄËµÃ÷
 if "%OK1%"=="0" echo     - Ã»¶Áµ½ÏÔ¿¨/Çý¶¯: ÏÈÈ·ÈÏ nvidia-smi ÄÜÅÜ¡¢Çý¶¯Õý³£(Éè±¸¹ÜÀíÆ÷ÓÐÃ»ÓÐ¸ÐÌ¾ºÅ)
 if "%OK2%"=="0" echo     - Çý¶¯Ä£Ê½²»ÊÇ WDDM: ¹ÜÀíÔ±Ö´ÐÐ nvidia-smi -dm 0, È»ºóÖØÆô
+if "%GSPK%"=="0" echo     - GSP ¹Ì¼þÎ´ÆôÓÃ: Ë«»÷ GSPÌå¼ì.cmd ×Ô¶¯ÐÞ, È»ºó¡¾ÍêÈ«¹Ø»ú¡¿ÔÙ¿ª»úºó¸´ºË
 if "%OK3%"=="0" if not defined NOCSC echo     - PCIe Î´´ï Gen2: ÏÈÖØÆôÈÃ¿ª»úÈÎÎñÖØÑµ; ÈÔ²»ÐÐ¼ì²é ACE-BOOT ÊÇ·ñÀ¹½Ø
-if "%OK4%"=="0" if not defined NOCSC echo     - ËãÁ¦/ÏÔ´æµÍÓÚÅÐ¾ÝÏÂÏÞ: ¼ì²éÊÇ·ñ½µÆµ/¸ßÎÂ, »òÇý¶¯Î´Õý³£¼ÓÔØ
+rem 2026-10-10£¨ÓÃ»§Ö¸³ö£©£ºÅÜÂë±Ø½âËø ¡ª¡ª ËãÁ¦Ã»½âËø ¡Ö ±¾´Î¿ª»úÃ»×ß 40HX Unlock Æô¶¯Ïî£¨BIOS Ã»°ÑËü·ÅµÚÒ»£©¡£
+rem   ÐÎÌ¬Çø·Ö£ºSM Âú 34 µ«ÕÅÁ¿ºË±»¿³£¨TCI Ô¶µÍÓÚ 4000=40T ÅÐ¾Ý£¬¿³ÁËµÄ¿¨Ö»Ê£ÁãÍ·£©= Ã»ÅÜÂë£»ÂÔµÍÓÚÅÐ¾Ý = ½µÆµ/¸ßÎÂ¡£
+set "LOCKSIG="
+if "%OK4%"=="0" if not defined NOCSC if %SMN% GEQ 34 if %TCI% LSS 2000 set "LOCKSIG=1"
+if defined LOCKSIG echo     - ËãÁ¦Ã»½âËø£¨SM ÂúÑªµ«ÕÅÁ¿ºË±»¿³µÄÐÎÌ¬£©: ×î¿ÉÄÜÊÇ±¾´Î¿ª»úÃ»×ß 40HX Unlock Æô¶¯Ïî£¨ÅÜÂë±Ø½âËø£©
+if defined LOCKSIG echo       - ½ø BIOS °Ñ 40HX Unlock ÉèÎªµÚÒ»Æô¶¯Ïî£¨»ò¹ÜÀíÔ±ÅÜ Install-40HXUnlock.ps1 -Mode MakeDefault£©, ÍêÈ«¹Ø»úÔÙ¿ª»úºó¸´ºË
+if defined LOCKSIG echo       - ÅÔÖ¤: ESP Àï 40hx_log.txt Ê±¼ä²»ÊÇ±¾´Î¿ª»ú = Ã»ÅÜÂë£¨¹ÜÀíÔ±ÅÜ -Mode Verify ¿É²é£©
+if "%OK4%"=="0" if not defined NOCSC if not defined LOCKSIG echo     - ËãÁ¦/ÏÔ´æµÍÓÚÅÐ¾ÝÏÂÏÞ: ¼ì²éÊÇ·ñ½µÆµ/¸ßÎÂ, »òÇý¶¯Î´Õý³£¼ÓÔØ
 if "%VERDICT%"=="Ðè¸´ºË" echo     - ÏÈ¿ÕÏÐÊ±ÖØÅÜÒ»´Î: ¹ØµôÕ¼ÓÃ GPU µÄ³ÌÐò, µÈÒ»Á½·ÖÖÓÔÙÅÜ±¾½Å±¾
 if defined NOCSC echo     - ±¾»úÃ»ÓÐ¿ÉÓÃµÄ csc.exe: Êµ²âËãÁ¦/´ø¿í×ö²»ÁË(²»ÊÇÏÔ¿¨¹ÊÕÏ), Gen2 ÒÔ [5/6] µÄ PASS Îª×¼
 if defined EARLY echo     - ±¾´Î¼ì²éÃ»ÅÜÍê(ÉÏÃæÒÑËµÃ÷Ô­Òò): ½áÂÛÖ»¸²¸ÇÒÑÖ´ÐÐµ½µÄÄÇ²¿·Ö

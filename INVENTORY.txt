@@ -121,7 +121,7 @@ e3cf708f75d0d369cd60f25133315eac      9075  oneclick/文档/给客户-Gen2预埋
 6fb85ad44c58899fbdf0e2782dce20ff      3270  oneclick/文档/给客户-操作指引-20261001.txt
 38f8bb69b979de15f4340ebc79ce0e88     13948  oneclick/文档/风险与恢复.md
 e832723a9983b6f798f5c351e99d378e    153892  oneclick/文档/验证记录.md
-4140cee6185c9af892210bdf19f6be36     39195  oneclick/状态自检.bat
+1b317c9017a9542bfca7b8efe6bb3034     42588  oneclick/状态自检.bat
 82c7fceede927d3101aab34768fd70d6      1686  payload/drivers/README.md
 8cf6ba0b9577f2362758c486e2f23d76      2146  payload/drivers/RESTORE-DRIVERS.ps1
 6bc8e3505d9f51368ddf323acb6abc49     50216  payload/drivers/ThrottleStop.sys
@@ -181,7 +181,7 @@ c7c28a0972d3bc2e024e4a766d16f516      3533  payload/windows-live/RunPostBind.cmd
 71458e1cbf9d86c288c1a1faa714e0bd      2776  payload/windows-live/RunPostBind.no-ace.cmd.bak
 6e3f7dbd75d2e59fd824c195b7278477       735  payload/windows-live/Status.cmd
 2a44b95ea3797a1dcffe4cf5fe4fb08f      1017  payload/windows-live/Uninstall_Auto.cmd
-09b937df5b438e46762d9188a3fe15ae     14132  README.md
+d28f002225f0ea76fe3455a2c6879a41     14166  README.md
 d094d3d8f42685ee61bddc9b9aa33474     31563  scripts/40HX解锁状态.bat
 a263240ac52b02cb91cf692e965be17c       996  scripts/clean-run-keys.ps1
 9070c6fe409e3005a14cc02aa9f97c67      4611  scripts/coldboot-report.ps1
