@@ -15,18 +15,18 @@
 
 ---
 
-## 〇、开装之前：BIOS 里必须先改的 5 项（脚本替你做不了）
+## 〇、开装之前：BIOS 里要检查的 5 项（脚本替你做不了）
 
-> 现场"装完没效果 / 认不到卡 / 代码 43"绝大多数栽在这里。各家 BIOS 菜单名不一样，
-> 按**关键词**找（很多 BIOS 支持直接搜 `4G` / `CSM` / `Secure Boot`）。
+> 现场"装完没效果 / 认不到卡 / 代码 43"绝大多数栽在这里。**只有 Secure Boot 关是硬门槛，其余按主板情况**
+> （单卡主机 Above 4G 不开也常能正常解锁）。各家 BIOS 菜单名不一样，按**关键词**找（很多 BIOS 支持直接搜 `4G` / `CSM` / `Secure Boot`）。
 
 | # | 改什么（常见叫法） | 设成 | 不改会怎样 | 常见位置 |
 |---|---|---|---|---|
-| 1 | **Above 4G Decoding**（4G 以上解码 / 大地址解码 / Above 4G memory） | **Enabled** | **头号失败原因**。40HX 是 8 GB 显存，显存 BAR 要落在 4 GB 以上地址空间；关着就认不到卡、或设备管理器"代码 43"、甚至开机黑屏 | 华硕/ROG：`Advanced → System Agent (SA) Configuration`；技嘉：`Settings → IO Ports`；微星：`Settings → Advanced → PCI Subsystem Settings`（矿版叫 `Above 4G memory/Crypto Currency mining`）；华擎：`Advanced → Chipset Configuration` |
-| 2 | **CSM**（Launch CSM / 兼容性支持模块 / CSM Support） | **Disabled**（= 纯 UEFI 引导） | 固件会按 Legacy 引导 → 脚本判定"固件不是 UEFI 模式"直接中止安装（前提不满足）；解锁固件也不会被执行 | `Boot → CSM` |
-| 3 | **Secure Boot**（安全启动） | **Disabled**（华硕老 BIOS 选 `Other OS`） | 解锁固件 `40HXUNLK.EFI` 是**未签名**的，Secure Boot 开着它就不执行 → 算力一直是未解锁状态 | `Security → Secure Boot` |
-| 4 | **Fast Boot**（快速启动） | **Disabled** | 它会和 Windows 的"快速启动"叠加成**混合关机** → GSP/驱动改动不生效（代码 43 的根因之一） | `Boot → Fast Boot` |
-| 5 | 该 x16 槽的 **PCIe 速率**（PCIe Speed / Link Speed） | **Auto**（别锁 Gen1） | 锁在 Gen1 就永远上不了 **Gen2 x16**（本方案的目标），拆显卡都白拆 | `Advanced`/`Chipset` 里的 PCIe 速率项 |
+| 1 | **Above 4G Decoding**（4G 以上解码 / 大地址解码 / Above 4G memory） | 建议 **Enabled**（主板没这个选项可跳过） | **失败排查第一个查它**。多数单卡主机不开也能正常解锁（实测）；但多卡/板载设备多的机器 4G 以下地址空间不够分时，关着会认不到卡、"代码 43"、甚至开机黑屏 | 华硕/ROG：`Advanced → System Agent (SA) Configuration`；技嘉：`Settings → IO Ports`；微星：`Settings → Advanced → PCI Subsystem Settings`（矿版叫 `Above 4G memory/Crypto Currency mining`）；华擎：`Advanced → Chipset Configuration` |
+| 2 | **CSM**（Launch CSM / 兼容性支持模块 / CSM Support） | 建议 **Disabled** | 开着、但系统确实是 UEFI+GPT 引导的也能正常解锁；它的害处是容易把系统装成 Legacy/MBR（那种会被判定"固件不是 UEFI 模式"直接中止，解锁固件也不会被执行）；且开着 CSM 通常也开不了 Above 4G | `Boot → CSM` |
+| 3 | **Secure Boot**（安全启动） | **必须 Disabled**（华硕老 BIOS 选 `Other OS`） | 解锁固件 `40HXUNLK.EFI` 是**未签名**的，Secure Boot 开着它就不执行 → 算力一直是未解锁状态 | `Security → Secure Boot` |
+| 4 | **Fast Boot**（快速启动） | 建议 **Disabled** | 部分固件（Ultra Fast 类）会跳过启动顺序直接进 Windows → 解锁固件那次开机没被执行；排查"没出现跑码界面"时必查。Windows 的"快速启动"（混合关机）是另一回事，也要关，安装器会自动关它 | `Boot → Fast Boot` |
+| 5 | 该 x16 槽的 **PCIe 速率**（PCIe Speed / Link Speed） | **Auto**（别锁 Gen1） | 锁在 Gen1 就永远上不了 **Gen2 x16**；设 Gen3/Gen4 也行（自动协商到 Gen2）。只影响 Gen2，不影响算力解锁——纯算力可不管这项 | `Advanced`/`Chipset` 里的 PCIe 速率项 |
 
 **同一时间顺手确认这几条（不在 BIOS 里，但同样决定成败）**：
 

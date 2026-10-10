@@ -115,20 +115,20 @@ CMP 40HX 是矿卡：出厂被人为压了算力（寄存器 SS0 锁住），PCI
 |---|---|
 | 引导 | **UEFI + GPT**（MBR 盘要先 `mbr2gpt`） |
 | Secure Boot | **关** |
-| BIOS | 见下面这张 **BIOS 必改 5 项** 表（头号失败原因是 Above 4G Decoding 没开） |
+| BIOS | 见下面这张 **BIOS 5 项检查** 表（Secure Boot 关是硬门槛；认不到卡/固件没被执行时先查 Above 4G 与启动顺序） |
 | BitLocker | 关或已暂停（否则改引导链会索要恢复密钥） |
 | NVIDIA 驱动 | 已装（GSP 固件要开着；没开脚本会帮你写开关，然后必须**完全关机**才生效） |
 | 杀软 | 火绒/360 加信任区 + 关"启动项保护"（见 `文档\使用说明-详细.md` 第 1.1 节） |
 
-**BIOS 里必须改的 5 项（脚本替你做不了，现场失败绝大多数栽在这里）**：
+**BIOS 里要检查的 5 项（脚本替你做不了）：Secure Boot 关是硬门槛，其余按主板情况——现场失败最常见的是 Above 4G 没开、启动项没排第一**：
 
 | # | 改什么（常见叫法） | 设成 | 不改会怎样 |
 |---|---|---|---|
-| 1 | **Above 4G Decoding**（4G 以上解码） | **Enabled** | **头号失败原因**：8 GB 显存要落在 4 GB 以上地址空间；关着 → 认不到卡 / 代码 43 / 黑屏 |
-| 2 | **CSM**（Launch CSM / CSM Support） | **Disabled** | 变成 Legacy 引导 → 判定"固件不是 UEFI 模式"直接中止（前提不满足） |
-| 3 | **Secure Boot**（安全启动） | **Disabled**（老华硕选 `Other OS`） | 解锁固件未签名，开着就不执行 → 算力一直没解锁 |
-| 4 | **Fast Boot**（快速启动） | **Disabled** | 与 Windows 快速启动叠加成"混合关机" → GSP/驱动改动不生效（代码 43 根因之一） |
-| 5 | 该 x16 槽的 **PCIe 速率** | **Auto**（别锁 Gen1） | 锁 Gen1 就永远上不了 Gen2 x16 |
+| 1 | **Above 4G Decoding**（4G 以上解码） | 建议 **Enabled**（主板没这个选项可跳过） | 多数单卡主机不开也能正常解锁（实测）；多卡/板载设备多的机器 4G 以下地址空间不够分时，关着 → 认不到卡 / 代码 43 / 黑屏。**失败排查第一个查它** |
+| 2 | **CSM**（Launch CSM / CSM Support） | 建议 **Disabled** | 开着、但系统确实是 UEFI+GPT 引导的也能正常解锁；它的害处是容易把系统装成 Legacy/MBR（那种会被判定"固件不是 UEFI 模式"直接中止）；且开着 CSM 通常也开不了 Above 4G |
+| 3 | **Secure Boot**（安全启动） | **必须 Disabled**（老华硕选 `Other OS`） | 解锁固件未签名，开着就不执行 → 算力一直没解锁 |
+| 4 | **Fast Boot**（快速启动） | 建议 **Disabled** | 部分固件（Ultra Fast 类）会跳过启动顺序直进 Windows → 解锁固件那次开机没被执行；排查"没出现跑码界面"时必查。（Windows 的"快速启动"是另一回事：它让"关机"变混合关机、GSP 改动不生效，Install 会自动关掉它） |
+| 5 | 该 x16 槽的 **PCIe 速率** | **Auto**（别锁 Gen1） | 锁 Gen1 就永远上不了 Gen2 x16；设 Gen3/Gen4 也行（自动协商到 Gen2）。只影响 Gen2，不影响算力解锁——纯算力可不管这项 |
 
 位置（各家叫法不同，按关键词找）：华硕 `Advanced → System Agent (SA) Configuration`、技嘉 `Settings → IO Ports`、
 微星 `Settings → Advanced → PCI Subsystem Settings`、华擎 `Advanced → Chipset Configuration`；
