@@ -1,4 +1,6 @@
 @echo off
+rem Copyright 2026 nie2100 - All rights reserved; redistribution or resale not permitted.
+rem Upstream MIT parts: CMP40HX-Unlock by PZH1gdmu / CMP40HX-Unlock-OnlyEFI by BardKing-CN.
 chcp 936 >nul
 title 40HX Ò»¼üÐÞ¸´ PCIe Gen2
 cd /d "%~dp0"

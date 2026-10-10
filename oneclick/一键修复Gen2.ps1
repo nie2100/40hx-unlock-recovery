@@ -1,4 +1,7 @@
-﻿# ============================================================
+﻿# Copyright (c) 2026 nie2100 —— 本文件属本仓库自写部分，保留所有权利（未经许可不得再分发 / 二次打包 / 转卖）。
+# 部分内容源自 CMP40HX-Unlock（GitHub: PZH1gdmu）与 CMP40HX-Unlock-OnlyEFI（GitHub: BardKing-CN），那部分为 MIT。
+# 完整授权与来源见 LICENSE / THIRD_PARTY.md。
+# ============================================================
 #  40HX 一键修复 Gen2（双击 一键修复Gen2.cmd 即可，不需要输任何命令）
 #  做四件事：
 #   1) 把新版 Gen2 工具就地更新到 C:\ProgramData\CMP40HXGen2\windows（按哈希比对，一样就跳过）

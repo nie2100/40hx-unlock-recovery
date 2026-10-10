@@ -1,4 +1,7 @@
 ﻿#Requires -Version 5.1
+# Copyright (c) 2026 nie2100 —— 本文件属本仓库自写部分，保留所有权利（未经许可不得再分发 / 二次打包 / 转卖）。
+# 部分内容源自 CMP40HX-Unlock（GitHub: PZH1gdmu）与 CMP40HX-Unlock-OnlyEFI（GitHub: BardKing-CN），那部分为 MIT。
+# 完整授权与来源见 LICENSE / THIRD_PARTY.md。
 <#
   Install-40HXUnlock.ps1
   ======================

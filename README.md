@@ -83,8 +83,9 @@
 | 解锁固件 | OnlyEFI v0.1.1 — https://github.com/BardKing-CN/CMP40HX-Unlock-OnlyEFI （MIT） | `\EFI\40HX\40HXUNLK.EFI`：算力解锁 + Gen2 策略寄存器/TLS 预埋，**故意不在 EFI 里重训链路**（这样才不会复位显卡、算力与 Gen2 才能并存） |
 | 第三方驱动 | ThrottleStop.sys / WinRing0x64.sys / inpoutx64.sys | MMIO 与 PCI 配置空间读写（BYOVD 类工具，杀软报警属预期） |
 
-**许可**：上面两个上游项目的仓库 `LICENSE` **都是 MIT**（`Copyright (c) 2026`，2026-10-02 核对），因此本仓库可以再分发它们的二进制；
-本仓库自己写的脚本/文档版权归作者，未附额外许可。逐项清单见 [`THIRD_PARTY.md`](THIRD_PARTY.md)。
+**许可**：上面两个上游项目的仓库 `LICENSE` **都是 MIT**（`Copyright (c) 2026`，2026-10-02 核对；OnlyEFI 的许可证文本 2026-10-10 再次核对一致），
+因此本仓库可以再分发它们的二进制。**本仓库自己写的那部分另有约定**（`Copyright (c) 2026 nie2100`，**保留所有权利**：自用可以，
+未经作者书面许可不得再分发 / 二次打包 / 转卖）。两部分的范围与全文见根目录 [`LICENSE`](LICENSE)，逐项来源见 [`THIRD_PARTY.md`](THIRD_PARTY.md)。
 
 **本仓库在它基础上做了什么**（都是"装到现场才会遇到"的坑）：
 
@@ -119,3 +120,21 @@
 解锁涉及**改引导链、注册内核驱动、写固件启动项**，有变砖风险（仓库里提供了备份与回滚，见 `oneclick/文档/风险与恢复.md`）。
 只在 **CMP 40HX（`10DE:1F0B`）** 上实测过；矿卡本身可能有暗病（例如 PCIe 延长线场景会出 `0x124` WHEA 硬件错误，与解锁无关）。
 解锁行为可能违反 NVIDIA/游戏厂商服务条款，**请自行判断用途**。
+
+---
+
+## 六、许可证（License）
+
+本仓库（与交付包 `oneclick/`）的授权**分两部分**，全文见根目录 [`LICENSE`](LICENSE)：
+
+| 部分 | 授权 | 你能做什么 |
+|---|---|---|
+| **上游部分**：`CMP40HX-Unlock`（GitHub: `PZH1gdmu`）、`CMP40HX-Unlock-OnlyEFI`（GitHub: `BardKing-CN`）的代码 / 二进制，以及我们对它们的修改 | **MIT**（其原始版权声明与许可全文完整保留在 `LICENSE` 里 —— 这是 MIT 对再分发的硬性要求） | 按 MIT：使用、修改、再分发都可以，保留版权与许可声明即可 |
+| **本仓库自写部分**：一键包安装器、开机任务与自愈、`40hx-retrain-inpout.ps1`、状态自检与各修复工具、全部文档 | **保留所有权利**（`Copyright (c) 2026 nie2100`，**禁止转售 / 二次打包**） | 在自己**自有的** 40HX 设备上自用、备份、修改；**不得再分发、二次打包、改名销售或转卖**；商用先联系作者 |
+
+- 上游 **CMP40HX-Unlock**（GitHub: `PZH1gdmu`）与固件来源 **CMP40HX-Unlock-OnlyEFI**（GitHub: `BardKing-CN`）**都是 MIT**，
+  两者的**原始版权声明与 MIT 许可证文本已完整保留**在 `LICENSE` 里 —— 这是 MIT 对再分发的硬性要求。
+- 上游 `PZH1gdmu/CMP40HX-Unlock` 的仓库与账号**现已不可访问**（2026-10-10 用 GitHub API 核实：返回 404），
+  但它当初公开的 MIT 授权是**永久且不可撤销**的，所以本仓库继续合法地基于它开发与分发 —— 依据就是被完整保留下来的那份声明与许可证文本。
+- 交付的一键包 `oneclick/` 里已经放了一份 `LICENSE`（包根），脱离本仓库单独分发时同样合规；本轮之后打出的 Release zip 会自动带上它（**线上最新的 `pkg-20261008aa` 打在这次改造之前，里面还没有**—— 已核对：那 78 个条目里没有 `LICENSE`）。
+- 哪些是上游的、哪些是本仓库自写的：见 [`THIRD_PARTY.md`](THIRD_PARTY.md) 第 1、4、6 节。

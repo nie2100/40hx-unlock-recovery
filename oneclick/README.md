@@ -91,6 +91,7 @@ CMP 40HX 是矿卡：出厂被人为压了算力（寄存器 SS0 锁住），PCI
 ├─ 一键修复Gen2.cmd                  ← 手动重跑一次 PCIe Gen2（出问题时用）
 ├─ README.md                        ← 本文（一眼上手）
 ├─ THIRD_PARTY.md                   ← 第三方来源与许可（上游/固件都是 MIT）
+├─ LICENSE                          ← 授权说明（上游部分 MIT + 自写部分保留所有权利）
 ├─ 排查指引.md                       ← 报错时按"日志原话 / 退出码"索引
 ├─ Install-40HXUnlock.ps1            ← 主脚本（Check/Install/Repair/Verify/Uninstall…）
 ├─ payload\                          ← 解锁固件 + Windows 侧工具 + 驱动（base64）+ 哈希清单
@@ -159,8 +160,10 @@ powershell -ExecutionPolicy Bypass -File "Install-40HXUnlock.ps1" -Mode Uninstal
 并解决了现场遇到的一堆坑：GSP（代码 43 根因）、快速启动、腾讯 ACE 预启动模式、杀软隔离驱动、目录 ACL 提权面、VBIOS 批次差异、显卡/根端口位置自动探测等。
 本包**不调用**上游安装器（它会覆盖 ESP 上的 OnlyEFI 固件 → Gen2 永远落不了地），固件/启动项/任务/驱动全部自己写。
 
-**许可**：上游 `PZH1gdmu/CMP40HX-Unlock` 与固件来源 `BardKing-CN/CMP40HX-Unlock-OnlyEFI` **都是 MIT 许可**（2026-10-02 核对过各自仓库的 `LICENSE`），
-所以本包可以再分发它们的二进制；本包自己的脚本/文档版权归作者。逐项清单见 **`THIRD_PARTY.md`**。
+**许可**：本包的授权**分两部分**，全文见包根 **`LICENSE`**（仓库根目录也有一份）。
+**上游部分**：`PZH1gdmu/CMP40HX-Unlock` 与固件来源 `BardKing-CN/CMP40HX-Unlock-OnlyEFI` **都是 MIT 许可**（2026-10-02 核对，OnlyEFI 于 2026-10-10 再次核对一致）；
+上游仓库虽已不可访问，但其 MIT 授权永久有效，**原始版权声明与许可全文已完整保留在 `LICENSE`** —— 那部分可继续使用 / 再分发。
+**本包自己写的脚本与文档**（`Copyright (c) 2026 nie2100`）**保留所有权利**：可自用、备份、修改；**未经作者书面许可不得再分发、二次打包或转卖**。逐项来源与衍生边界见 **`THIRD_PARTY.md`**。
 
 第三方驱动：`ThrottleStop.sys`、`WinRing0x64.sys`、`inpoutx64.sys`（均自带数字签名，属 BYOVD 类工具 —— 所有 PCIe 解锁方案都依赖它，杀软报警属预期）。
 

@@ -1,4 +1,6 @@
 @echo off
+rem Copyright 2026 nie2100 - All rights reserved; redistribution or resale not permitted.
+rem Upstream MIT parts: CMP40HX-Unlock by PZH1gdmu / CMP40HX-Unlock-OnlyEFI by BardKing-CN.
 rem 2026-10-08: 包根入口 —— 转发到 工具-测试与修复\查GSP.cmd（默认：体检 + 条件具备就自动写 GSP 开关；/readonly 才纯只读）
 chcp 936 >nul
 title 40HX GSP 体检（默认自动修；/readonly 只读）

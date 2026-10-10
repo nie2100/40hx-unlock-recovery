@@ -1,0 +1,75 @@
+40hx-unlock-recovery / 40hx-oneclick — 授权说明（两部分，请分开对照）
+
+Copyright (c) 2026 nie2100                                                  （本仓库自写部分，保留所有权利）
+Copyright (c) 2026 the CMP40HX-Unlock authors (GitHub: PZH1gdmu)            （上游，MIT）
+Copyright (c) 2026 the CMP40HX-Unlock-OnlyEFI authors (GitHub: BardKing-CN) （上游，MIT）
+
+================================================================================
+第一部分  本仓库自写部分：保留所有权利（禁止转售）
+================================================================================
+
+范围：一键包安装器（`Install-40HXUnlock.ps1` 等）、开机任务与多源自愈脚本、首选路径
+`40hx-retrain-inpout.ps1`、状态自检与 `工具-测试与修复\` 下各工具、`排查指引.md` 与全部文档、
+以及本仓库新增的说明文字。Copyright (c) 2026 nie2100，保留所有权利（All rights reserved）。
+
+  允许：在你**自有的** CMP 40HX 设备上，按本仓库文档安装、使用、备份、修改（自用）。
+  禁止（未经作者书面许可）：再分发、二次打包、改名销售、转卖、或作为商品 / 服务 / 教程的一部分对外提供；
+        也禁止删除或替换本文件、`THIRD_PARTY.md` 与各文件里的版权头。
+  想把本包用于商业分发或集成进自己的产品：先联系作者取得书面许可。
+
+这部分**不在下面的 MIT 授权范围内**。
+
+================================================================================
+第二部分  上游部分：MIT（授权永久有效，且不因第一部分而改变）
+================================================================================
+
+范围：来自 **CMP40HX-Unlock**（GitHub: PZH1gdmu）与 **CMP40HX-Unlock-OnlyEFI**（GitHub: BardKing-CN）
+的代码与二进制（含 `40HXUNLK.EFI`、`CMP40HXGen2.exe`、`AutoRetrain.cmd`、`Status.cmd` 等），
+以及本仓库对它们的修改。这些部分按 **MIT** 提供 —— 其原始版权声明与许可全文就在下面
+（MIT 要求随副本保留版权声明与许可文本，故一并放在本文件里）。
+
+逐项来源与衍生边界见 `THIRD_PARTY.md`。
+
+--------------------------------------------------------------------------------
+MIT License  （上游部分 / upstream components）
+--------------------------------------------------------------------------------
+
+Copyright (c) 2026 the CMP40HX-Unlock authors (GitHub: PZH1gdmu)
+Copyright (c) 2026 the CMP40HX-Unlock-OnlyEFI authors (GitHub: BardKing-CN)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+上游声明与来源（Upstream notices / provenance）
+--------------------------------------------------------------------------------
+
+  * CMP40HX-Unlock          https://github.com/PZH1gdmu/CMP40HX-Unlock
+                            MIT, Copyright (c) 2026
+  * CMP40HX-Unlock-OnlyEFI  https://github.com/BardKing-CN/CMP40HX-Unlock-OnlyEFI
+                            MIT, Copyright (c) 2026
+
+The upstream CMP40HX-Unlock repository/account is no longer reachable (GitHub API
+returns 404, checked 2026-10-10). Its MIT grant was public and is perpetual and
+irrevocable, so this project keeps distributing the upstream parts lawfully; the
+original copyright notice and the MIT permission notice are reproduced above.
+
+This project's own work (listed in the first section above and in THIRD_PARTY.md
+section 4) is NOT covered by that MIT grant.
+
+若你是上游作者 / 权利人或认为本文件记录有误，请提 issue：核实后我们立即修正、或按要求移除相应内容。
