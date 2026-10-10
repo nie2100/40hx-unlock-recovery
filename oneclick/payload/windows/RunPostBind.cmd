@@ -161,63 +161,18 @@ rem   errorlevel kept the previous value (0) and NOUTOK got set -> false PASS. f
   copy /y "!NOUT!" "%LOGDIR%\newpath-last.out" >nul 2>&1
   call :keepfail !NRC!
   del "!NOUT!" >nul 2>&1
-  >>"%LOG%" echo NewPath did not PASS - exit=!NRC! - falling back to the legacy ACE path
+  >>"%LOG%" echo NewPath did not PASS - exit=!NRC!
 ) else (
-  >>"%LOG%" echo NewPath: tool not found - using the legacy ACE path
+  >>"%LOG%" echo NewPath: tool not found
 )
-rem (ascii-only rule)
-if defined NOACETOG (
->>"%LOG%" echo ACE-PRIORITY: new path failed exit=!NRC! - no legacy fallback - done for this boot
-  >>"%LOG%" echo ==== PostBind EXIT=!NRC! !DATE! !TIME! ====
-  call :unlock
-  exit /b !NRC!
-)
-
-
-rem ---- If the driver already loaded at boot stage (Start=0 Boot) ACE must not be touched at all ----
-rem ACE-BOOT only blocks driver IMAGE LOAD; an already loaded driver keeps working, and leaving ACE-BOOT
-rem in its boot-loaded state keeps the pre-boot anti-cheat mode valid, so games do not ask for a reboot.
-set "ACE_STOPPED=1"
-
-rem ---- ACE-BOOT (Tencent pre-boot anti-cheat) blocks driver IMAGE LOAD only: stop -> retrain -> restore ----
-rem first ask ACE-Tray to step aside so it can not start inside the ACE-BOOT stop window (that is what pops up)
-if "!ACE_STOPPED!"=="1" call :ace_toggle QuiesceTray
-if "!ACE_STOPPED!"=="1" call :ace_toggle off
->>"%LOG%" echo legacy: ACE-BOOT off - starting the retrain attempts !DATE! !TIME!
-
-set "RC=99"
-rem 2026-10-01b (audit H1): the retry gate must be "not yet successful", not "== 99".
-rem   With "== 99" the 2nd/3rd attempt never ran (RC is the real code after round 1), i.e. dead retry loop.
-for /L %%I in (1,1,3) do (
-  if not "!RC!"=="0" (
-    call :heal
-rem legacy path needs ThrottleStop: temporarily allow it inside the ACE-off window, retire it right after
-    sc query ThrottleStop >nul 2>&1
-    if errorlevel 1 (
-      >>"%LOG%" echo throttle-legacy: create service ThrottleStop
-      sc create ThrottleStop type= kernel start= demand binPath= "\SystemRoot\System32\drivers\ThrottleStop.sys" >>"%LOG%" 2>&1
-      if not exist "%SYS%\ThrottleStop.sys" >>"%LOG%" echo throttle-legacy WARN: ThrottleStop.sys missing
-    )
-    sc config ThrottleStop start= demand >>"%LOG%" 2>&1
-    sc start ThrottleStop >>"%LOG%" 2>&1
-    >>"%LOG%" echo ---- attempt %%I ----
-    call "C:\ProgramData\CMP40HXGen2\windows\AutoRetrain.cmd" >>"%LOG%" 2>&1
-rem 2026-10-01b (audit H1): take the retrain exit code FIRST, then do the sc cleanup.
-rem   Otherwise RC is overwritten by "sc config"'s 0 and a failed retrain is reported as PASS.
-    set "RC=!ERRORLEVEL!"
-    sc stop ThrottleStop >>"%LOG%" 2>&1
-    sc config ThrottleStop start= disabled >>"%LOG%" 2>&1
-    if not "!RC!"=="0" if %%I LSS 3 ( >>"%LOG%" echo attempt %%I exit=!RC!, retry in 15s & ping -n 16 127.0.0.1 >nul 2>&1 )
-  )
-)
->>"%LOG%" echo ==== PostBind EXIT=!RC! !DATE! !TIME! ====
-if "!RC!"=="0" ( >>"%LOG%" echo PASS: physical Gen2 post-bind step succeeded ) else ( >>"%LOG%" echo FAIL: post-bind step did not reach Gen2 )
-rem 2026-10-01: restore UNCONDITIONALLY (regardless of Gen2 result) - never leave ACE-BOOT stopped
-if "!ACE_STOPPED!"=="1" call :ace_toggle on
-if "!ACE_STOPPED!"=="1" call :ace_toggle HealTray
-if "!ACE_STOPPED!"=="1" ( sc query ACE-BOOT | findstr /I "STATE" >>"%LOG%" 2>&1 )
+rem 2026-10-10 (user request): the legacy ACE fallback (stop ACE-BOOT -> AutoRetrain x3 -> restore ACE) is REMOVED.
+rem   The inpoutx64 new path is the only retrain path now; this script NEVER stops ACE-BOOT.
+rem   The unconditional ACE heal at the top stays: it repairs machines where an OLD package left ACE stopped.
+rem   The NO_ACE_TOGGLE marker no longer changes anything (ACE is always left untouched now).
+>>"%LOG%" echo no legacy fallback (removed 2026-10-10) - ACE-BOOT untouched - done for this boot
+>>"%LOG%" echo ==== PostBind EXIT=!NRC! !DATE! !TIME! ====
 call :unlock
-exit /b !RC!
+exit /b !NRC!
 
 :heal
 set "SYS=%SystemRoot%\System32\drivers"

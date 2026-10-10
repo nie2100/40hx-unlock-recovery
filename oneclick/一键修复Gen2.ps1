@@ -215,7 +215,9 @@ if (Test-Path $dst) { $curSha = (Get-FileHash -LiteralPath $dst -Algorithm SHA25
 T ('  机器上现有      : ' + $(if ($curSha) { $curSha } else { '（不存在）' }))
 if ($curSha -eq $srcSha) { T '  -> 哈希一致，跳过拷贝' }
 else {
-  Copy-Item -LiteralPath $src -Destination $dst -Force
+  # 2026-10-10（审查中-6）：先建父目录（没跑过安装的机器上不存在），拷贝失败要如实报原因，不再统一赖杀软
+  try { New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dst) -ErrorAction Stop | Out-Null } catch { }
+  try { Copy-Item -LiteralPath $src -Destination $dst -Force -ErrorAction Stop } catch { T ('  [X] 拷贝失败: ' + $_.Exception.Message + '（目录建不了/被杀软拦/机器上还没跑过一键安装）') 'Red'; $out | Out-File -Encoding utf8 $sum; exit 1 }
   $newSha = (Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash.ToLower()
   T ('  更新后          : ' + $newSha)
   if ($newSha -ne $srcSha) { T '  [X] 拷贝后哈希不一致（被杀软拦了？）' 'Red'; $out | Out-File -Encoding utf8 $sum; exit 1 }

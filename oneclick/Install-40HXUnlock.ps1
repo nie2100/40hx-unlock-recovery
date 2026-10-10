@@ -13,11 +13,11 @@
     2. 驱动：ThrottleStop.sys + WinRing0x64.sys + inpoutx64.sys/.dll（base64 还原）→ System32\drivers + 多个自愈源
              + 建服务 ThrottleStop / WinRing0_1_2_0
              （inpoutx64 不建常驻服务：开机脚本自己 create/delete 临时服务 inpoutx64T）
-    3. Windows 侧 helper：CMP40HXGen2.exe + AutoRetrain.cmd + RunPostBind.cmd + 40hx-retrain-inpout.ps1 + ACE-Toggle.ps1
-             → %ProgramData%\CMP40HXGen2\windows
-             首选路径 = 40hx-retrain-inpout.ps1：inpoutx64 直写 MMIO + WinRing0 走 PCI 配置空间，
-             **ACE-BOOT 全程不用停** → 反作弊预启动模式不被破坏，游戏不要求重启；
-             旧路径（停 ACE-BOOT → AutoRetrain → 恢复 ACE-BOOT）保留为 fallback：新路径退出码非 0 才走
+    3. Windows 侧 helper：RunPostBind.cmd + 40hx-retrain-inpout.ps1 + ACE-Toggle.ps1（仅供治愈段用）→ %ProgramData%\CMP40HXGen2\windows
+             唯一重训路径 = 40hx-retrain-inpout.ps1：inpoutx64 直写 MMIO + WinRing0 走 PCI 配置空间，
+             **ACE-BOOT 全程不用停** → 反作弊预启动模式不被破坏，游戏不要求重启。
+             2026-10-10（用户要求）：移除"停 ACE-BOOT → AutoRetrain → 恢复 ACE-BOOT"降级链，
+             CMP40HXGen2.exe / AutoRetrain.cmd 不再部署（装机时会清掉老版本留下的这两个文件）
     4. ESP 固件：OnlyEFI v0.1.1 的 40HXUNLK.EFI（算力解锁 + Gen2 primer，EFI 阶段不重训）
              → \EFI\40HX\40HXUNLK.EFI（默认**不动** Windows 自己的 \EFI\Boot\bootx64.efi；只有显式加 -WriteBootx64 才覆盖）
     5. 固件启动项：自己写 NVRAM Boot#### 变量（"40HX Unlock"，指向解锁 EFI），
@@ -108,6 +108,7 @@ $script:TaskName = 'CMP40HX Gen2 PostBind'
 #   而失败 —— 但登录后手动跑一次总是成功。所以让系统自己在登录后自动补跑一次，用户就不用手动了。
 $script:TaskNameLogon = 'CMP40HX Gen2 PostBind Logon'
 $script:EspRoot = $null
+$script:EspRootUsed = $null   # 2026-10-10（审查低-6）：Dismount 前快照，供状态文件记录
 $script:LogPath = $null
 $script:WarnCount = 0
 $script:FailCount = 0
@@ -501,6 +502,8 @@ public class FwVar {
     if (!LookupPrivilegeValue(null, "SeSystemEnvironmentPrivilege", out luid)) { return "LookupPrivilegeValue 失败 " + Marshal.GetLastWin32Error(); }
     TP tp = new TP(); tp.Count = 1; tp.Luid = luid; tp.Attributes = 0x2;
     if (!AdjustTokenPrivileges(tok, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero)) { return "AdjustTokenPrivileges 失败 " + Marshal.GetLastWin32Error(); }
+    // 2026-10-10（审查中-3）：返回 TRUE 也可能没拿到特权，必须判 ERROR_NOT_ALL_ASSIGNED(1300)，否则报错点错位到写 NVRAM 才炸 1314
+    if (Marshal.GetLastWin32Error() == 1300) { return "AdjustTokenPrivileges 未授予 SeSystemEnvironmentPrivilege (ERROR_NOT_ALL_ASSIGNED 1300)"; }
     return "ok";
   }
 }
@@ -518,6 +521,12 @@ function Read-FwVar {
   $buf = New-Object byte[] 8192
   $len = [FwVar]::GetFirmwareEnvironmentVariableW($Name, $script:FwGuid, $buf, [uint32]$buf.Length)
   if ($len -le 0) { return $null }
+  # 2026-10-10（审查低-7）：防御 —— 变量比缓冲大时按返回值扩容重读一次，杜绝越界复制
+  if ($len -gt $buf.Length) {
+    $buf = New-Object byte[] ([int]$len)
+    $len = [FwVar]::GetFirmwareEnvironmentVariableW($Name, $script:FwGuid, $buf, [uint32]$buf.Length)
+    if ($len -le 0 -or $len -gt $buf.Length) { return $null }
+  }
   $out = New-Object byte[] ([int]$len)
   [Array]::Copy($buf, $out, $len)
   return $out
@@ -1273,11 +1282,13 @@ function Show-Check {
     if ($Report.Gpus.Count -gt 0) { Bad ("未找到 CMP 40HX（DEV_1F0B），当前 NVIDIA 设备: " + (($Report.Gpus | ForEach-Object { $_.InstanceId }) -join '; ')) }
     else { Bad "未找到 NVIDIA 显卡（VEN_10DE）" }
   }
+  # 2026-10-10（审查高-1）：$gspSev 必须两个分支都可用 —— else 分支（没装 N 卡驱动、没有 nvidia-smi）也引用它
+  $gspSev = 'Bad'; if ($FromInstall) { $gspSev = 'Warn' }
   if ($Report.Smi) {
     $csv = (Invoke-Native { & $Report.Smi --query-gpu=name,driver_version,pci.bus_id,pcie.link.gen.current,pcie.link.gen.max,pcie.link.width.current --format=csv,noheader 2>&1 } | Out-String).Trim()
     Info ("nvidia-smi : " + $csv)
     # 2026-09-30：Install 阶段这里是「本脚本会自己补」的事项 → 记提示 + 待办；只有 -Mode Check（纯体检）才记失败
-    $gspSev = 'Bad'; if ($FromInstall) { $gspSev = 'Warn' }
+    # （$gspSev 已在 if ($Report.Smi) 之前赋值 —— 2026-10-10 审查高-1）
     if ($Report.GspState -eq 'on') { Ok ("GSP 固件   : " + $Report.GspValue + "（已启用，正常）") }
     elseif ($Report.GspState -eq 'off') {
       & $gspSev ("GSP 固件   : 未启用（" + $Report.GspLine + "）—— 解锁后 nvlddmkm 认不了卡 = 黑屏 + 设备管理器代码 43")
@@ -1324,7 +1335,7 @@ function Show-Check {
     }
   } catch {}
 
-  if ($Report.AceBoot) { Warn '检测到腾讯 ACE-BOOT 反作弊（会在映像加载阶段拦 ThrottleStop.sys）—— 首选新路径用 inpoutx64 直写寄存器，ACE-BOOT 全程不用停；只有新路径失败才回落到“停ACE→重训→恢复ACE”，无需手工关闭' }
+  if ($Report.AceBoot) { Warn '检测到腾讯 ACE-BOOT 反作弊（会在映像加载阶段拦 ThrottleStop.sys）—— 重训只走 inpoutx64 新路径，ACE-BOOT 全程不停（2026-10-10 起已移除“停ACE”降级链）；新路径失败只记日志，按 排查指引.md 第 2.3 节查 NewPath EXIT 码，无需手工关闭 ACE' }
   else { Ok '未检测到 ACE-BOOT' }
 
   Head '现状'
@@ -1447,9 +1458,15 @@ function Show-Check {
   # 安全加固现状（2026-10-01b）
   foreach ($h in $script:HardeningDirs) {
     if (-not (Test-Path -LiteralPath $h.Path)) { continue }
-    $wr = @(Get-UsersWriteRights $h.Path)
-    if ($wr.Count -eq 0) { Ok ("目录权限: " + $h.Path + " = 只有 SYSTEM/Administrators 可写") }
-    else { Warn ("目录权限: " + $h.Path + " 普通用户可写（" + ($wr -join ', ') + "）= 本地提权面 —— 跑一次 -Mode Repair 收紧（只改 ACL，有备份可回滚）"); Add-Action ('目录权限没收紧: ' + $h.Path + ' → 跑 -Mode Repair（改 ACL，备份在 logs\acl-backup-*，可双击 工具-测试与修复\回滚-安全加固.cmd 退回）') }
+    $wrRaw = Get-UsersWriteRights $h.Path
+    if ($wrRaw -eq 'unknown') {
+      # 2026-10-10（审查中-2）：ACL 读不到就如实说读不到，不再误报"已收紧"
+      Warn ("目录权限: " + $h.Path + " 读不到 ACL（无法判定是否已收紧）—— 不影响功能；想收紧可跑 -Mode Repair")
+    } else {
+      $wr = @($wrRaw)
+      if ($wr.Count -eq 0) { Ok ("目录权限: " + $h.Path + " = 只有 SYSTEM/Administrators 可写") }
+      else { Warn ("目录权限: " + $h.Path + " 普通用户可写（" + ($wr -join ', ') + "）= 本地提权面 —— 跑一次 -Mode Repair 收紧（只改 ACL，有备份可回滚）"); Add-Action ('目录权限没收紧: ' + $h.Path + ' → 跑 -Mode Repair（改 ACL，备份在 logs\acl-backup-*，可双击 工具-测试与修复\回滚-安全加固.cmd 退回）') }
+    }
   }
   foreach ($d in @($script:ProgDataDrv, (Join-Path $env:ProgramData '40HXUnlock\drivers'))) {
     if (-not (Test-Path -LiteralPath $d)) { continue }
@@ -1497,7 +1514,7 @@ function Get-UsersWriteRights([string]$Path) {
       $fr = [string]$r.FileSystemRights
       if ($fr -match 'Write|Modify|FullControl|CreateFiles|AppendData|TakeOwnership|ChangePermissions') { $hits += ($id + ':' + $fr) }
     }
-  } catch { }
+  } catch { return 'unknown' }   # 2026-10-10（审查中-2）：读不到 ≠ 已收紧，调用方必须显式区分
   return $hits
 }
 function Backup-DirAcl([string]$Path) {
@@ -1513,7 +1530,10 @@ function Backup-DirAcl([string]$Path) {
 }
 function Set-DirAclHardened([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path)) { return 'skip' }
-  if (@(Get-UsersWriteRights $Path).Count -eq 0) { return 'ok' }
+  # 2026-10-10（审查中-2）：'unknown' = 读不到 ACL，不算"已收紧"，继续往下收紧
+  $wrPre = Get-UsersWriteRights $Path
+  if ($wrPre -eq 'unknown') { Warn ('目录权限读不到（ACL 读取失败），按需要收紧处理: ' + $Path) }
+  elseif (@($wrPre).Count -eq 0) { return 'ok' }
   $bak = Backup-DirAcl $Path
   # 只改"目录自身"的 ACL，**绝不加 /T**。
   #   2026-10-01b 本机实测踩到：icacls /T + /inheritance:r 会把"只有继承 ACE"的子文件清成无 DACL
@@ -1540,7 +1560,9 @@ function Set-DirAclHardened([string]$Path) {
     }
   } catch { }
   if ($repaired -gt 0) { Ok ('  顺带修回了 ' + $repaired + ' 个丢权限的文件（历史 ACL 操作遗留）') }
-  if (@(Get-UsersWriteRights $Path).Count -gt 0) { return 'fail:still-writable' }
+  $wrPost = Get-UsersWriteRights $Path
+  if ($wrPost -eq 'unknown') { return 'unknown:acl-unreadable' }   # 2026-10-10（审查中-2）：读不到就如实报未知（调用方按 Warn 处理）
+  if (@($wrPost).Count -gt 0) { return 'fail:still-writable' }
   if ($bak) { return ('changed:' + $bak) }
   return 'changed'
 }
@@ -1690,7 +1712,8 @@ function Install-WindowsFiles {
       $wantMd5 = @{}
     }
   }
-  $helperList = @('CMP40HXGen2.exe', 'AutoRetrain.cmd', 'Status.cmd', 'Uninstall_Auto.cmd', 'ACE-Toggle.ps1', '40hx-retrain-inpout.ps1', 'Unpack-Drivers.ps1')
+  # 2026-10-10（用户要求）：CMP40HXGen2.exe / AutoRetrain.cmd 随降级链移除，不再部署
+  $helperList = @('Status.cmd', 'Uninstall_Auto.cmd', 'ACE-Toggle.ps1', '40hx-retrain-inpout.ps1', 'Unpack-Drivers.ps1')
   foreach ($f in $helperList) {
     $s = Join-Path $src $f
     if (-not (Test-Path $s)) { Fail ("载荷缺失: " + $s) $script:ExitHash '包不完整 → 重新解压一份完整包（payload 目录必须跟脚本在一起）' }
@@ -1742,6 +1765,14 @@ function Install-WindowsFiles {
   } catch {
     Warn ('logs/state 目录建不出来: ' + $_.Exception.Message)
     Add-Action 'logs/state 目录没建成功：检查 C:\ProgramData\CMP40HXGen2 的权限后跑 -Mode Repair'
+  }
+  # 2026-10-10（用户要求）：移除"停 ACE"降级链 —— 清掉老版本留在 ProgramData 的两个文件（删不掉只提示，不致命）
+  foreach ($legacy in @('CMP40HXGen2.exe', 'AutoRetrain.cmd', 'CMP40HXGen2.exe.new', 'AutoRetrain.cmd.new')) {
+    $lp = Join-Path $script:ProgDataWin $legacy
+    if (Test-Path -LiteralPath $lp) {
+      try { Remove-Item -LiteralPath $lp -Force -ErrorAction Stop; Info ('已移除降级链遗留文件: ' + $legacy) }
+      catch { Warn ($legacy + ' 删不掉（可能正被占用）：' + $_.Exception.Message + ' —— 不影响功能，新开机流程不再用它') }
+    }
   }
   # RunPostBind.cmd：沿用已验证的逻辑，只把“驱动自愈源列表”换成这台机器的实际路径
   # （原编码原样写回：上游这份是 UTF-8，被当 GBK 读回写会把中文注释改坏）
@@ -1812,11 +1843,11 @@ function Install-WindowsFiles {
       Warn ('RunPostBind.cmd 写不进去: ' + $_.Exception.Message + ' —— 开机任务可能还是旧版；先手工结束 CMP40HXGen2.exe 再跑 -Mode Repair')
       Add-Action 'RunPostBind.cmd 没更新成功：跑 -Mode Repair 或手工结束 CMP40HXGen2.exe 后重装一次'
     }
-    Ok ('RunPostBind.cmd → ' + $script:ProgDataWin + '（首选新路径 + 旧 ACE 路径 fallback + 多源自愈 + 3 次重试）')
+    Ok ('RunPostBind.cmd → ' + $script:ProgDataWin + '（只走新路径 + 多源自愈；2026-10-10 起无停 ACE 降级链）')
   }
   $tnew = Join-Path $script:ProgDataWin '40hx-retrain-inpout.ps1'
   if (Test-Path $tnew) { Ok '40hx-retrain-inpout.ps1 就位 → 开机走新路径（inpoutx64 直写 MMIO，ACE-BOOT 全程不停）' }
-  else { Warn '40hx-retrain-inpout.ps1 没铺上 → 开机任务会回落到旧路径（每次开机停一次 ACE-BOOT）'; Add-Action '新路径工具缺失：重新解压完整包后跑一次 -Mode Repair' }
+  else { Warn '40hx-retrain-inpout.ps1 没铺上 → 开机任务这轮只能记日志（2026-10-10 起没有停 ACE 的降级链了）—— 必须 Repair 补上'; Add-Action '新路径工具缺失：重新解压完整包后跑一次 -Mode Repair' }
   Info ('自愈源: ' + $script:ProgDataDrv + ' , ' + $script:VendorDrvDir + ' , ESP \EFI\40HX\drv（兜底）')
   # 注意：不要把裸 .sys 再拷到包目录/C:\Temp 之类的非信任路径 —— 实测火绒会立刻报
   # Exploit/Vulndriver.ad 并删除文件（只有 System32\drivers、%ProgramData% 下那两处和 ESP 存活）
@@ -1918,6 +1949,7 @@ function Install-Efi {
     $newHash = Get-FileSha256 $dst
     if ($newHash -eq $srcHash) { Ok ("写入并回读校验通过: " + $dst) } else { Bad ("写入后哈希不符: " + $dst + " = " + $newHash) }
   }
+  $script:EspRootUsed = $script:EspRoot   # 2026-10-10（审查低-6）：快照 ESP 盘符，Dismount 会把它置空
   Dismount-Esp
 }
 
@@ -2011,7 +2043,7 @@ function Install-BootEntry {
     BootEntryCreated = $created
     BootMode        = $BootMode
     BootOrder       = (Format-BootOrderIndices (Get-BootOrderIndices))
-    EspRoot         = $script:EspRoot
+    EspRoot         = $script:EspRootUsed   # 2026-10-10：用快照值（$script:EspRoot 此时已被 Dismount 置空）
     PkgRoot         = $script:PkgRoot
     EfiSha256       = $script:EfiSha256
     EfiBackupName   = 'bootx64.efi.40hx.bak'
@@ -2624,6 +2656,10 @@ function Invoke-Uninstall {
         } else {
           Warn ('BootOrder 没改成功 —— 顺序里可能还留着 ' + ('{0:X4}' -f $index) + '（重启后再跑一次卸载，或进 BIOS 删掉它）')
         }
+      } else {
+        # 2026-10-10（审查中-4）：BootOrder 只剩解锁项一个 → 过滤后为空；不写回空顺序（怕丢引导），如实提示
+        Warn ('BootOrder 里没有其它启动项可留 —— 不动 BootOrder；固件启动项照删，重启后进 BIOS 确认 Windows Boot Manager 是第一启动项')
+        Add-Action '卸载后请进 BIOS 确认启动顺序（本机 BootOrder 原本只有解锁项一个，脚本没动它）'
       }
       Remove-FwVar $name | Out-Null
       if (-not (Read-FwVar $name)) { Ok ('已删除固件启动项 ' + $name) } else { Warn ('固件启动项 ' + $name + ' 删不掉') }
@@ -2770,7 +2806,14 @@ Head '计划'
 if ($Mode -eq 'Install') { Info '安装/修复：驱动+服务 → helper(含新路径工具) → 新路径驱动(inpoutx64) → 安全加固(目录权限 + 驱动源 base64) → GSP 开关 → 关快速启动 → ESP 固件 → 固件启动项 → 开机任务 → 厂商自启收尾' } else { Info 'Repair：只补驱动/服务/helper/新路径驱动/任务/安全加固，不动 ESP 与固件启动项' }
 
 $blockers = 0
-if ($rep.Firmware -ne 'Uefi') { Bad '固件不是 UEFI 模式'; $blockers++ }
+if ($rep.Firmware -eq 'Uefi') { }
+elseif ($rep.Firmware -eq '未知') {
+  # 2026-10-10（审查中-1）：Get-ComputerInfo 依赖 WMI，精简/装机版系统上会抛异常 → '未知'。
+  #   与 DiskStyle 同款处理：'未知' 不等于 Legacy 引导，降级为提示；真读出非 UEFI 才是硬门槛。
+  Warn '固件类型读不到（未知）—— 不等于 Legacy 引导；本次先继续（后面 ESP/固件启动项会再核一遍）'
+  Add-Action '固件类型读不到：若装完开机没进 40HX Unlock，先进 BIOS 确认是 UEFI 引导（关 CSM）'
+}
+else { Bad ('固件不是 UEFI 模式（' + $rep.Firmware + '）'); $blockers++ }
 # 2026-10-08：只有「真读出 MBR」才算硬门槛；读不到（未知）降级为提示 —— 客户机实测 diskpart 里全是 GPT，
 #   只是 Storage 接口坏了，旧版会把这种机器直接挡在门外。但**挂不上 ESP 的机器**（真 MBR / 非 UEFI 引导）
 #   仍然必须在动手改任何东西之前停住（DSH 审查 Q4：否则会先落 6 步改动、到 ESP 那步才失败，留半成品）。
@@ -2806,7 +2849,7 @@ Info '  5. 驱动源形态    ：ProgramData 两处的裸 .sys/.dll 转成 base6
 Info '  6. Install 还有  ：把解锁固件写进 ESP（\EFI\40HX\40HXUNLK.EFI）+ 写固件启动项 Boot####/BootOrder（默认**不改** Windows 的 \EFI\Boot\bootx64.efi）'
 Info '已知风险与恢复：'
 Info '  · 改引导（只有 Install 会） 最坏=写坏启动顺序 → 进 BIOS 把启动项切回 Windows Boot Manager（本包默认不碰 Windows 的 bootx64.efi，所以进系统这条路一直在）'
-Info '  · ACE-BOOT（腾讯反作弊）  只在必要时停、结束就恢复；若客户点过"退出预启动模式"，恢复可能让桌面起不来 → 跑 工具-测试与修复\桌面恢复.cmd（没桌面也能跑）'
+Info '  · ACE-BOOT（腾讯反作弊）  2026-10-10 起全程不再停（降级链已移除）；老版本若曾把 ACE 停住没恢复 → 跑 工具-测试与修复\桌面恢复.cmd（没桌面也能跑）'
 Info '  · 驱动被杀软隔离（火绒/360）  症状=Gen2 落不了地、算力不受影响 → 把 README 1.1 的路径加信任区后跑 -Mode Repair'
 Info '  · 显卡被复位  本包 Gen2AutoHard=0 / Gen2PnpFallback=0，绝不复位显卡；万一出现代码 43 → 完全关机（不是重启）再开机'
 Info '  · 目录权限/驱动源改动  零功能影响；要退回双击 工具-测试与修复\回滚-安全加固.cmd'

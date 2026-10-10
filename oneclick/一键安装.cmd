@@ -14,11 +14,17 @@ if not exist "%~dp0Install-40HXUnlock.ps1" goto nops1
 rem 已提权的那一份（带 elevated 标记）直接干活，不再问第二次
 echo %* | findstr /i "elevated" >nul && goto run
 
-net session >nul 2>&1
+rem 2026-10-10（审查中-7）：fltmc 不依赖 Server 服务（net session 在精简系统上会把管理员误判成非管理员，多弹一次 UAC）
+fltmc >nul 2>&1
+if errorlevel 1 net session >nul 2>&1
 if errorlevel 1 goto ask
 
 :run
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Install-40HXUnlock.ps1" -Mode Install -Yes
+rem 2026-10-10（审查高-2）：透传参数（去掉 elevated 标记），不带参数时默认 -Mode Install -Yes
+set "RARGS=%*"
+set "RARGS=!RARGS:elevated=!"
+if not defined RARGS set "RARGS=-Mode Install -Yes"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Install-40HXUnlock.ps1" !RARGS!
 set "RC=%ERRORLEVEL%"
 echo.
 echo 安装退出码 = %RC%   (0 表示步骤全部成功)
@@ -28,6 +34,7 @@ rem 196608 without the minus is what customers usually report (the minus gets lo
 rem   cmd formats %ERRORLEVEL% as signed, so a real 196608 would be another failure;
 rem   we still show the same explanation because the customer-side steps are identical.
 if "%RC%"=="196608"  goto nops1
+if not "%RC%"=="0" goto runfail
 echo.
 echo ============================================================
 echo   现在请【完全关机】再开机（必须，不是重启）：算力解锁靠每次开机的解锁固件生效；
@@ -38,6 +45,15 @@ echo   上面若列了"重启前请先处理"的事项，请先处理再重启
 echo   回滚见 文档\使用说明-详细.md （或根目录 README.md）
 echo ============================================================
 echo.
+goto runend
+:runfail
+rem 2026-10-10（审查中-5）：失败时给失败文案，不再落进成功指引
+echo.
+echo [X] 安装没有全部成功（退出码 %RC%）—— 别急着关机，先看上面 [失败] 行
+echo     把本窗口截图和 logs 目录里最新的 run-*.log 发给技术
+echo     自查：打开 排查指引.md 按退出码/日志原话索引
+echo.
+:runend
 pause
 exit /b %RC%
 
@@ -60,7 +76,7 @@ set /p ANS=回车开始安装，输入 n 退出:
 if /i "%ANS%"=="n" goto quit
 echo.
 echo [*] 正在申请管理员权限：会弹 UAC 和一个新的黑窗口，装完按任意键关闭
-powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -ArgumentList 'elevated' -Verb RunAs"
+powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -ArgumentList 'elevated %*' -Verb RunAs"
 goto :eof
 
 

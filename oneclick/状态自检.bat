@@ -4,6 +4,9 @@ rem Upstream MIT parts: CMP40HX-Unlock by PZH1gdmu / CMP40HX-Unlock-OnlyEFI by B
 chcp 936 >nul 2>&1
 title 40HX 解锁状态检查
 setlocal
+rem 2026-10-10（审查低-2）：只读体检不需要管理员，但部分修复建议（如 nvidia-smi -dm 0）需要，先声明
+fltmc >nul 2>&1
+if errorlevel 1 echo     [提示] 当前不是管理员身份运行：体检照常，但若结论建议你执行修复命令，请先用管理员身份打开 cmd
 
 set "SMI=C:\Windows\System32\nvidia-smi.exe"
 set "TMPQ=%TEMP%\40hx_q.csv"
@@ -53,6 +56,8 @@ if not exist "%SMI%" (
 
 "%SMI%" --query-gpu=name,driver_version,memory.total,temperature.gpu,power.draw,power.limit,driver_model.current,driver_model.pending,pcie.link.width.current,pcie.link.width.max --format=csv > "%TMPQ%" 2>nul
 if not exist "%TMPQ%" goto :nosmi
+rem 2026-10-10（审查低-1）：> 重定向在命令失败时也会建 0 字节文件，体积为 0 同样按无输出处理
+for %%A in ("%TMPQ%") do if "%%~zA"=="0" goto :nosmi
 rem 2026-10-02 修 BUG：这里以前写成 in ("%TMPQ%") —— 带引号的单个 token 会被 for /f 当成**字符串**
 rem   而不是文件名（配合 skip=1 就一行都不解析），结果 GPU/驱动/链路宽度全是空值 → 结论永远"存在异常"。
 rem   正确写法 = usebackq + 引号（既能当文件读，又能容忍路径里有空格）。
@@ -429,8 +434,8 @@ goto :gen2info
 :buildfail
 set "NOCSC=1"
 echo     [跳过] 内置实测程序没能跑起来 ^(解压/编译/运行失败^), 算力/带宽实测做不了
-echo            ^(这不是显卡故障^) 多为安全软件拦截 %TEMP% 下的现场编译与运行;
-echo            把 %TEMP% 加入杀软信任区后重跑即可, 不必重装本工具
+echo            ^(这不是显卡故障^) 多为安全软件拦截 "%TEMP%" 下的现场编译与运行;
+echo            把 "%TEMP%" 加入杀软信任区后重跑即可, 不必重装本工具
 rem 2026-10-04 复检 LOW-1: 失败可能发生在解压/编译/运行三段中的任何一段, 两段日志各自成框, 不出现空框。
 if exist "%TMPC%" (
   echo     ---- 编译器输出 ----
