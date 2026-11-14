@@ -1,6 +1,6 @@
 014ac1e5bd011b010934c7782de365e7       320  .gitattributes
 541aefeecf5738f10db854896641abe4      5533  LICENSE
-e13451265f70bc131ebc8999c0b47125     40106  README.md
+da352d7d4b720418a363a3e43b8bb083     36566  README.md
 9faecdca04107449ba33f6f4dd96f06e     10707  THIRD_PARTY.md
 6a5d9755c30594bb6e6ac5614db6ee56      3265  docs/01-hardware.md
 7836ab3277fb1ca39850a84f2e5ad007      4400  docs/02-how-it-works.md
@@ -54,7 +54,7 @@ d2f8f43def04ae97bade7ce89955528e      1012  evidence/inpout-20260929/00-diag-fai
 cc4a3adb52affbf9789a2af60fc95836      1025  oneclick/GSP体检.cmd
 698ff360ffd500bc3d316807ea111931    222779  oneclick/Install-40HXUnlock.ps1
 541aefeecf5738f10db854896641abe4      5533  oneclick/LICENSE
-e13451265f70bc131ebc8999c0b47125     40106  oneclick/README.md
+da352d7d4b720418a363a3e43b8bb083     36566  oneclick/README.md
 65017554eb8f8e65fc36ee971f73626d     10802  oneclick/THIRD_PARTY.md
 ea97efbba9fb10def218f6528836f094    364081  oneclick/payload/EFI/40HXUNLK-REBAR.EFI
 aedc410f05ed43e5833543a0dc849242    590868  oneclick/payload/EFI/40HXUNLK.EFI
