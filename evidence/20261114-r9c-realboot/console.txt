@@ -1,0 +1,21 @@
+﻿=== r9c real-boot ESP pull  2026-11-14 20:45:44 ===
+admin=True
+windows lastboot=2026-11-14 20:42:38
+esp part: disk0 part1 size=314572800
+ESP mounted at Y:\
+--- ESP root ---
+  2026-08-15 16:11:46 | 1 B | EFI
+  2026-07-20 22:19:06 | 1 B | System Volume Information
+  2026-09-19 23:48:12 | 1048576 B | 40hx_vbios.bin
+  2026-11-14 20:42:24 | 7812 B | 40hx_log.txt
+LOG Y:\40hx_log.txt : 7812 B  mtime=2026-11-14 20:42:24  sha256=62DF56E486CC1E1EF6AD1DF86F1400BE419D3928D27B36115802518BBFBB0D20
+lines = 132
+--- recurse find 40hx_log* ---
+  2026-11-14 20:42:24 | 7812 B | Y:\40hx_log.txt
+--- EFI/40HX files ---
+  40HXUNLK.EFI | 590868 B | 2026-09-11 11:14:36 | 1E9CA43FAB3D5CE851E8FCD09DC9BE63282FBF3CE3828C3DBCDCBB21CF7CE1C7
+  40HXUNLK-REBAR.EFI | 364081 B | 2026-11-14 20:31:28 | 9D18D135B5FD5E20EE5D5B5A7DBB7530103D0D2732E25177FA9FA525104684FC
+--- unmount ---
+unmounted Y:\
+confirmed gone Y:\
+== DONE ==

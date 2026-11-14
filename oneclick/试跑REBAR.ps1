@@ -295,7 +295,7 @@ $src = Join-Path $PSScriptRoot ('payload\EFI\' + $script:DiagEfiName)
 if (-not (Test-Path $src)) { Bad ('没找到 ' + $src + '（不要把 ps1 单独拷出来用，整包一起）'); Set-Rc 1; exit 1 }
 $srcHash = (Get-FileHash $src -Algorithm SHA256).Hash
 Ok ('源文件: ' + $src + '  sha256=' + $srcHash)
-if ($srcHash -ne 'D4A892AF2FE69838DDB01D55C778D88D74C204ABD89A8FB507790ACBCD301C17'.ToUpper()) {
+if ($srcHash -ne '9D18D135B5FD5E20EE5D5B5A7DBB7530103D0D2732E25177FA9FA525104684FC'.ToUpper()) {
   Bad 'EFI 哈希与冻结值不符（包被改动过？）—— 拒绝部署'; Set-Rc 1; exit 1
 }
 

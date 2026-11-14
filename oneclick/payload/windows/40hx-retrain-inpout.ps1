@@ -1197,7 +1197,38 @@ if($env:HX_NO_STAGE2 -ne '1'){
         }
       }
       W("  Stage2 结果(Link Disable 后): st2ok=$st2ok")
-      if($st2Pnp){
+      # ===== 2026-10-16 追加：Stage2 PnP 复位前置门（防卡死） =====
+      # 现场（2026-10-16 客户机 DESKTOP-P8TOT3J，Z790M AORUS ELITE + RainCandy 40HX 90.06.67.00.06）：
+      #   日志停在 "Stage2 PnP 重载（恢复驱动；链路会再瞬断一次）..." 之后、没有 "PnP 重载已下发"
+      #   ⇒ 卡在 Disable-PnpDevice 的「禁用显卡」调用里：窗口关不掉、鼠标能动，只能强断电。
+      #   该机当时 GPU LNKCAP=0x00453D01（低 4 位=1，端点只声明 2.5GT/s）。
+      # 判据：协商速率 = min(两端声明) ⇒ 端点能力位没翻到 Gen2 时，复位显卡也到不了 Gen2。
+      #   （本包 2026-10-13 本机实测：纯 PnP 重载在锁态卡上拿不到 Gen2）⇒ 这一步白做且有卡死风险，改成先判再做。
+      # 门不过时只打结论、绝不碰设备；确需强行试一次：HX_STAGE2_PNP_FORCE=1（风险自负：可能卡死/清掉算力解锁）。
+      $pnpAllow = $true
+      $pnpWhy   = 'recovery-needed'
+      $lncapNow = PciRead $GPU ([uint32]($gcap+0x0C)) 4
+      $lncapSpd = $(if($lncapNow -eq $null){-1}else{[int]([uint64]$lncapNow -band [uint64]0xF)})
+      $devPre   = @(Get-PnpDevice -Class Display -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -match 'DEV_1F0B' }) | Select-Object -First 1
+      $preStat  = $(if($devPre){([string]$devPre.Status + ' / ' + [string]$devPre.Problem)}else{'NOT-FOUND'})
+      W("  Stage2 PnP 前置判定: GPU LNKCAP=" + $(if($lncapNow -eq $null){'READ FAILED'}else{'0x'+([uint32]$lncapNow).ToString('X8')}) + " (max speed=" + $(if($lncapSpd -lt 0){'?'}else{'Gen'+[string]$lncapSpd}) + ")   设备=" + $preStat)
+      if($env:HX_STAGE2_PNP_FORCE -eq '1'){
+        $pnpWhy = 'forced-by-env'
+      } elseif($lncapSpd -lt 2){
+        $pnpAllow = $false; $pnpWhy = 'endpoint-still-gen1'
+        W("  >>> Stage2 PnP SKIPPED：端点能力位仍是 Gen1（LNKCAP 低 4 位=" + $(if($lncapSpd -lt 0){'读不到'}else{[string]$lncapSpd}) + "，只声明 2.5GT/s）")
+        W("      协商速率 = min(两端声明) ⇒ 复位显卡也到不了 Gen2（本包实测：纯 PnP 重载在这种卡上拿不到 Gen2）。")
+        W("      跳过这一步 = 不再把机器卡在「禁用/启用显卡」上（2026-10-16 客户机实测卡死）。")
+      } elseif($devPre -and ([string]$devPre.Status -eq 'OK') -and ([string]$devPre.Problem -eq 'CM_PROB_NONE')){
+        $pnpAllow = $false; $pnpWhy = 'device-already-ok'
+        W("  >>> Stage2 PnP SKIPPED：设备状态本来就是 OK / CM_PROB_NONE，不需要重载驱动（重载会把链路打回 Gen1 再补回来）。")
+      }
+      if($pnpAllow){
+        W("  Stage2 PnP 门: 放行（" + $pnpWhy + "）")
+      } else {
+        W("      （确需强行试一次：设环境变量 HX_STAGE2_PNP_FORCE=1 再跑本工具；风险 = 可能卡死 / 清掉算力解锁状态）")
+      }
+      if($st2Pnp -and $pnpAllow){
         W("  Stage2 PnP 重载（恢复驱动；链路会再瞬断一次）...")
         $dev=@(Get-PnpDevice -Class Display -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -match 'DEV_1F0B' }) | Select-Object -First 1
         if($dev){
