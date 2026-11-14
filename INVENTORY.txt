@@ -7,7 +7,7 @@ ae98f23ce427e06f543fdc0d78ded0f3     38680  README.md
 ac6017cd40468c07fda33cef5a584c48     25397  docs/03-pitfalls.md
 9539d7f36380d7cc607cfa602fbc0fcb      7338  docs/04-verify.md
 3757b52893e90eab86603060435850d0      8460  docs/05-inventory.md
-a5be49dbd2bcd693bc832d13d371e076     24684  docs/06-ace-boot.md
+10b0d2c0732926dad686bb819a38cbc4     24746  docs/06-ace-boot.md
 3a01bb863928fe18519710494e71d6f7     29139  docs/07-recovery-manual.md
 a154e884895447b52f991f6c90731f65      6175  docs/08-rebar-efi.md
 1775d12a3e63a0ed6656702de7bf40b9      7812  evidence/20261114-r9c-realboot/40hx_log.txt
