@@ -71,3 +71,8 @@
   必须知道：转完重启要进 BIOS 把引导模式 Legacy 改成 UEFI（关 CSM），否则开不了机（数据没丢，
         BIOS 改对就能进）；转换后桌面会留一份「40HX-转GPT后看这里.txt」。
   不能转的情况：分区数 >3、BitLocker 开着、2011 年以前无 UEFI 的老主板、双系统。
+
+ReBAR-Window.cmd                    —— 手工指定 ReBAR 窗口（大孔径平台兜底；X99/双卡实机验证过）。
+                                       选 3 Persist 会把窗口写进启动项并注册登录自愈任务，选 4 撤回。
+ReBAR-Log.cmd                       —— 只读：回读 ESP 根目录的 40hx_log.txt + 当前启动项/窗口状态。
+

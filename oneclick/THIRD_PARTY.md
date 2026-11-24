@@ -24,7 +24,7 @@
 | 本包用到的部分 | ① `payload\EFI\40HXUNLK-REBAR.EFI`（带 ReBAR 的解锁固件）**以它的 `unlock40x_v70.c` 为基线自行编译**：在该源码上追加"生产版 Gen2 预埋"（XVE_OVR / LINK_CONFIG_0 / PRIV_MISC_1 / CYA_0 + 双端 TLS）与 ReBAR 的 XVE + BAR1 配置，并做了 40HX-only 的 blob 精简；② Windows 侧 4 处做法借鉴：GSP 显示类子键的硬件绑定判定、Secure Boot 静默拦截点名、ReBAR/BAR1 只读读出、UAC 提权路径不再内嵌路径 —— 这四处**按本项目代码自行实现**，不是原样拷贝 |
 | 为什么需要它 | 上游 CMP40HX-Unlock 的解锁固件是二进制路线（无源码可改）；cmpunlocker 提供**可编译的 C 源码**（与我们生产线 EFI 同源：11 个 blob 逐字节命中），本包的 ReBAR 版固件因此才有源码级可追溯性 |
 
-> 交付件 `payload\EFI\40HXUNLK-REBAR.EFI` 的冻结 sha256 = `9D18D135B5FD5E20EE5D5B5A7DBB7530103D0D2732E25177FA9FA525104684FC`（安装器与试跑脚本都按它做哈希门禁）。
+> 交付件 `payload\EFI\40HXUNLK-REBAR.EFI` 的冻结 sha256 = `FDFE4EAF2186DA2FDA25E6599F243967EFF079C1699DA4A3EA1A08ECB5AC33FF`（安装器与试跑脚本都按它做哈希门禁）。
 
 ## 2. 解锁固件（EFI）
 
