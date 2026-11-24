@@ -1,6 +1,6 @@
 ﻿# payload 清单（**MD5** + 字节数 + 相对 payload/ 的路径；文件名 sha256.txt 是历史遗留，内容是 md5）
 aedc410f05ed43e5833543a0dc849242  590868  EFI/40HXUNLK.EFI
-8252e9d1795ff64085d2d19f1cdd2b0f  372434  EFI/40HXUNLK-REBAR.EFI
+87d49bf732ff3480f992023861edecf0  372946  EFI/40HXUNLK-REBAR.EFI
 988ad312105384fd7997718b4157b556  19904  drivers/WinRing0x64.sys.b64
 8598c45c61f04e9ce2145628adcfe28b  134522  drivers/inpoutx64.dll.b64
 59f7f4409873dae9abb7eba851d958bc  20540  drivers/inpoutx64.sys.b64
