@@ -1,7 +1,7 @@
 # 08 — ReBAR 版解锁固件（`40HXUNLK-REBAR.EFI`）是怎么来的
 
 > 交付位置：`oneclick/payload/EFI/40HXUNLK-REBAR.EFI`（同一份也在交付包内）
-> 冻结 sha256：`9D18D135B5FD5E20EE5D5B5A7DBB7530103D0D2732E25177FA9FA525104684FC`（364,081 字节）
+> 冻结 sha256：`DB28D8035B21DD6560201BDC2DF42FA44FADA2D8E590296C8A60D6639821F44F`（373,492 字节；v20261125a / 固件 r10d）
 > 安装/试跑脚本都按这个哈希做门禁：不符直接拒绝写入 ESP。
 > Windows 侧入口：`一键解锁40HX.bat` 选 `2`（常驻）或 `试跑REBAR.cmd`（一次性）。
 
@@ -40,7 +40,8 @@ ReBAR 必须改固件里的代码（见第 3 节），所以在二进制上打�
 |---|---|---|
 | QEMU/OVMF 冒烟（含分支：正常 / 回滚 / 跳过） | ✅ | 工作区 `evidence/smoke-qemu.sh` + `smoke-r7-serial.log` + `r7-smoke-screendump.png` |
 | 本机真机开机（r7） | ✅ 2026-10-12 23:02 | `evidence/boot-20261012-230656/`：`UNLOCKED` + Gen2 预埋 prime converged + `[rebar] BAR1 8 GiB active` + Windows 侧 Gen2 5.71/6.63 GB/s、FP32 8.32 TFLOPs |
-| 本机真机开机（r8-C1，当前交付版） | ✅ 2026-10-13 19:23 | `evidence/r8-C1-20261013/`：`UNLOCKED`×2、`[rebar] BAR1 8 GiB active`×1、chainload 前无红行、postbind `PASS`、GPU/ROOT 均 Gen2 x16 |
+| 本机真机开机（r8-C1，历史） | ✅ 2026-10-13 19:23 | `evidence/r8-C1-20261013/`：`UNLOCKED`×2、`[rebar] BAR1 8 GiB active`×1、chainload 前无红行、postbind `PASS`、GPU/ROOT 均 Gen2 x16 |
+| QEMU/OVMF 冒烟 + 选址 fixture（r10d，本版 v20261125a） | ✅ | `oneclick/文档/验证记录.md`「2026-11-25」节：真件冒烟 Exception=0、选址 fixture 通过；X99 真机未复跑 |
 | 其它主板 / 驱动 / 多卡 / 长时间负载 / 含反作弊的游戏场景 | ❌ 未验证 | — |
 | MMIO 策略写入在"锁态 + 能力位仍 Gen1"的机器上生效 | ⚠️ 部分 | Windows 侧同机制（Link Disable 循环）已在客户包 20261013c 上真机通过；EFI 侧同一台机器的"能力位已翻"状态下通过 |
 
